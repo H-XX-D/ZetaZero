@@ -74,7 +74,14 @@ public final class ZetaTokenizer {
 
     public init(vocab: [String], merges: [String]) {
         self.vocab = vocab
-        self.tokenToId = Dictionary(uniqueKeysWithValues: vocab.enumerated().map { ($1, $0) })
+        // Handle duplicate tokens by keeping first occurrence
+        var tokenMap: [String: Int] = [:]
+        for (idx, token) in vocab.enumerated() {
+            if tokenMap[token] == nil {
+                tokenMap[token] = idx
+            }
+        }
+        self.tokenToId = tokenMap
         self.merges = merges.compactMap { line in
             let parts = line.split(separator: " ")
             guard parts.count == 2 else { return nil }

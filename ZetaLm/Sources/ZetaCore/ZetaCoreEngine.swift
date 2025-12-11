@@ -47,14 +47,43 @@ public final class ZetaCoreEngine {
         }
         self.commandQueue = queue
 
-        // Load Metal library from bundle
-        guard let library = try? device.makeDefaultLibrary(bundle: Bundle.module) else {
-            throw ZetaError.shaderLoadFailed
-        }
-        self.library = library
+        // Load and compile Metal shaders from source
+        self.library = try Self.compileShaders(device: device)
 
         try loadPipelines()
         print("✅ ZetaCore initialized (Metal Native)")
+    }
+
+    // Compile Metal shaders from source files in bundle
+    private static func compileShaders(device: MTLDevice) throws -> MTLLibrary {
+        // Collect all shader source files
+        var shaderSource = ""
+
+        let shaderNames = ["ZetaQuants", "ZetaAttention", "ZetaFFN"]
+        for name in shaderNames {
+            if let url = Bundle.module.url(forResource: name, withExtension: "metal"),
+               let source = try? String(contentsOf: url, encoding: .utf8) {
+                shaderSource += "\n// === \(name).metal ===\n"
+                shaderSource += source
+            }
+        }
+
+        guard !shaderSource.isEmpty else {
+            throw ZetaError.shaderLoadFailed
+        }
+
+        // Compile shader source
+        let options = MTLCompileOptions()
+        options.fastMathEnabled = true
+
+        do {
+            let library = try device.makeLibrary(source: shaderSource, options: options)
+            print("✅ Compiled Metal shaders from source")
+            return library
+        } catch {
+            print("❌ Shader compilation error: \(error)")
+            throw ZetaError.shaderLoadFailed
+        }
     }
 
     // MARK: - Pipeline Setup
