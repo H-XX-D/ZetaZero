@@ -90,23 +90,36 @@ public final class ZetaTokenizer {
     }
 
     public func encode(_ text: String) -> [Int] {
-        // Simple character-level fallback + BPE
+        // SentencePiece-style tokenization
         var tokens: [Int] = [bosToken]
 
         // Split into words
         let words = text.split(separator: " ", omittingEmptySubsequences: false)
 
         for (idx, word) in words.enumerated() {
-            let wordStr = (idx > 0 ? " " : "") + String(word)
+            // SentencePiece uses "▁" (U+2581) as word-initial space marker
+            // All words get this prefix, including the first one
+            let wordStr = "▁" + String(word)
 
             // Try direct vocab lookup first
             if let id = tokenToId[wordStr] {
                 tokens.append(id)
             } else {
-                // Fall back to character-level
-                for char in wordStr {
-                    if let id = tokenToId[String(char)] {
-                        tokens.append(id)
+                // Try without the space prefix (for punctuation, etc.)
+                if let id = tokenToId[String(word)] {
+                    tokens.append(id)
+                } else {
+                    // Fall back to character-level
+                    for (charIdx, char) in wordStr.enumerated() {
+                        let charStr = String(char)
+                        if let id = tokenToId[charStr] {
+                            tokens.append(id)
+                        } else if charIdx == 0 {
+                            // Try without ▁ prefix for first char
+                            if let id = tokenToId[String(word.first!)] {
+                                tokens.append(id)
+                            }
+                        }
                     }
                 }
             }

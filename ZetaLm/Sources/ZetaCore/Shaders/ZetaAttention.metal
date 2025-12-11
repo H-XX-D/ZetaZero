@@ -135,28 +135,31 @@ kernel void zeta_rope(
 kernel void zeta_softmax(
     device float* scores          [[buffer(0)]],
     constant uint& seq_len        [[buffer(1)]],
+    constant uint& n_heads        [[buffer(2)]],
     uint gid                      [[thread_position_in_grid]]
 ) {
-    // One thread per head (simple version)
-    if (gid != 0) return;
+    // One thread per head
+    if (gid >= n_heads) return;
+
+    uint head_offset = gid * seq_len;
 
     // Find max for numerical stability
-    float max_val = scores[0];
+    float max_val = scores[head_offset];
     for (uint i = 1; i < seq_len; i++) {
-        max_val = max(max_val, scores[i]);
+        max_val = max(max_val, scores[head_offset + i]);
     }
 
     // Compute exp(x - max) and sum
     float sum = 0.0f;
     for (uint i = 0; i < seq_len; i++) {
-        scores[i] = exp(scores[i] - max_val);
-        sum += scores[i];
+        scores[head_offset + i] = exp(scores[head_offset + i] - max_val);
+        sum += scores[head_offset + i];
     }
 
     // Normalize
     float inv_sum = 1.0f / sum;
     for (uint i = 0; i < seq_len; i++) {
-        scores[i] *= inv_sum;
+        scores[head_offset + i] *= inv_sum;
     }
 }
 
@@ -254,4 +257,18 @@ kernel void zeta_embedding(
 ) {
     if (gid >= dim) return;
     out[gid] = table[token * dim + gid];
+}
+
+// ============================================================================
+// Copy: dest = src (for KV cache storage)
+// ============================================================================
+
+kernel void zeta_copy(
+    device const float* src       [[buffer(0)]],
+    device float* dest            [[buffer(1)]],
+    constant uint& size           [[buffer(2)]],
+    uint gid                      [[thread_position_in_grid]]
+) {
+    if (gid >= size) return;
+    dest[gid] = src[gid];
 }

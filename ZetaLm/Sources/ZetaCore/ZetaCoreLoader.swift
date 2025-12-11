@@ -97,7 +97,7 @@ public final class ZetaCoreLoader {
 
         model.headDim = model.dim / max(model.nHeads, 1)
 
-        print("Config: dim=\(model.dim), layers=\(model.nLayers), heads=\(model.nHeads)")
+        print("Config: dim=\(model.dim), layers=\(model.nLayers), heads=\(model.nHeads), kv_heads=\(model.nKVHeads), head_dim=\(model.headDim)")
     }
 
     // MARK: - Tensor Info

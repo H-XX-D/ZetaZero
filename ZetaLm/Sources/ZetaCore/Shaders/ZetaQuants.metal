@@ -187,3 +187,35 @@ kernel void zeta_f32_matmul(
 
     y[gid] = sum;
 }
+
+// ============================================================================
+// Q4_0 Full Dequantization (for embedding tables)
+// ============================================================================
+
+kernel void zeta_q4_dequant(
+    device const uint8_t* block   [[buffer(0)]],
+    device float* out             [[buffer(1)]],
+    constant uint& n_blocks       [[buffer(2)]],
+    uint gid                      [[thread_position_in_grid]]
+) {
+    if (gid >= n_blocks) return;
+
+    const uint block_offset = gid * 18;  // 18 bytes per block
+    const uint out_offset = gid * 32;    // 32 elements per block
+
+    // Read scale (float16 at bytes 0-1)
+    half scale = *reinterpret_cast<device const half*>(block + block_offset);
+    device const uint8_t* qs = block + block_offset + 2;
+
+    // Dequantize 32 elements from 16 bytes
+    for (int i = 0; i < 16; i++) {
+        uint8_t byte = qs[i];
+
+        // GGML Standard layout
+        int8_t q_low = int8_t(byte & 0x0F) - 8;
+        int8_t q_high = int8_t((byte >> 4) & 0x0F) - 8;
+
+        out[out_offset + i] = float(scale) * float(q_low);
+        out[out_offset + i + 16] = float(scale) * float(q_high);
+    }
+}
