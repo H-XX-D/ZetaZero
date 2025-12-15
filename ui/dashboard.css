@@ -1,0 +1,60 @@
+/* Dashboard Layout */
+.dashboard-ui {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: #0f0f0f;
+    border: 1px solid #333;
+    border-top: none;
+    padding: 1.5rem;
+    margin-bottom: 2rem;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+}
+
+.stat-group {
+    display: flex;
+    gap: 2rem;
+}
+
+.stat-box {
+    background: rgba(20, 20, 20, 0.8);
+    padding: 10px 15px;
+    border-left: 3px solid var(--accent-color);
+}
+
+.stat-box .label {
+    display: block;
+    font-size: 0.7rem;
+    color: #666;
+    letter-spacing: 1px;
+    margin-bottom: 4px;
+}
+
+.stat-box .value {
+    font-size: 1.4rem;
+    color: var(--secondary-accent);
+    font-family: var(--font-mono);
+    text-shadow: 0 0 10px rgba(0, 240, 255, 0.3);
+}
+
+.controls {
+    position: static; /* Reset absolute positioning */
+    transform: none;
+    display: flex;
+    gap: 10px;
+}
+
+.simulation-container {
+    position: relative;
+    width: 100%;
+    height: 500px;
+    background: #000;
+    border: 1px solid #333;
+    overflow: hidden;
+}
+
+canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+}

@@ -1,0 +1,56 @@
+{
+  "benchmark": "persistence",
+  "params": {
+    "lambda": 0.95,
+    "num_facts": 10,
+    "time_points_hours": [
+      0,
+      6,
+      12,
+      24,
+      48
+    ]
+  },
+  "results": [
+    {
+      "hours": 0,
+      "recall_rate": 1.0,
+      "avg_score": 1.0,
+      "expected_decay": 1.0,
+      "facts_recalled": 10,
+      "total_facts": 10
+    },
+    {
+      "hours": 6,
+      "recall_rate": 1.0,
+      "avg_score": 0.7351,
+      "expected_decay": 0.7351,
+      "facts_recalled": 10,
+      "total_facts": 10
+    },
+    {
+      "hours": 12,
+      "recall_rate": 1.0,
+      "avg_score": 0.5404,
+      "expected_decay": 0.5404,
+      "facts_recalled": 10,
+      "total_facts": 10
+    },
+    {
+      "hours": 24,
+      "recall_rate": 1.0,
+      "avg_score": 0.292,
+      "expected_decay": 0.292,
+      "facts_recalled": 10,
+      "total_facts": 10
+    },
+    {
+      "hours": 48,
+      "recall_rate": 1.0,
+      "avg_score": 0.0853,
+      "expected_decay": 0.0853,
+      "facts_recalled": 10,
+      "total_facts": 10
+    }
+  ]
+}

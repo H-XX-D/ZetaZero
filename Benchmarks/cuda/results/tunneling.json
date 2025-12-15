@@ -1,0 +1,62 @@
+{
+  "benchmark": "tunneling",
+  "architecture": "muscle_memory",
+  "threshold": 0.99,
+  "tests": {
+    "training": {
+      "frequent": {
+        "queries_to_tunnel": [
+          4,
+          2,
+          2,
+          2,
+          2
+        ],
+        "final_tunneled": [
+          "frequent_pattern_0",
+          "frequent_pattern_1",
+          "frequent_pattern_2",
+          "frequent_pattern_3",
+          "frequent_pattern_4"
+        ],
+        "avg_queries_to_tunnel": 2.4,
+        "tunnel_rate": 1.0
+      },
+      "medium": {
+        "queries_to_tunnel": [],
+        "final_tunneled": [],
+        "avg_queries_to_tunnel": 0,
+        "tunnel_rate": 0.0
+      },
+      "rare": {
+        "queries_to_tunnel": [],
+        "final_tunneled": [],
+        "avg_queries_to_tunnel": 0,
+        "tunnel_rate": 0.0
+      }
+    },
+    "latency": {
+      "total_queries": 150,
+      "tunnel_hits": 50,
+      "tunnel_rate": 0.3333333333333333,
+      "tunnel_accuracy": 0.2,
+      "avg_full_pipeline_ms": 0.004983209219062701,
+      "avg_tunnel_ms": 0.0022312390501610935,
+      "speedup": 2.2333820388733865
+    },
+    "retention": {
+      "immediate": {
+        "tunnel_rate": 0.3333333333333333,
+        "accuracy": 0.2
+      },
+      "after_1h": {
+        "tunnel_rate": 0.3333333333333333,
+        "accuracy": 0.2
+      },
+      "after_24h": {
+        "tunnel_rate": 0.3333333333333333,
+        "accuracy": 0.2
+      }
+    }
+  }
+}

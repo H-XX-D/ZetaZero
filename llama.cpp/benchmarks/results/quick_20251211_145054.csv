@@ -1,0 +1,6 @@
+config,tokens_per_second,decode_ms,retrieval_ms,overhead_pct
+zeta_off,169.91,35.40,28.50,4.8
+temporal_only,168.17,35.90,30.18,5.1
+sparse_only,152.79,0.92,0.39,5.9
+all_default,140.87,49.05,46.51,6.6
+all_aggressive,163.56,37.33,34.04,5.6

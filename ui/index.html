@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Z.E.T.A. Zero | Quantum Dynamics for AI</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="dashboard.css">
+    <link rel="stylesheet" href="chat.css">
+    <link rel="stylesheet" href="hud.css">
+    <link rel="stylesheet" href="disclaimer.css">
+    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="logo">Z.E.T.A. <span class="highlight">ZERO</span></div>
+            <p class="subtitle">Projecting Quantum Dynamics onto AI's Perception Processing and State Persistence</p>
+        </header>
+
+        <main>
+            <section class="hero">
+                <div class="simulation-container">
+                    <canvas id="zetaCanvas"></canvas>
+                </div>
+                
+                <!-- Dashboard below graphic -->
+                <div class="dashboard-ui">
+                    <div class="stat-group">
+                        <div class="stat-box">
+                            <span class="label">ACTIVE NEURAL BUFFER</span>
+                            <span class="value" id="context-stat">4096</span>
+                        </div>
+                        <div class="stat-box">
+                            <span class="label">ARCHIVED SHARDS</span>
+                            <span class="value" id="archive-stat">0 MB</span>
+                        </div>
+                        <div class="stat-box">
+                            <span class="label">ENTANGLEMENT COEFF</span>
+                            <span class="value" id="entanglement-stat">0.00</span>
+                        </div>
+                    </div>
+                    <div class="controls">
+                        <button id="btn-generate">INJECT NOISE</button>
+                        <button id="btn-sublimate">PURGE BUFFER</button>
+                        <button id="btn-query">EXECUTE PROBE</button>
+                    </div>
+                </div>
+                <p class="instruction">Watch the continuous stream: phrases build context → older tokens fade (temporal decay) → context fills → sublimation compresses to archive → queries find similar memories (entanglement E³) → memory content injects into output (superposition). Click <strong>Probe Query</strong> to trigger retrieval manually.</p>
+            </section>
+
+            <section class="breakthroughs">
+                <h2>Three Fundamental Breakthroughs</h2>
+                <div class="grid">
+                    <div class="card">
+                        <div class="icon">👁️</div>
+                        <h3>Attention Mechanism</h3>
+                        <p>Decoupling active working memory from long-term storage using <strong>Sparse Attention Gating</strong> and <strong>Resonant Superposition</strong>.</p>
+                    </div>
+                    <div class="card">
+                        <div class="icon">⚡</div>
+                        <h3>Processing Power</h3>
+                        <p>Converting linear $O(n^2)$ complexity into constant time retrieval via <strong>Hierarchical Compression</strong> and <strong>Tunneling</strong>.</p>
+                    </div>
+                    <div class="card">
+                        <div class="icon">♾️</div>
+                        <h3>State Persistence</h3>
+                        <p>Achieving infinite context through <strong>Holographic Archiving</strong> and <strong>Dirac Eigenstate</strong> modeling of past memories.</p>
+                    </div>
+                </div>
+            </section>
+            
+            <section class="cta">
+                <a href="../ARXIV_PAPER_DRAFT.md" class="btn-primary">Read the Paper</a>
+                <a href="https://github.com/H-XX-D/ZetaLm" class="btn-secondary">View Source</a>
+            </section>
+        </main>
+
+        <!-- Holographic Projection HUD -->
+        <div id="holo-projection" class="holo-projection hidden">
+            <div class="holo-header">
+                <span class="holo-status">⚡ ARCHIVE RETRIEVAL DETECTED</span>
+                <button id="holo-close" class="close-btn">×</button>
+            </div>
+            <div id="holo-content" class="holo-content">
+                <!-- Content injected via JS -->
+            </div>
+        </div>
+
+        <!-- Chat Widget -->
+        <div class="chat-widget">
+            <button id="chat-toggle" class="chat-toggle-btn">
+                <span class="icon">⚡</span> Query Archive
+            </button>
+            <div class="chat-window hidden" id="chat-window">
+                <div class="chat-header">
+                    <span>Z.E.T.A. Knowledge Base</span>
+                    <button id="chat-close" class="close-btn">×</button>
+                </div>
+                <div class="chat-messages" id="chat-messages">
+                    <div class="message system">
+                        <p>Archive Link Established.</p>
+                        <p>Enter a term to retrieve its Mathematical Definition and Implementation Code.</p>
+                        <p class="hint">Try: "Entanglement", "Sublimation", "Tunneling", "Decay"</p>
+                    </div>
+                </div>
+                <div class="chat-input-area">
+                    <input type="text" id="chat-input" placeholder="Search term (e.g. Entanglement)...">
+                    <button id="chat-send">⏎</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Simulation Disclaimer -->
+        <div class="simulation-disclaimer">
+            <span class="icon">⚠️</span>
+            <span class="text">SIMULATION MODE: Due to browser limitations, no actual inference is occurring. Typing known terms triggers <strong>Resonance</strong>. Unknown terms initiate <strong>Memory Formation</strong>; HoloGit versioning will eventually converge correlations.</span>
+        </div>
+
+        <footer>
+            <p>Z.E.T.A.™ | Patent Pending | © 2025 All rights reserved.</p>
+        </footer>
+    </div>
+    <script src="simulation.js"></script>
+    <script src="chat.js"></script>
+</body>
+</html>

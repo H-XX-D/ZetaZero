@@ -1,0 +1,120 @@
+{
+  "benchmark": "latency",
+  "params": {
+    "num_runs": 20,
+    "warmup_runs": 5
+  },
+  "profiles": {
+    "subzero": {
+      "entity_extraction": {
+        "name": "entity_extraction",
+        "count": 20,
+        "mean_ms": 57.48,
+        "std_ms": 67.95,
+        "p95_ms": 338.87
+      },
+      "graph_walk": {
+        "name": "graph_walk",
+        "count": 20,
+        "mean_ms": 0.25,
+        "std_ms": 0.01,
+        "p95_ms": 0.28
+      },
+      "fact_retrieval": {
+        "name": "fact_retrieval",
+        "count": 20,
+        "mean_ms": 0.35,
+        "std_ms": 0.18,
+        "p95_ms": 0.7
+      },
+      "generation_3b": {
+        "name": "generation_3b",
+        "count": 20,
+        "mean_ms": 672.27,
+        "std_ms": 6.55,
+        "p95_ms": 684.54
+      },
+      "generation_14b": {
+        "name": "generation_14b",
+        "count": 0,
+        "mean_ms": 0.0,
+        "std_ms": 0.0,
+        "p95_ms": 0.0
+      },
+      "total_subzero": {
+        "name": "total_subzero",
+        "count": 20,
+        "mean_ms": 730.48,
+        "std_ms": 69.02,
+        "p95_ms": 1015.4
+      },
+      "total_zero": {
+        "name": "total_zero",
+        "count": 0,
+        "mean_ms": 0.0,
+        "std_ms": 0.0,
+        "p95_ms": 0.0
+      }
+    },
+    "zero": {
+      "entity_extraction": {
+        "name": "entity_extraction",
+        "count": 20,
+        "mean_ms": 44.64,
+        "std_ms": 16.46,
+        "p95_ms": 79.1
+      },
+      "graph_walk": {
+        "name": "graph_walk",
+        "count": 20,
+        "mean_ms": 0.22,
+        "std_ms": 0.02,
+        "p95_ms": 0.25
+      },
+      "fact_retrieval": {
+        "name": "fact_retrieval",
+        "count": 20,
+        "mean_ms": 0.32,
+        "std_ms": 0.17,
+        "p95_ms": 0.66
+      },
+      "generation_3b": {
+        "name": "generation_3b",
+        "count": 0,
+        "mean_ms": 0.0,
+        "std_ms": 0.0,
+        "p95_ms": 0.0
+      },
+      "generation_14b": {
+        "name": "generation_14b",
+        "count": 20,
+        "mean_ms": 1.6,
+        "std_ms": 0.12,
+        "p95_ms": 2.08
+      },
+      "total_subzero": {
+        "name": "total_subzero",
+        "count": 0,
+        "mean_ms": 0.0,
+        "std_ms": 0.0,
+        "p95_ms": 0.0
+      },
+      "total_zero": {
+        "name": "total_zero",
+        "count": 20,
+        "mean_ms": 46.89,
+        "std_ms": 16.52,
+        "p95_ms": 81.74
+      }
+    },
+    "baseline": {
+      "generation_14b": {
+        "name": "baseline_14b",
+        "count": 20,
+        "mean_ms": 0.85,
+        "std_ms": 0.18,
+        "p95_ms": 1.24
+      }
+    }
+  }
+}

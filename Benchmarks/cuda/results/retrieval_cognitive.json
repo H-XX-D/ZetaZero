@@ -1,0 +1,43 @@
+{
+  "benchmark": "retrieval",
+  "architecture": "dual_process_cognitive",
+  "params": {
+    "num_blocks": 50,
+    "num_needles": 10,
+    "top_k": 5,
+    "l0_capacity": 5,
+    "lambda": 0.95,
+    "tau": 0.1,
+    "alpha": 0.85
+  },
+  "configs": {
+    "baseline": {
+      "description": "14B only, no memory system",
+      "recall_at_1": 0.0,
+      "recall_at_5": 0.0,
+      "mrr": 0.0,
+      "fpr": 0.0
+    },
+    "zero": {
+      "description": "14B + memory parameters, no 3B",
+      "recall_at_1": 0.2,
+      "recall_at_5": 0.2,
+      "mrr": 0.2,
+      "fpr": 0.96,
+      "l0_surfaced": 5,
+      "l1_cached": 9,
+      "l2_archived": 36
+    },
+    "subzero": {
+      "description": "3B subconscious + 14B conscious",
+      "recall_at_1": 0.2,
+      "recall_at_5": 0.2,
+      "mrr": 0.2,
+      "fpr": 0.96,
+      "l0_surfaced": 5,
+      "l1_cached": 0,
+      "l2_archived": 45,
+      "tunnel_hits": 0
+    }
+  }
+}
