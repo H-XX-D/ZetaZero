@@ -1,0 +1,21 @@
+#!/usr/bin/expect -f
+
+set timeout 600
+set password "1"
+
+spawn rsync -av --delete --exclude .git --exclude Archive --exclude .DS_Store ./llama.cpp ./scripts ./Docs xx@192.168.0.165:~/ZetaZero/
+
+expect {
+    "password:" {
+        send "$password\r"
+        exp_continue
+    }
+    "yes/no" {
+        send "yes\r"
+        exp_continue
+    }
+    eof
+}
+
+catch wait result
+exit [lindex $result 3]

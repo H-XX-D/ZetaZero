@@ -1,0 +1,109 @@
+{
+  "benchmark": "resources",
+  "params": {
+    "block_counts": [
+      0,
+      5,
+      10,
+      20,
+      50
+    ],
+    "tokens_to_generate": 100,
+    "base_context": 4096,
+    "block_size": 512
+  },
+  "baseline": [
+    {
+      "num_blocks": 0,
+      "effective_context": 4096,
+      "vram_mb": 12032.0,
+      "ram_overhead_mb": 0.4,
+      "tokens_per_sec": 0,
+      "latency_ms": 0.0
+    }
+  ],
+  "subzero": [
+    {
+      "num_blocks": 0,
+      "effective_context": 4096,
+      "vram_mb": 12032.0,
+      "ram_overhead_mb": 0.0,
+      "tokens_per_sec": 192.6,
+      "latency_ms": 695.8
+    },
+    {
+      "num_blocks": 5,
+      "effective_context": 6656,
+      "vram_mb": 12032.0,
+      "ram_overhead_mb": 0.0,
+      "tokens_per_sec": 222.4,
+      "latency_ms": 656.4
+    },
+    {
+      "num_blocks": 10,
+      "effective_context": 9216,
+      "vram_mb": 12032.0,
+      "ram_overhead_mb": 0.0,
+      "tokens_per_sec": 217.8,
+      "latency_ms": 642.7
+    },
+    {
+      "num_blocks": 20,
+      "effective_context": 14336,
+      "vram_mb": 12032.0,
+      "ram_overhead_mb": 0.0,
+      "tokens_per_sec": 200.7,
+      "latency_ms": 657.7
+    },
+    {
+      "num_blocks": 50,
+      "effective_context": 29696,
+      "vram_mb": 12032.0,
+      "ram_overhead_mb": 0.0,
+      "tokens_per_sec": 210.2,
+      "latency_ms": 656.4
+    }
+  ],
+  "zero": [
+    {
+      "num_blocks": 0,
+      "effective_context": 4096,
+      "vram_mb": 12032.0,
+      "ram_overhead_mb": 0.0,
+      "tokens_per_sec": 0,
+      "latency_ms": 0.0
+    },
+    {
+      "num_blocks": 5,
+      "effective_context": 6656,
+      "vram_mb": 12032.0,
+      "ram_overhead_mb": 0.0,
+      "tokens_per_sec": 0,
+      "latency_ms": 0.0
+    },
+    {
+      "num_blocks": 10,
+      "effective_context": 9216,
+      "vram_mb": 12032.0,
+      "ram_overhead_mb": 0.0,
+      "tokens_per_sec": 0,
+      "latency_ms": 0.0
+    },
+    {
+      "num_blocks": 20,
+      "effective_context": 14336,
+      "vram_mb": 12032.0,
+      "ram_overhead_mb": 0.0,
+      "tokens_per_sec": 0,
+      "latency_ms": 0.0
+    },
+    {
+      "num_blocks": 50,
+      "effective_context": 29696,
+      "vram_mb": 12032.0,
+      "ram_overhead_mb": 0.0,
+      "tokens_per_sec": 0,
+      "latency_ms": 0.0
+    }
+  ]
+}

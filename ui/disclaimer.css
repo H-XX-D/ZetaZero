@@ -1,0 +1,40 @@
+.simulation-disclaimer {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    background: rgba(20, 20, 20, 0.95);
+    border-top: 1px solid var(--accent-color);
+    color: #888;
+    padding: 10px 20px;
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    text-align: center;
+    z-index: 2000;
+    backdrop-filter: blur(5px);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 10px;
+    box-shadow: 0 -5px 20px rgba(0, 0, 0, 0.5);
+}
+
+.simulation-disclaimer .icon {
+    color: var(--accent-color);
+    animation: pulse 2s infinite;
+}
+
+.simulation-disclaimer .text strong {
+    color: var(--accent-color);
+}
+
+@keyframes pulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.5; }
+    100% { opacity: 1; }
+}
+
+/* Adjust footer to not be hidden */
+footer {
+    padding-bottom: 50px; 
+}

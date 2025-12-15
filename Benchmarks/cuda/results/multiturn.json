@@ -1,0 +1,615 @@
+{
+  "benchmark": "multiturn",
+  "tests": [
+    {
+      "conversation_id": "project_context",
+      "config": "baseline",
+      "turns": [
+        {
+          "turn": 1,
+          "query": "Tell me about project alpha",
+          "found": true,
+          "rank": 1,
+          "target": 0,
+          "retrieved": [
+            0
+          ]
+        },
+        {
+          "turn": 2,
+          "query": "What's the deadline?",
+          "found": true,
+          "rank": 1,
+          "target": 0,
+          "retrieved": [
+            0,
+            1
+          ]
+        },
+        {
+          "turn": 3,
+          "query": "And the budget?",
+          "found": true,
+          "rank": 1,
+          "target": 0,
+          "retrieved": [
+            0,
+            1
+          ]
+        },
+        {
+          "turn": 4,
+          "query": "Who's on the team?",
+          "found": true,
+          "rank": 1,
+          "target": 0,
+          "retrieved": [
+            0,
+            1
+          ]
+        }
+      ],
+      "accuracy": 1.0
+    },
+    {
+      "conversation_id": "project_context",
+      "config": "plus_cubic",
+      "turns": [
+        {
+          "turn": 1,
+          "query": "Tell me about project alpha",
+          "found": true,
+          "rank": 1,
+          "target": 0,
+          "retrieved": [
+            0
+          ]
+        },
+        {
+          "turn": 2,
+          "query": "What's the deadline?",
+          "found": true,
+          "rank": 1,
+          "target": 0,
+          "retrieved": [
+            0,
+            1
+          ]
+        },
+        {
+          "turn": 3,
+          "query": "And the budget?",
+          "found": true,
+          "rank": 1,
+          "target": 0,
+          "retrieved": [
+            0,
+            1
+          ]
+        },
+        {
+          "turn": 4,
+          "query": "Who's on the team?",
+          "found": true,
+          "rank": 1,
+          "target": 0,
+          "retrieved": [
+            0,
+            1
+          ]
+        }
+      ],
+      "accuracy": 1.0
+    },
+    {
+      "conversation_id": "project_context",
+      "config": "plus_tunnel",
+      "turns": [
+        {
+          "turn": 1,
+          "query": "Tell me about project alpha",
+          "found": true,
+          "rank": 1,
+          "target": 0,
+          "retrieved": [
+            0
+          ]
+        },
+        {
+          "turn": 2,
+          "query": "What's the deadline?",
+          "found": true,
+          "rank": 1,
+          "target": 0,
+          "retrieved": [
+            0,
+            1
+          ]
+        },
+        {
+          "turn": 3,
+          "query": "And the budget?",
+          "found": true,
+          "rank": 1,
+          "target": 0,
+          "retrieved": [
+            0,
+            1
+          ]
+        },
+        {
+          "turn": 4,
+          "query": "Who's on the team?",
+          "found": true,
+          "rank": 1,
+          "target": 0,
+          "retrieved": [
+            0,
+            1
+          ]
+        }
+      ],
+      "accuracy": 1.0
+    },
+    {
+      "conversation_id": "project_context",
+      "config": "plus_decay",
+      "turns": [
+        {
+          "turn": 1,
+          "query": "Tell me about project alpha",
+          "found": true,
+          "rank": 1,
+          "target": 0,
+          "retrieved": [
+            0
+          ]
+        },
+        {
+          "turn": 2,
+          "query": "What's the deadline?",
+          "found": true,
+          "rank": 1,
+          "target": 0,
+          "retrieved": [
+            0,
+            1
+          ]
+        },
+        {
+          "turn": 3,
+          "query": "And the budget?",
+          "found": true,
+          "rank": 1,
+          "target": 0,
+          "retrieved": [
+            0,
+            1
+          ]
+        },
+        {
+          "turn": 4,
+          "query": "Who's on the team?",
+          "found": true,
+          "rank": 1,
+          "target": 0,
+          "retrieved": [
+            0,
+            1
+          ]
+        }
+      ],
+      "accuracy": 1.0
+    },
+    {
+      "conversation_id": "project_context",
+      "config": "plus_graph",
+      "turns": [
+        {
+          "turn": 1,
+          "query": "Tell me about project alpha",
+          "found": true,
+          "rank": 1,
+          "target": 0,
+          "retrieved": [
+            0,
+            1
+          ]
+        },
+        {
+          "turn": 2,
+          "query": "What's the deadline?",
+          "found": true,
+          "rank": 1,
+          "target": 0,
+          "retrieved": [
+            0,
+            1
+          ]
+        },
+        {
+          "turn": 3,
+          "query": "And the budget?",
+          "found": true,
+          "rank": 1,
+          "target": 0,
+          "retrieved": [
+            0,
+            1
+          ]
+        },
+        {
+          "turn": 4,
+          "query": "Who's on the team?",
+          "found": true,
+          "rank": 1,
+          "target": 0,
+          "retrieved": [
+            0,
+            1
+          ]
+        }
+      ],
+      "accuracy": 1.0
+    },
+    {
+      "conversation_id": "project_context",
+      "config": "full",
+      "turns": [
+        {
+          "turn": 1,
+          "query": "Tell me about project alpha",
+          "found": true,
+          "rank": 1,
+          "target": 0,
+          "retrieved": [
+            0,
+            1
+          ]
+        },
+        {
+          "turn": 2,
+          "query": "What's the deadline?",
+          "found": true,
+          "rank": 1,
+          "target": 0,
+          "retrieved": [
+            0,
+            1
+          ]
+        },
+        {
+          "turn": 3,
+          "query": "And the budget?",
+          "found": true,
+          "rank": 1,
+          "target": 0,
+          "retrieved": [
+            0,
+            1
+          ]
+        },
+        {
+          "turn": 4,
+          "query": "Who's on the team?",
+          "found": true,
+          "rank": 1,
+          "target": 0,
+          "retrieved": [
+            0,
+            1
+          ]
+        }
+      ],
+      "accuracy": 1.0
+    },
+    {
+      "conversation_id": "topic_switch",
+      "config": "baseline",
+      "turns": [
+        {
+          "turn": 1,
+          "query": "Tell me about project alpha",
+          "found": true,
+          "rank": 1,
+          "target": 0,
+          "retrieved": [
+            0
+          ]
+        },
+        {
+          "turn": 2,
+          "query": "What's the deadline?",
+          "found": true,
+          "rank": 1,
+          "target": 0,
+          "retrieved": [
+            0,
+            1
+          ]
+        },
+        {
+          "turn": 3,
+          "query": "Now tell me about beta",
+          "found": true,
+          "rank": 1,
+          "target": 1,
+          "retrieved": [
+            1
+          ]
+        },
+        {
+          "turn": 4,
+          "query": "What's that deadline?",
+          "found": true,
+          "rank": 2,
+          "target": 1,
+          "retrieved": [
+            0,
+            1
+          ]
+        }
+      ],
+      "accuracy": 1.0
+    },
+    {
+      "conversation_id": "topic_switch",
+      "config": "plus_cubic",
+      "turns": [
+        {
+          "turn": 1,
+          "query": "Tell me about project alpha",
+          "found": true,
+          "rank": 1,
+          "target": 0,
+          "retrieved": [
+            0
+          ]
+        },
+        {
+          "turn": 2,
+          "query": "What's the deadline?",
+          "found": true,
+          "rank": 1,
+          "target": 0,
+          "retrieved": [
+            0,
+            1
+          ]
+        },
+        {
+          "turn": 3,
+          "query": "Now tell me about beta",
+          "found": true,
+          "rank": 1,
+          "target": 1,
+          "retrieved": [
+            1
+          ]
+        },
+        {
+          "turn": 4,
+          "query": "What's that deadline?",
+          "found": true,
+          "rank": 2,
+          "target": 1,
+          "retrieved": [
+            0,
+            1
+          ]
+        }
+      ],
+      "accuracy": 1.0
+    },
+    {
+      "conversation_id": "topic_switch",
+      "config": "plus_tunnel",
+      "turns": [
+        {
+          "turn": 1,
+          "query": "Tell me about project alpha",
+          "found": true,
+          "rank": 1,
+          "target": 0,
+          "retrieved": [
+            0
+          ]
+        },
+        {
+          "turn": 2,
+          "query": "What's the deadline?",
+          "found": true,
+          "rank": 1,
+          "target": 0,
+          "retrieved": [
+            0,
+            1
+          ]
+        },
+        {
+          "turn": 3,
+          "query": "Now tell me about beta",
+          "found": true,
+          "rank": 1,
+          "target": 1,
+          "retrieved": [
+            1
+          ]
+        },
+        {
+          "turn": 4,
+          "query": "What's that deadline?",
+          "found": true,
+          "rank": 2,
+          "target": 1,
+          "retrieved": [
+            0,
+            1
+          ]
+        }
+      ],
+      "accuracy": 1.0
+    },
+    {
+      "conversation_id": "topic_switch",
+      "config": "plus_decay",
+      "turns": [
+        {
+          "turn": 1,
+          "query": "Tell me about project alpha",
+          "found": true,
+          "rank": 1,
+          "target": 0,
+          "retrieved": [
+            0
+          ]
+        },
+        {
+          "turn": 2,
+          "query": "What's the deadline?",
+          "found": true,
+          "rank": 1,
+          "target": 0,
+          "retrieved": [
+            0,
+            1
+          ]
+        },
+        {
+          "turn": 3,
+          "query": "Now tell me about beta",
+          "found": true,
+          "rank": 1,
+          "target": 1,
+          "retrieved": [
+            1
+          ]
+        },
+        {
+          "turn": 4,
+          "query": "What's that deadline?",
+          "found": true,
+          "rank": 2,
+          "target": 1,
+          "retrieved": [
+            0,
+            1
+          ]
+        }
+      ],
+      "accuracy": 1.0
+    },
+    {
+      "conversation_id": "topic_switch",
+      "config": "plus_graph",
+      "turns": [
+        {
+          "turn": 1,
+          "query": "Tell me about project alpha",
+          "found": true,
+          "rank": 1,
+          "target": 0,
+          "retrieved": [
+            0,
+            1
+          ]
+        },
+        {
+          "turn": 2,
+          "query": "What's the deadline?",
+          "found": true,
+          "rank": 1,
+          "target": 0,
+          "retrieved": [
+            0,
+            1
+          ]
+        },
+        {
+          "turn": 3,
+          "query": "Now tell me about beta",
+          "found": true,
+          "rank": 1,
+          "target": 1,
+          "retrieved": [
+            1,
+            0
+          ]
+        },
+        {
+          "turn": 4,
+          "query": "What's that deadline?",
+          "found": true,
+          "rank": 2,
+          "target": 1,
+          "retrieved": [
+            0,
+            1
+          ]
+        }
+      ],
+      "accuracy": 1.0
+    },
+    {
+      "conversation_id": "topic_switch",
+      "config": "full",
+      "turns": [
+        {
+          "turn": 1,
+          "query": "Tell me about project alpha",
+          "found": true,
+          "rank": 1,
+          "target": 0,
+          "retrieved": [
+            0,
+            1
+          ]
+        },
+        {
+          "turn": 2,
+          "query": "What's the deadline?",
+          "found": true,
+          "rank": 1,
+          "target": 0,
+          "retrieved": [
+            0,
+            1
+          ]
+        },
+        {
+          "turn": 3,
+          "query": "Now tell me about beta",
+          "found": true,
+          "rank": 1,
+          "target": 1,
+          "retrieved": [
+            1,
+            0
+          ]
+        },
+        {
+          "turn": 4,
+          "query": "What's that deadline?",
+          "found": true,
+          "rank": 2,
+          "target": 1,
+          "retrieved": [
+            0,
+            1
+          ]
+        }
+      ],
+      "accuracy": 1.0
+    }
+  ],
+  "cubic_test": {
+    "baseline": 1.0,
+    "plus_cubic": 1.0
+  },
+  "tunnel_test": {
+    "baseline": 0.0,
+    "plus_cubic": 0.0,
+    "plus_tunnel": 0.0,
+    "plus_decay": 0.0
+  }
+}
