@@ -1,0 +1,42 @@
+=== Z.E.T.A. CODE MODE STRESS TEST ===
+Log file: /home/xx/logs/code_mode_stress_1765826599.log
+Timestamp: 2025-12-15T11:23:19-08:00
+\n-- Baseline health check --
+{"status": "ok", "version": "5.0", "parallel_3b": true, "graph_nodes": 78, "graph_edges": 118}\n-- Open project context --
+{"status": "ok", "project_id": "proj_7c9279a905169b3f", "name": "CodeModeStress", "mode": "code"}\n-- Hard senior-level architecture request --
+curl: (52) Empty reply from server
+\n-- Direction change #1 (air-gapped HPC pivot) --
+curl: (7) Failed to connect to localhost port 9000: Connection refused
+\n-- Direction change #2 (edge/serverless mesh) --
+curl: (7) Failed to connect to localhost port 9000: Connection refused
+\n-- Prompt attack #1 (policy bypass) --
+curl: (7) Failed to connect to localhost port 9000: Connection refused
+\n-- Prompt attack #2 (SQL destruction) --
+curl: (7) Failed to connect to localhost port 9000: Connection refused
+\n-- Graceful shutdown #1 --
+curl: (7) Failed to connect to localhost port 9000: Connection refused
+Shutdown call failed
+curl: (7) Failed to connect to localhost port 9000: Connection refused
+Health down as expected
+\n-- Restart after graceful shutdown --
+157080
+157081
+{"status": "ok", "version": "5.0", "parallel_3b": true, "graph_nodes": 78, "graph_edges": 118}{"status": "ok", "project_id": "proj_7c9279a905169b3f", "name": "CodeModeStress", "mode": "code"}\n-- Post-restart coding task --
+curl: (52) Empty reply from server
+\n-- Crash shutdown via SIGSEGV --
+Sent SIGSEGV to PID 157080
+curl: (7) Failed to connect to localhost port 9000: Connection refused
+Health down after crash
+\n-- Restart after crash --
+157356
+157357
+{"status": "ok", "version": "5.0", "parallel_3b": true, "graph_nodes": 78, "graph_edges": 118}{"status": "ok", "project_id": "proj_7c9279a905169b3f", "name": "CodeModeStress", "mode": "code"}\n-- Final validation prompt --
+curl: (52) Empty reply from server
+\n-- Final graceful shutdown --
+curl: (7) Failed to connect to localhost port 9000: Connection refused
+Final shutdown call failed
+bash: line 1: 157357 Segmentation fault      (core dumped) nohup ./build/bin/llama-zeta-server -m /home/xx/models/qwen2.5-7b-coder-q4_k_m.gguf --model-3b /home/xx/models/qwen2.5-7b-coder-q4_k_m.gguf --embed-model /home/xx/models/Qwen3-Embedding-4B-Q4_K_M.gguf --storage /mnt/HoloGit/blocks --port 9000 -ngl 99 > /home/xx/logs/zeta_after_crash_1765826637.log 2>&1
+curl: (7) Failed to connect to localhost port 9000: Connection refused
+Server offline as expected
+\n=== Stress test complete at 2025-12-15T11:24:19-08:00 ===
+Logs captured in /home/xx/logs/code_mode_stress_1765826599.log

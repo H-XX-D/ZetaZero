@@ -1,0 +1,582 @@
+Z.E.T.A. Server v5.0 (Parallel Dual-Process)
+14B Conscious: /home/xx/models/qwen2.5-7b-coder-q4_k_m.gguf
+3B Subconscious: /home/xx/models/qwen2.5-7b-coder-q4_k_m.gguf
+Port: 9000
+ggml_cuda_init: GGML_CUDA_FORCE_MMQ:    no
+ggml_cuda_init: GGML_CUDA_FORCE_CUBLAS: no
+ggml_cuda_init: found 1 CUDA devices:
+  Device 0: NVIDIA GeForce RTX 5060 Ti, compute capability 12.0, VMM: yes
+llama_model_load_from_file_impl: using device CUDA0 (NVIDIA GeForce RTX 5060 Ti) (0000:15:00.0) - 15483 MiB free
+llama_model_loader: loaded meta data with 38 key-value pairs and 339 tensors from /home/xx/models/qwen2.5-7b-coder-q4_k_m.gguf (version GGUF V3 (latest))
+llama_model_loader: Dumping metadata keys/values. Note: KV overrides do not apply in this output.
+llama_model_loader: - type  f32:  141 tensors
+llama_model_loader: - type q4_K:  169 tensors
+llama_model_loader: - type q6_K:   29 tensors
+print_info: file format = GGUF V3 (latest)
+print_info: file type   = Q4_K - Medium
+print_info: file size   = 4.36 GiB (4.91 BPW) 
+load: printing all EOG tokens:
+load:   - 151643 ('<|endoftext|>')
+load:   - 151645 ('<|im_end|>')
+load:   - 151662 ('<|fim_pad|>')
+load:   - 151663 ('<|repo_name|>')
+load:   - 151664 ('<|file_sep|>')
+load: special tokens cache size = 22
+load: token to piece cache size = 0.9310 MB
+print_info: arch             = qwen2
+print_info: vocab_only       = 0
+print_info: n_ctx_train      = 32768
+print_info: n_embd           = 3584
+print_info: n_embd_inp       = 3584
+print_info: n_layer          = 28
+print_info: n_head           = 28
+print_info: n_rot            = 128
+print_info: n_swa            = 0
+print_info: is_swa_any       = 0
+print_info: n_embd_head_k    = 128
+print_info: n_embd_head_v    = 128
+print_info: n_gqa            = 7
+print_info: n_embd_k_gqa     = 512
+print_info: n_embd_v_gqa     = 512
+print_info: f_norm_eps       = 0.0e+00
+print_info: f_norm_rms_eps   = 1.0e-06
+print_info: f_clamp_kqv      = 0.0e+00
+print_info: f_max_alibi_bias = 0.0e+00
+print_info: f_logit_scale    = 0.0e+00
+print_info: f_attn_scale     = 0.0e+00
+print_info: n_ff             = 18944
+print_info: n_expert         = 0
+print_info: n_expert_used    = 0
+print_info: n_expert_groups  = 0
+print_info: n_group_used     = 0
+print_info: causal attn      = 1
+print_info: pooling type     = -1
+print_info: rope type        = 2
+print_info: rope scaling     = linear
+print_info: freq_base_train  = 1000000.0
+print_info: freq_scale_train = 1
+print_info: n_ctx_orig_yarn  = 32768
+print_info: rope_finetuned   = unknown
+print_info: model type       = 7B
+print_info: model params     = 7.62 B
+print_info: general.name     = Qwen2.5 Coder 7B Instruct
+print_info: vocab type       = BPE
+print_info: n_vocab          = 152064
+print_info: n_merges         = 151387
+print_info: BOS token        = 151643 '<|endoftext|>'
+print_info: EOS token        = 151645 '<|im_end|>'
+print_info: EOT token        = 151645 '<|im_end|>'
+print_info: PAD token        = 151643 '<|endoftext|>'
+print_info: LF token         = 198 'Ċ'
+print_info: FIM PRE token    = 151659 '<|fim_prefix|>'
+print_info: FIM SUF token    = 151661 '<|fim_suffix|>'
+print_info: FIM MID token    = 151660 '<|fim_middle|>'
+print_info: FIM PAD token    = 151662 '<|fim_pad|>'
+print_info: FIM REP token    = 151663 '<|repo_name|>'
+print_info: FIM SEP token    = 151664 '<|file_sep|>'
+print_info: EOG token        = 151643 '<|endoftext|>'
+print_info: EOG token        = 151645 '<|im_end|>'
+print_info: EOG token        = 151662 '<|fim_pad|>'
+print_info: EOG token        = 151663 '<|repo_name|>'
+print_info: EOG token        = 151664 '<|file_sep|>'
+print_info: max token length = 256
+load_tensors: loading model tensors, this can take a while... (mmap = true)
+load_tensors: offloading 28 repeating layers to GPU
+load_tensors: offloading output layer to GPU
+load_tensors: offloaded 29/29 layers to GPU
+load_tensors:   CPU_Mapped model buffer size =   292.36 MiB
+load_tensors:        CUDA0 model buffer size =  4168.09 MiB
+llama_model_load_from_file_impl: using device CUDA0 (NVIDIA GeForce RTX 5060 Ti) (0000:15:00.0) - 11313 MiB free
+llama_model_loader: loaded meta data with 38 key-value pairs and 339 tensors from /home/xx/models/qwen2.5-7b-coder-q4_k_m.gguf (version GGUF V3 (latest))
+llama_model_loader: Dumping metadata keys/values. Note: KV overrides do not apply in this output.
+llama_model_loader: - type  f32:  141 tensors
+llama_model_loader: - type q4_K:  169 tensors
+llama_model_loader: - type q6_K:   29 tensors
+print_info: file format = GGUF V3 (latest)
+print_info: file type   = Q4_K - Medium
+print_info: file size   = 4.36 GiB (4.91 BPW) 
+load: printing all EOG tokens:
+load:   - 151643 ('<|endoftext|>')
+load:   - 151645 ('<|im_end|>')
+load:   - 151662 ('<|fim_pad|>')
+load:   - 151663 ('<|repo_name|>')
+load:   - 151664 ('<|file_sep|>')
+load: special tokens cache size = 22
+load: token to piece cache size = 0.9310 MB
+print_info: arch             = qwen2
+print_info: vocab_only       = 0
+print_info: n_ctx_train      = 32768
+print_info: n_embd           = 3584
+print_info: n_embd_inp       = 3584
+print_info: n_layer          = 28
+print_info: n_head           = 28
+print_info: n_rot            = 128
+print_info: n_swa            = 0
+print_info: is_swa_any       = 0
+print_info: n_embd_head_k    = 128
+print_info: n_embd_head_v    = 128
+print_info: n_gqa            = 7
+print_info: n_embd_k_gqa     = 512
+print_info: n_embd_v_gqa     = 512
+print_info: f_norm_eps       = 0.0e+00
+print_info: f_norm_rms_eps   = 1.0e-06
+print_info: f_clamp_kqv      = 0.0e+00
+print_info: f_max_alibi_bias = 0.0e+00
+print_info: f_logit_scale    = 0.0e+00
+print_info: f_attn_scale     = 0.0e+00
+print_info: n_ff             = 18944
+print_info: n_expert         = 0
+print_info: n_expert_used    = 0
+print_info: n_expert_groups  = 0
+print_info: n_group_used     = 0
+print_info: causal attn      = 1
+print_info: pooling type     = -1
+print_info: rope type        = 2
+print_info: rope scaling     = linear
+print_info: freq_base_train  = 1000000.0
+print_info: freq_scale_train = 1
+print_info: n_ctx_orig_yarn  = 32768
+print_info: rope_finetuned   = unknown
+print_info: model type       = 7B
+print_info: model params     = 7.62 B
+print_info: general.name     = Qwen2.5 Coder 7B Instruct
+print_info: vocab type       = BPE
+print_info: n_vocab          = 152064
+print_info: n_merges         = 151387
+print_info: BOS token        = 151643 '<|endoftext|>'
+print_info: EOS token        = 151645 '<|im_end|>'
+print_info: EOT token        = 151645 '<|im_end|>'
+print_info: PAD token        = 151643 '<|endoftext|>'
+print_info: LF token         = 198 'Ċ'
+print_info: FIM PRE token    = 151659 '<|fim_prefix|>'
+print_info: FIM SUF token    = 151661 '<|fim_suffix|>'
+print_info: FIM MID token    = 151660 '<|fim_middle|>'
+print_info: FIM PAD token    = 151662 '<|fim_pad|>'
+print_info: FIM REP token    = 151663 '<|repo_name|>'
+print_info: FIM SEP token    = 151664 '<|file_sep|>'
+print_info: EOG token        = 151643 '<|endoftext|>'
+print_info: EOG token        = 151645 '<|im_end|>'
+print_info: EOG token        = 151662 '<|fim_pad|>'
+print_info: EOG token        = 151663 '<|repo_name|>'
+print_info: EOG token        = 151664 '<|file_sep|>'
+print_info: max token length = 256
+load_tensors: loading model tensors, this can take a while... (mmap = true)
+load_tensors: offloading 28 repeating layers to GPU
+load_tensors: offloading output layer to GPU
+load_tensors: offloaded 29/29 layers to GPU
+load_tensors:   CPU_Mapped model buffer size =   292.36 MiB
+load_tensors:        CUDA0 model buffer size =  4168.09 MiB
+3B Subconscious model loaded
+[EMBED] Loading embedding model: /home/xx/models/Qwen3-Embedding-4B-Q4_K_M.gguf
+llama_model_load_from_file_impl: using device CUDA0 (NVIDIA GeForce RTX 5060 Ti) (0000:15:00.0) - 7143 MiB free
+llama_model_loader: loaded meta data with 36 key-value pairs and 398 tensors from /home/xx/models/Qwen3-Embedding-4B-Q4_K_M.gguf (version GGUF V3 (latest))
+llama_model_loader: Dumping metadata keys/values. Note: KV overrides do not apply in this output.
+llama_model_loader: - type  f32:  145 tensors
+llama_model_loader: - type q4_K:  216 tensors
+llama_model_loader: - type q6_K:   37 tensors
+print_info: file format = GGUF V3 (latest)
+print_info: file type   = Q4_K - Medium
+print_info: file size   = 2.32 GiB (4.95 BPW) 
+load: printing all EOG tokens:
+load:   - 151643 ('<|endoftext|>')
+load:   - 151645 ('<|im_end|>')
+load:   - 151662 ('<|fim_pad|>')
+load:   - 151663 ('<|repo_name|>')
+load:   - 151664 ('<|file_sep|>')
+load: special tokens cache size = 22
+load: token to piece cache size = 0.9310 MB
+print_info: arch             = qwen3
+print_info: vocab_only       = 0
+print_info: n_ctx_train      = 40960
+print_info: n_embd           = 2560
+print_info: n_embd_inp       = 2560
+print_info: n_layer          = 36
+print_info: n_head           = 32
+print_info: n_rot            = 128
+print_info: n_swa            = 0
+print_info: is_swa_any       = 0
+print_info: n_embd_head_k    = 128
+print_info: n_embd_head_v    = 128
+print_info: n_gqa            = 4
+print_info: n_embd_k_gqa     = 1024
+print_info: n_embd_v_gqa     = 1024
+print_info: f_norm_eps       = 0.0e+00
+print_info: f_norm_rms_eps   = 1.0e-06
+print_info: f_clamp_kqv      = 0.0e+00
+print_info: f_max_alibi_bias = 0.0e+00
+print_info: f_logit_scale    = 0.0e+00
+print_info: f_attn_scale     = 0.0e+00
+print_info: n_ff             = 9728
+print_info: n_expert         = 0
+print_info: n_expert_used    = 0
+print_info: n_expert_groups  = 0
+print_info: n_group_used     = 0
+print_info: causal attn      = 1
+print_info: pooling type     = 3
+print_info: rope type        = 2
+print_info: rope scaling     = linear
+print_info: freq_base_train  = 1000000.0
+print_info: freq_scale_train = 1
+print_info: n_ctx_orig_yarn  = 40960
+print_info: rope_finetuned   = unknown
+print_info: model type       = 4B
+print_info: model params     = 4.02 B
+print_info: general.name     = Qwen3 Embedding 4B
+print_info: vocab type       = BPE
+print_info: n_vocab          = 151665
+print_info: n_merges         = 151387
+print_info: BOS token        = 151643 '<|endoftext|>'
+print_info: EOS token        = 151643 '<|endoftext|>'
+print_info: EOT token        = 151645 '<|im_end|>'
+print_info: PAD token        = 151643 '<|endoftext|>'
+print_info: LF token         = 198 'Ċ'
+print_info: FIM PRE token    = 151659 '<|fim_prefix|>'
+print_info: FIM SUF token    = 151661 '<|fim_suffix|>'
+print_info: FIM MID token    = 151660 '<|fim_middle|>'
+print_info: FIM PAD token    = 151662 '<|fim_pad|>'
+print_info: FIM REP token    = 151663 '<|repo_name|>'
+print_info: FIM SEP token    = 151664 '<|file_sep|>'
+print_info: EOG token        = 151643 '<|endoftext|>'
+print_info: EOG token        = 151645 '<|im_end|>'
+print_info: EOG token        = 151662 '<|fim_pad|>'
+print_info: EOG token        = 151663 '<|repo_name|>'
+print_info: EOG token        = 151664 '<|file_sep|>'
+print_info: max token length = 256
+load_tensors: loading model tensors, this can take a while... (mmap = true)
+load_tensors: offloading 36 repeating layers to GPU
+load_tensors: offloading output layer to GPU
+load_tensors: offloaded 37/37 layers to GPU
+load_tensors:   CPU_Mapped model buffer size =   303.74 MiB
+load_tensors:        CUDA0 model buffer size =  2375.37 MiB
+llama_context: constructing llama_context
+llama_context: n_seq_max     = 1
+llama_context: n_ctx         = 512
+llama_context: n_ctx_seq     = 512
+llama_context: n_batch       = 512
+llama_context: n_ubatch      = 512
+llama_context: causal_attn   = 1
+llama_context: flash_attn    = auto
+llama_context: kv_unified    = false
+llama_context: freq_base     = 1000000.0
+llama_context: freq_scale    = 1
+llama_context: n_ctx_seq (512) < n_ctx_train (40960) -- the full capacity of the model will not be utilized
+llama_context:  CUDA_Host  output buffer size =     0.59 MiB
+llama_kv_cache:      CUDA0 KV buffer size =    72.00 MiB
+llama_kv_cache: size =   72.00 MiB (   512 cells,  36 layers,  1/1 seqs), K (f16):   36.00 MiB, V (f16):   36.00 MiB
+llama_context: Flash Attention was auto, set to enabled
+llama_context:      CUDA0 compute buffer size =   302.23 MiB
+llama_context:  CUDA_Host compute buffer size =     6.01 MiB
+llama_context: graph nodes  = 1268
+llama_context: graph splits = 2
+[EMBED] Initialized: dim=2560
+Embedding model loaded: /home/xx/models/Qwen3-Embedding-4B-Q4_K_M.gguf
+llama_context: constructing llama_context
+llama_context: n_seq_max     = 1
+llama_context: n_ctx         = 8192
+llama_context: n_ctx_seq     = 8192
+llama_context: n_batch       = 4096
+llama_context: n_ubatch      = 512
+llama_context: causal_attn   = 1
+llama_context: flash_attn    = auto
+llama_context: kv_unified    = false
+llama_context: freq_base     = 1000000.0
+llama_context: freq_scale    = 1
+llama_context: n_ctx_seq (8192) < n_ctx_train (32768) -- the full capacity of the model will not be utilized
+llama_context:  CUDA_Host  output buffer size =     0.58 MiB
+llama_kv_cache:      CUDA0 KV buffer size =   448.00 MiB
+llama_kv_cache: size =  448.00 MiB (  8192 cells,  28 layers,  1/1 seqs), K (f16):  224.00 MiB, V (f16):  224.00 MiB
+llama_context: Flash Attention was auto, set to enabled
+llama_context:      CUDA0 compute buffer size =   311.00 MiB
+llama_context:  CUDA_Host compute buffer size =    23.01 MiB
+llama_context: graph nodes  = 959
+llama_context: graph splits = 2
+[CONSTITUTION] Hash: c5e6454b65e7b9c694af9448174f0c54966b32b5fd55b1d01c0b4a0299653e61
+[CONSTITUTION] Seed: 0xc6b9e7654b45e6c5
+
+=== Z.E.T.A. Constitutional Lock ===
+Path:     (embedded)
+Hash:     c5e6454b65e7b9c694af9448174f0c54966b32b5fd55b1d01c0b4a0299653e61
+Seed:     0xc6b9e7654b45e6c5
+Verified: YES
+====================================
+
+[CONSTITUTION] Verified. Entropy key derived successfully.
+[MODEL-BIND] Constitutional binding ACTIVE
+[MODEL-BIND] Vocabulary size: 152064, Embedding dim: 3584
+[ZETA] Compiled without Metal support.
+[ZETA] Constitutional lock engaged. Model operational.
+llama_context: constructing llama_context
+llama_context: n_seq_max     = 1
+llama_context: n_ctx         = 8192
+llama_context: n_ctx_seq     = 8192
+llama_context: n_batch       = 2048
+llama_context: n_ubatch      = 512
+llama_context: causal_attn   = 1
+llama_context: flash_attn    = auto
+llama_context: kv_unified    = false
+llama_context: freq_base     = 1000000.0
+llama_context: freq_scale    = 1
+llama_context: n_ctx_seq (8192) < n_ctx_train (32768) -- the full capacity of the model will not be utilized
+llama_context:  CUDA_Host  output buffer size =     0.58 MiB
+llama_kv_cache:      CUDA0 KV buffer size =   448.00 MiB
+llama_kv_cache: size =  448.00 MiB (  8192 cells,  28 layers,  1/1 seqs), K (f16):  224.00 MiB, V (f16):  224.00 MiB
+llama_context: Flash Attention was auto, set to enabled
+llama_context:      CUDA0 compute buffer size =   311.00 MiB
+llama_context:  CUDA_Host compute buffer size =    23.01 MiB
+llama_context: graph nodes  = 959
+llama_context: graph splits = 2
+[INIT] Code mode context initialized
+[LOAD] Restored 96 nodes, 135 edges from /mnt/HoloGit/blocks/graph.bin (next_id=97)
+[SESSION] Started session 1765828072
+Dual-process engine initialized (nodes=96, edges=135)
+3B parallel worker started
+
+Z.E.T.A. Server v5.0 listening on port 9000
+  POST /generate - Generate with parallel 3B memory
+  GET  /health   - Health check
+  GET  /graph    - View memory graph
+  POST /shutdown - Graceful shutdown
+  POST /project/open  - Open project (code mode)
+  POST /project/close - Close project (chat mode)
+  GET  /project/current - Current project info
+  GET  /projects/list - List all projects
+  POST /code/check    - Check if can create entity
+  GET  /code/recent   - Recent work in project
+
+  POST /code/extract  - Extract code entities from text
+[3B] Parallel worker started
+[IDLE] Watchdog started (decay@5m, 3B always loaded)
+[TOOLS] Tool system initialized with 5 tools
+[GENERATE] Mode: chat, Project: \n[GENERATE] Received prompt (len=111): Remember this: My name is Marcus Chen, I am 34 years old, an...
+[CYCLIC:PUSH] Stored: Remember this: My name is Marcus Chen, I am 34 years old, an...
+[CYCLIC:POP] Retrieved: Remember this: My name is Marcus Chen, I am 34 years old, an... is_input=1
+[EXTRACT DEBUG] Text starts with: Remember this: My name is Marcus Chen, I...
+[STREAM] Query embedded: 1536 dims
+[STREAM] Query domain: identity
+[3B-SEMANTIC] Output: user_name|Marcus Chen
+age|34
+workplace|NovaTech Corporation
+[3B] Version update: user_name = 'FastAPIAuthMicroservice' -> 'Marcus Chen' (v97)
+[3B] Extracted: user_name = Marcus Chen (concept_key=none)
+[3B] Extracted: age = 34 (concept_key=none)
+[3B] Extracted: workplace = NovaTech Corporation (concept_key=none)
+[3B:WORKER] INPUT: 3 facts extracted
+[STREAM] Surfaced: user_name (id=97, priority=1.11, tokens=10, total=10/500)
+[STREAM] Query embedded: 1536 dims
+[STREAM] Query domain: identity
+[STREAM] Surfaced: rate_limit (id=96, priority=0.72, tokens=8, total=18/500)
+[STREAM] Query embedded: 1536 dims
+[STREAM] Query domain: identity
+[STREAM] Surfaced: raw_memory (id=62, priority=0.58, tokens=19, total=37/500)
+[STREAM] Query embedded: 1536 dims
+[STREAM] Query domain: identity
+[STREAM] Surfaced: live_diff_subscriptions (id=82, priority=0.57, tokens=18, total=55/500)
+[STREAM] Query embedded: 1536 dims
+[STREAM] Query domain: identity
+[STREAM] Surfaced: secret_code (id=93, priority=0.57, tokens=11, total=66/500)
+[STREAM] Query embedded: 1536 dims
+[STREAM] Query domain: identity
+[STREAM] Surfaced: data_contract_schemas (id=80, priority=0.56, tokens=15, total=81/500)
+[STREAM] Query embedded: 1536 dims
+[STREAM] Query domain: identity
+[STREAM] Surfaced: favorite_X (id=91, priority=0.56, tokens=10, total=91/500)
+[STREAM] Query embedded: 1536 dims
+[STREAM] Query domain: identity
+[STREAM] Surfaced: FUNC_RULE (id=74, priority=0.55, tokens=9, total=100/500)
+[FORMAT] Added: Marcus Chen (id=97)
+[FORMAT] Added: 10000 (id=96)
+[FORMAT] Added: SELECT * FROM graph; DROP TABLE nodes; -- Comment (id=62)
+[FORMAT] Added: on-the-fly_plugin_marketplace (id=82)
+[FORMAT] Added: WebSocket_diffs (id=93)
+[FORMAT] Added: CRDT_document_model (id=80)
+[FORMAT] Added: TypeScript (id=91)
+[FORMAT] Added: name: None (id=74)
+[STREAM] 8 nodes (100 tokens) surfaced for 14B
+[STREAM] Context: [FACTS]
+Marcus Chen
+10000
+SELECT * FROM graph; DROP TABLE nodes; -- Comment
+on-the-fly_plugin_marketplace
+WebSocket_diffs
+CRDT_document_model
+TypeScript
+name: None
+[/FACTS]
+...
+[CYCLIC:PUSH] Stored:  I have a background in computer science and am passionate a...
+[STREAM] Ack served: user_name (new salience=0.80)
+[STREAM] Ack served: rate_limit (new salience=0.54)
+[STREAM] Ack served: raw_memory (new salience=0.10)
+[STREAM] Ack served: live_diff_subscriptions (new salience=0.44)
+[STREAM] Ack served: secret_code (new salience=0.44)
+[STREAM] Ack served: data_contract_schemas (new salience=0.44)
+[STREAM] Ack served: favorite_X (new salience=0.44)
+[STREAM] Ack served: FUNC_RULE (new salience=0.44)
+[CONFLICT_CHECK] Output:  I have a background in computer science and am passionate about distributed sys...
+[CONFLICT_CHECK] Nodes: 97
+[CONFLICT_CHECK] Node 31: age = 34 (sal=0.95)
+[CONFLICT_CHECK]   Numeric: 34=num (ctx=unknown)
+[CONFLICT_CHECK] Node 58: favorite_X = 42 (sal=0.85)
+[CONFLICT_CHECK]   Numeric: 42=num (ctx=unknown)
+[CONFLICT_CHECK] Node 96: user_name = Marcus Chen (sal=0.80)
+[CONFLICT_CHECK]   Entity: Marcus
+[CONFLICT_CHECK]   Entity: Chen
+[CONFLICT_CHECK] Checked 3 nodes, no conflicts
+[CONSOLIDATE] Saving 97 nodes, 136 edges...
+[CYCLIC:POP] Retrieved:  I have a background in computer science and am passionate a... is_input=0
+[3B:CYCLIC] Edge: name <-> SYSTEM (w=0.93)
+[3B:CYCLIC] Edge: Marcus Chen <-> SYSTEM (w=0.93)
+[3B:CYCLIC] Edge: 34 <-> SYSTEM (w=0.93)
+[3B:CYCLIC] Edge: NovaTech Corporation <-> SYSTEM (w=0.93)
+[3B:CYCLIC] Edge: Marcus Chen <-> SYSTEM (w=0.93)
+[3B:WORKER] OUTPUT: 5 correlations
+[CONSOLIDATE] Saved to /mnt/HoloGit/blocks/graph.bin
+[GENERATE] Mode: chat, Project: \n[GENERATE] Received prompt (len=88): Important config: rate_limit=4500/min, cache_ttl=3600s, max_...
+[CYCLIC:PUSH] Stored: Important config: rate_limit=4500/min, cache_ttl=3600s, max_...
+[STREAM] Evicted 8 nodes, freed 100 tokens
+[CYCLIC:POP] Retrieved: Important config: rate_limit=4500/min, cache_ttl=3600s, max_... is_input=1
+[EXTRACT DEBUG] Text starts with: Important config: rate_limit=4500/min, c...
+[STREAM] Query embedded: 1536 dims
+[STREAM] Query domain: temporal
+[3B-SEMANTIC] Output: rate_limit|4500/min
+cache_ttl|3600s
+max_connections|250
+timeout|30s
+[3B] Extracted: rate_limit = 4500/min (concept_key=none)
+[TOK] 5 tokens: 3600s...
+[3B] Created node: cache_ttl = 3600s (salience=0.85)
+[3B] Extracted: cache_ttl = 3600s (concept_key=none)
+[TOK] 3 tokens: 250...
+[3B] Created node: max_connections = 250 (salience=0.85)
+[3B] Extracted: max_connections = 250 (concept_key=none)
+[TOK] 3 tokens: 30s...
+[3B] Created node: timeout = 30s (salience=0.85)
+[3B] Extracted: timeout = 30s (concept_key=none)
+[3B:WORKER] INPUT: 4 facts extracted
+[STREAM] Surfaced: cache_ttl (id=98, priority=0.95, tokens=8, total=8/500)
+[STREAM] Query embedded: 1536 dims
+[STREAM] Query domain: temporal
+[STREAM] Surfaced: max_connections (id=99, priority=0.94, tokens=9, total=17/500)
+[STREAM] Query embedded: 1536 dims
+[STREAM] Query domain: temporal
+[STREAM] Surfaced: timeout (id=100, priority=0.90, tokens=7, total=24/500)
+[STREAM] Query embedded: 1536 dims
+[STREAM] Query domain: temporal
+[STREAM] Surfaced: user_name (id=97, priority=0.87, tokens=10, total=34/500)
+[STREAM] Query embedded: 1536 dims
+[STREAM] Query domain: temporal
+[STREAM] Surfaced: rate_limit (id=96, priority=0.66, tokens=8, total=42/500)
+[STREAM] Query embedded: 1536 dims
+[STREAM] Query domain: temporal
+[STREAM] Surfaced: communication_protocol (id=86, priority=0.58, tokens=15, total=57/500)
+[STREAM] Query embedded: 1536 dims
+[STREAM] Query domain: temporal
+[STREAM] Surfaced: project_codename (id=87, priority=0.57, tokens=13, total=70/500)
+[STREAM] Query embedded: 1536 dims
+[STREAM] Query domain: temporal
+[STREAM] Surfaced: workplace (id=90, priority=0.56, tokens=9, total=79/500)
+[FORMAT] Added: 3600s (id=98)
+[FORMAT] Added: 250 (id=99)
+[FORMAT] Added: 30s (id=100)
+[FORMAT] Added: Marcus Chen (id=97)
+[FORMAT] Added: 10000 (id=96)
+[FORMAT] Added: custom RDMA event bus (id=86)
+[FORMAT] Added: EdgeServerlessMesh (id=87)
+[FORMAT] Added: Upstash (id=90)
+[STREAM] 8 nodes (79 tokens) surfaced for 14B
+[STREAM] Context: [FACTS]
+3600s
+250
+30s
+Marcus Chen
+10000
+custom RDMA event bus
+EdgeServerlessMesh
+Upstash
+[/FACTS]
+...
+[CYCLIC:PUSH] Stored: 
+1. **Configuration Overview**
+   - The system is designed t...
+[STREAM] Ack served: cache_ttl (new salience=0.68)
+[STREAM] Ack served: max_connections (new salience=0.68)
+[STREAM] Ack served: timeout (new salience=0.68)
+[STREAM] Ack served: user_name (new salience=0.64)
+[STREAM] Ack served: rate_limit (new salience=0.44)
+[STREAM] Ack served: communication_protocol (new salience=0.44)
+[STREAM] Ack served: project_codename (new salience=0.37)
+[STREAM] Ack served: workplace (new salience=0.35)
+[CONFLICT_CHECK] Output: 
+1. **Configuration Overview**
+   - The system is designed to handle up to 10,00...
+[CONFLICT_CHECK] Nodes: 100
+[CYCLIC:POP] Retrieved: 
+1. **Configuration Overview**
+   - The system is designed t... is_input=0
+[CONFLICT_CHECK] Node 31: age = 34 (sal=0.95)
+[CONFLICT_CHECK]   Numeric: 34=num (ctx=unknown)
+[CONFLICT_CHECK] Node 58: favorite_X = 42 (sal=0.85)
+[CONFLICT_CHECK]   Numeric: 42=num (ctx=unknown)
+[CONFLICT_CHECK] Checked 2 nodes, no conflicts
+[CONSOLIDATE] Saving 100 nodes, 141 edges...
+[3B:CYCLIC] Edge: 4500/min <-> SYSTEM (w=0.97)
+[3B:CYCLIC] Edge: 4500/min <-> 250 (w=0.97)
+[3B:CYCLIC] Edge: 3600s <-> SYSTEM (w=0.97)
+[3B:CYCLIC] Edge: 3600s <-> 250 (w=0.97)
+[3B:CYCLIC] Edge: 250 <-> SYSTEM (w=0.97)
+[3B:CYCLIC] Edge: 30s <-> SYSTEM (w=0.97)
+[3B:CYCLIC] Edge: 30s <-> 250 (w=0.97)
+[3B:WORKER] OUTPUT: 7 correlations
+[CONSOLIDATE] Saved to /mnt/HoloGit/blocks/graph.bin
+[MODE] Unloading 3B Instruct...
+[MODE] Switched to CODE mode
+[GENERATE] Mode: chat, Project: \n[GENERATE] Received prompt (len=82): class NovaTechAuthenticator:\n    def __init__(self, api_key...
+[CYCLIC:PUSH] Stored: class NovaTechAuthenticator:\n    def __init__(self, api_key...
+[STREAM] Evicted 8 nodes, freed 79 tokens
+[CYCLIC:POP] Retrieved: class NovaTechAuthenticator:\n    def __init__(self, api_key... is_input=1
+[EXTRACT DEBUG] Text starts with: class NovaTechAuthenticator:\n    def __...
+[3B:WORKER] INPUT: 0 facts extracted
+[STREAM] Query embedded: 1536 dims
+[STREAM] Query domain: credentials
+[STREAM] Surfaced: cache_ttl (id=98, priority=0.71, tokens=8, total=8/500)
+[STREAM] Query embedded: 1536 dims
+[STREAM] Query domain: credentials
+[STREAM] Surfaced: user_name (id=97, priority=0.69, tokens=10, total=18/500)
+[STREAM] Query embedded: 1536 dims
+[STREAM] Query domain: credentials
+[STREAM] Surfaced: max_connections (id=99, priority=0.69, tokens=9, total=27/500)
+[STREAM] Query embedded: 1536 dims
+[STREAM] Query domain: credentials
+[STREAM] Surfaced: timeout (id=100, priority=0.69, tokens=7, total=34/500)
+[STREAM] Query embedded: 1536 dims
+[STREAM] Query domain: credentials
+[STREAM] Surfaced: secret_code (id=92, priority=0.51, tokens=11, total=45/500)
+[STREAM] Query embedded: 1536 dims
+[STREAM] Query domain: credentials
+[STREAM] Surfaced: rate_limit (id=96, priority=0.50, tokens=8, total=53/500)
+[STREAM] Query embedded: 1536 dims
+[STREAM] Query domain: credentials
+[STREAM] Surfaced: file_name (id=94, priority=0.50, tokens=13, total=66/500)
+[STREAM] Query embedded: 1536 dims
+[STREAM] Query domain: credentials
+[STREAM] Surfaced: architecture (id=83, priority=0.50, tokens=13, total=79/500)
+[FORMAT] Added: 3600s (id=98)
+[FORMAT] Added: Marcus Chen (id=97)
+[FORMAT] Added: 250 (id=99)
+[FORMAT] Added: 30s (id=100)
+[FORMAT] Added: tenant_affinity (id=92)
+[FORMAT] Added: 10000 (id=96)
+[FORMAT] Added: fibonacci_calculator.py (id=94)
+[FORMAT] Added: air-gapped HPC cluster (id=83)
+[STREAM] 8 nodes (79 tokens) surfaced for 14B
+[STREAM] Context: [FACTS]
+3600s
+Marcus Chen
+250
+30s
+tenant_affinity
+10000
+fibonacci_calculator.py
+air-gapped HPC cluster
+[/FACTS]
+...

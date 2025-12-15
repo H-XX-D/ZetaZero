@@ -1,0 +1,22 @@
+\n== Health check ==
+{"status": "ok", "version": "5.0", "parallel_3b": true, "graph_nodes": 78, "graph_edges": 118}\n== Open project ==
+{"status": "ok", "project_id": "proj_7c9279a905169b3f", "name": "SeniorTest", "mode": "code"}\n== Prompt 1: CRDT platform ==
+curl: (52) Empty reply from server
+fail
+\n== Prompt 2: Pivot to HPC ==
+curl: (7) Failed to connect to localhost port 9000: Connection refused
+fail
+\n== Prompt 3: Edge migration ==
+curl: (7) Failed to connect to localhost port 9000: Connection refused
+fail
+\n== Adversarial prompt 1 ==
+curl: (7) Failed to connect to localhost port 9000: Connection refused
+fail
+\n== Adversarial prompt 2 ==
+curl: (7) Failed to connect to localhost port 9000: Connection refused
+fail
+\n== Summary prompt ==
+curl: (7) Failed to connect to localhost port 9000: Connection refused
+fail
+\n== Test complete ==
+log saved at /home/xx/logs/senior_test_1765826842.log

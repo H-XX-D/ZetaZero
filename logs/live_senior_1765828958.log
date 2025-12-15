@@ -1,0 +1,31 @@
+
+===== Health check =====
+{"status": "ok", "version": "5.0", "parallel_3b": true, "graph_nodes": 100, "graph_edges": 145}
+===== Prompt 1: CRDT platform (400 tok) =====
+OUTPUT: {"output": "\n<|im_start|>", "tokens": 2, "momentum": 0.868, "graph_nodes": 101, "graph_edges": 146}
+
+===== Direction change HPC (256 tok) =====
+OUTPUT: {"output": ", 3600s execution time. To achieve this goal, we need to set up an air-gapped HPC cluster and configure it f
+
+===== Graceful shutdown =====
+{"status": "shutting_down"}down
+
+===== Restart =====
+{"status": "ok", "version": "5.0", "parallel_3b": true, "graph_nodes": 102, "graph_edges": 163}
+===== Post-restart refactor (256 tok) =====
+OUTPUT: {"output": " and pivot.\n<|im_start|>", "tokens": 4, "momentum": 0.783, "graph_nodes": 103, "graph_edges": 164}
+
+===== Forced crash via SIGSEGV =====
+Sent SIGSEGV to 174022
+bash: line 36: 174022 Segmentation fault      (core dumped) nohup ./build/bin/llama-zeta-server -m $HOME/models/qwen2.5-7b-coder-q4_k_m.gguf --model-3b $HOME/models/qwen2.5-7b-coder-q4_k_m.gguf --embed-model $HOME/models/Qwen3-Embedding-4B-Q4_K_M.gguf --storage /mnt/HoloGit/blocks --port 9000 -ngl 99 > $LOGDIR/restart1.log 2>&1
+down after crash
+
+===== Restart after crash =====
+{"status": "ok", "version": "5.0", "parallel_3b": true, "graph_nodes": 103, "graph_edges": 164}
+===== Final validation prompt (200 tok) =====
+OUTPUT: {"output": ", focusing on lessons related to the GoKitHTTPTransportWithCircuitBreaker and Pivot. How did these component
+
+===== Graph hash =====
+5dcb22fede05176e9366d66584e999a87419a59243327ffda52d14584033d4e0  /mnt/HoloGit/blocks/graph.bin
+
+===== Test complete; log stored at /home/xx/logs/live_senior_1765828958.log =====
