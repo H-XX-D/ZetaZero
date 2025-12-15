@@ -1,0 +1,24 @@
+ZetaZero Dual License
+
+SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-ZetaZero-Commercial
+
+This repository is dual-licensed. You may choose either:
+
+1) GNU Affero General Public License v3.0 or later (AGPL-3.0-or-later)
+   - See: https://www.gnu.org/licenses/agpl-3.0.txt
+
+OR
+
+2) ZetaZero Commercial License
+   - See: COMMERCIAL_LICENSE.md
+
+Enterprise revenue threshold (commercial licensing)
+- If your company (or affiliates) has annual gross revenue greater than USD $2,000,000 and you use ZetaZero to develop, offer, or operate revenue-generating products or services, you must contact the Licensor (todd@hendrixxdesign.com) to obtain an enterprise commercial license. See: COMMERCIAL_LICENSE.md
+
+Scope / Third-party code
+- This dual license applies only to copyrightable material that is part of the ZetaZero project and owned by the ZetaZero copyright holders.
+- Third-party components included in this repository (for example the `llama.cpp/` subtree and any vendored dependencies) remain under their original licenses.
+  See: THIRD_PARTY_NOTICES.md and license files within those components.
+
+Contributions
+- By contributing, you agree your contribution is licensed under the terms in CONTRIBUTING.md.
