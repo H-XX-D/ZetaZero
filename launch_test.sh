@@ -19,7 +19,7 @@ export CUDA_VISIBLE_DEVICES=0
 nohup "$SERVER" \
     -m "$MODEL_14B" \
     --model-3b "$MODEL_3B" \
-    --model-embed "$MODEL_EMBED" \
+    --embed-model "$MODEL_EMBED" \
     --port 9000 \
     --storage "$STORAGE" \
     --ctx-size 4096 \

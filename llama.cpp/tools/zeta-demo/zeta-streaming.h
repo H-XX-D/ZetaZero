@@ -18,8 +18,8 @@
 // This header must be included AFTER zeta-dual-process.h
 
 // Token budget for 3B context window
-#define ZETA_TOKEN_BUDGET 200      // Conservative: leave room for prompt
-#define ZETA_MAX_ACTIVE_NODES 3    // Max nodes in active context at once
+#define ZETA_TOKEN_BUDGET 500      // Conservative: leave room for prompt
+#define ZETA_MAX_ACTIVE_NODES 8    // Max nodes in active context at once
 #define ZETA_EVICTION_THRESHOLD 0.1f  // Lowered to allow new nodes  // Below this momentum = immediate evict
 
 typedef struct {
