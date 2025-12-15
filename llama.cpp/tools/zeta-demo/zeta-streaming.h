@@ -18,8 +18,9 @@
 // This header must be included AFTER zeta-dual-process.h
 
 // Token budget for 3B context window
-#define ZETA_TOKEN_BUDGET 600      // Increased for larger memory window
-#define ZETA_MAX_ACTIVE_NODES 6    // Allow more active nodes
+extern int g_stream_token_budget;      // default 600
+extern int g_stream_max_nodes;         // default 6
+#define ZETA_STREAM_CAPACITY 32        // Hard limit for array allocation
 #define ZETA_EVICTION_THRESHOLD 0.1f  // Lowered to allow new nodes  // Below this momentum = immediate evict
 
 typedef struct {
@@ -30,7 +31,7 @@ typedef struct {
 } zeta_active_node_t;
 
 typedef struct {
-    zeta_active_node_t active[ZETA_MAX_ACTIVE_NODES];
+    zeta_active_node_t active[ZETA_STREAM_CAPACITY];
     int num_active;
     int total_tokens;
     int64_t last_hop_from;  // For graph hop continuation
@@ -96,9 +97,9 @@ static inline zeta_graph_node_t* zeta_stream_surface_one(
     if (!ctx || !state) return NULL;
     
     // Check token budget
-    if (state->total_tokens >= ZETA_TOKEN_BUDGET) {
+    if (state->total_tokens >= g_stream_token_budget) {
         fprintf(stderr, "[STREAM] Token budget exhausted (%d/%d)\n", 
-                state->total_tokens, ZETA_TOKEN_BUDGET);
+                state->total_tokens, g_stream_token_budget);
         return NULL;
     }
     
@@ -166,7 +167,7 @@ static inline zeta_graph_node_t* zeta_stream_surface_one(
         
         // Check if fits in remaining budget
         int tokens = zeta_estimate_tokens(node);
-        if (state->total_tokens + tokens > ZETA_TOKEN_BUDGET) continue;
+        if (state->total_tokens + tokens > g_stream_token_budget) continue;
         
         if (priority > best_priority) {
             best_priority = priority;
@@ -177,7 +178,7 @@ static inline zeta_graph_node_t* zeta_stream_surface_one(
     if (best_idx < 0) return NULL;
     
     // Safety: ensure we don't exceed array bounds
-    if (state->num_active >= ZETA_MAX_ACTIVE_NODES) {
+    if (state->num_active >= g_stream_max_nodes || state->num_active >= ZETA_STREAM_CAPACITY) {
         return NULL; // cannot add more nodes without risking overflow
     }
 
@@ -185,7 +186,7 @@ static inline zeta_graph_node_t* zeta_stream_surface_one(
     zeta_graph_node_t* node = &ctx->nodes[best_idx];
     int tokens = zeta_estimate_tokens(node);
     
-    if (state->num_active < ZETA_MAX_ACTIVE_NODES) {
+    if (state->num_active < g_stream_max_nodes && state->num_active < ZETA_STREAM_CAPACITY) {
         state->active[state->num_active].node_id = node->node_id;
         state->active[state->num_active].priority = best_priority;
         state->active[state->num_active].tokens_consumed = tokens;
@@ -194,7 +195,7 @@ static inline zeta_graph_node_t* zeta_stream_surface_one(
         state->total_tokens += tokens;
         
         fprintf(stderr, "[STREAM] Surfaced: %s (id=%lld, priority=%.2f, tokens=%d, total=%d/%d)\n",
-                node->label, (long long)node->node_id, best_priority, tokens, state->total_tokens, ZETA_TOKEN_BUDGET);
+                node->label, (long long)node->node_id, best_priority, tokens, state->total_tokens, g_stream_token_budget);
     }
     
     return node;

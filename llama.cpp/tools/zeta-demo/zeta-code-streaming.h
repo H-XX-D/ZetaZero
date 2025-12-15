@@ -16,8 +16,9 @@
 #include <stdio.h>
 #include "zeta-code-mode.h"
 
-#define CODE_TOKEN_BUDGET    900   // Increased budget for code context
-#define CODE_MAX_NODES       10    // Allow more code entities to surface
+extern int g_code_token_budget;      // default 900
+extern int g_code_max_nodes;         // default 10
+#define CODE_STREAM_CAPACITY 32      // Hard limit for array allocation
 #define CODE_RECENCY_BOOST   0.3f  // Boost for recently accessed
 
 typedef struct {
@@ -27,7 +28,7 @@ typedef struct {
     bool served;
 } zeta_code_active_node_t;
 
-static zeta_code_active_node_t g_code_active[CODE_MAX_NODES];
+static zeta_code_active_node_t g_code_active[CODE_STREAM_CAPACITY];
 static int g_code_active_count = 0;
 
 // Calculate priority for a code node based on query relevance
@@ -123,7 +124,7 @@ static inline zeta_code_node_t* zeta_code_stream_surface(
     if (*tokens_used + tokens > token_budget) return NULL;
     
     // Add to active list
-    if (g_code_active_count < CODE_MAX_NODES) {
+    if (g_code_active_count < g_code_max_nodes && g_code_active_count < CODE_STREAM_CAPACITY) {
         g_code_active[g_code_active_count].node_id = best_node->node_id;
         g_code_active[g_code_active_count].priority = best_priority;
         g_code_active[g_code_active_count].tokens_consumed = tokens;
@@ -157,8 +158,8 @@ static inline int zeta_code_stream_format(
     // Surface code nodes
     g_code_active_count = 0;  // Reset for new query
     
-    while (tokens_used < CODE_TOKEN_BUDGET) {
-        zeta_code_node_t* node = zeta_code_stream_surface(ctx, query, &tokens_used, CODE_TOKEN_BUDGET);
+    while (tokens_used < g_code_token_budget) {
+        zeta_code_node_t* node = zeta_code_stream_surface(ctx, query, &tokens_used, g_code_token_budget);
         if (!node) break;
         
         const char* type_str = "entity";

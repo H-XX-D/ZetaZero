@@ -59,3 +59,7 @@ swift run ZetaCLI model.gguf "The capital of France is" 10
 ## License
 
 Proprietary - All rights reserved
+
+---
+
+Z.E.T.A.™ | Patent Pending | © 2025 All rights reserved.

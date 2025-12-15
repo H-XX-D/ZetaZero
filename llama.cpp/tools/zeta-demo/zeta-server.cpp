@@ -59,6 +59,12 @@ static bool g_3b_worker_running = false;
 // Streaming memory state - reactive context management
 static zeta_stream_state_t g_stream_state;
 
+// Streaming configuration defaults
+int g_stream_token_budget = 600;
+int g_stream_max_nodes    = 6;
+int g_code_token_budget   = 900;
+int g_code_max_nodes      = 10;
+
 static std::atomic<bool> g_shutdown_requested{false};
 static std::atomic<time_t> g_last_activity{0};
 static std::thread g_idle_watchdog;
@@ -174,7 +180,7 @@ static std::string generate(const std::string& prompt, int max_tokens) {
     if (g_dual) {
         // Surface nodes one at a time until budget exhausted or no more quality nodes
         int surfaced_count = 0;
-        while (surfaced_count < ZETA_MAX_ACTIVE_NODES) {
+        while (surfaced_count < g_stream_max_nodes) {
             zeta_graph_node_t* node = zeta_stream_surface_one(
                 g_dual, &g_stream_state, prompt.c_str(), 0.5f
             );
@@ -475,9 +481,15 @@ int main(int argc, char** argv) {
         else if (strcmp(argv[i], "--zeta-storage") == 0 && i+1 < argc) g_storage_dir = argv[++i];
         else if (strcmp(argv[i], "--embed-model") == 0 && i+1 < argc) g_embed_model_path = argv[++i];
         else if (strcmp(argv[i], "--embed-model-code") == 0 && i+1 < argc) g_embed_model_code_path = argv[++i];
+        else if (strcmp(argv[i], "--stream-tokens") == 0 && i+1 < argc) g_stream_token_budget = atoi(argv[++i]);
+        else if (strcmp(argv[i], "--stream-nodes") == 0 && i+1 < argc) g_stream_max_nodes = atoi(argv[++i]);
+        else if (strcmp(argv[i], "--code-tokens") == 0 && i+1 < argc) g_code_token_budget = atoi(argv[++i]);
+        else if (strcmp(argv[i], "--code-nodes") == 0 && i+1 < argc) g_code_max_nodes = atoi(argv[++i]);
     }
     
     fprintf(stderr, "Z.E.T.A. Server v5.0 (Parallel Dual-Process)\n");
+    fprintf(stderr, "Streaming budget: %d tokens, %d nodes\n", g_stream_token_budget, g_stream_max_nodes);
+    fprintf(stderr, "Code budget:      %d tokens, %d nodes\n", g_code_token_budget, g_code_max_nodes);
     fprintf(stderr, "14B Conscious: %s\n", model_14b_path.c_str());
     fprintf(stderr, "3B Subconscious: %s\n", model_3b_path.empty() ? "(pattern-based)" : model_3b_path.c_str());
     fprintf(stderr, "Port: %d\n", port);
@@ -562,7 +574,7 @@ int main(int argc, char** argv) {
         std::string prompt;
         std::string mode = "chat";
         std::string project_id;
-        int max_tokens = 100;
+        int max_tokens = 2048;  // Increased default from 100
         
         // Try JSON body first
             // Parse mode

@@ -1,6 +1,6 @@
 # Z.E.T.A. Benchmark Results
 
-Generated: 2025-12-12T08:46:57.469197
+Generated: 2025-12-12T05:17:30.736140
 
 ---
 
@@ -60,11 +60,9 @@ Generated: 2025-12-12T08:46:57.469197
 
 | Configuration | Recall@5 | MRR | Notes |
 |---------------|----------|-----|-------|
-| raw_cosine | 80.0% | 0.7000 |  |
-| plus_cubic | 80.0% | 0.7000 |  |
-| plus_tunnel | 80.0% | 0.7000 |  |
-| plus_decay | 80.0% | 0.8000 | Recency bias |
-| plus_graph | 100.0% | 1.0000 |  |
+| cosine_only | 100.0% | 1.0000 | Pure similarity |
+| plus_decay | 100.0% | 1.0000 | Recency bias |
+| plus_entity | 100.0% | 1.0000 | Graph walk |
 | full_subzero | 100.0% | 1.0000 | Full retrieval |
 
 

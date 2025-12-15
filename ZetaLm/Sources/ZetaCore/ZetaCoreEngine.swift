@@ -11,13 +11,16 @@ public final class ZetaCoreEngine {
     private let commandQueue: MTLCommandQueue
     private let library: MTLLibrary
 
-    // MARK: - Compute Pipelines
+    // MARK: - Compute Pipelines (Core)
     private var q4MatMulPipeline: MTLComputePipelineState!
     private var f32MatMulPipeline: MTLComputePipelineState!
     private var q6kDequantPipeline: MTLComputePipelineState!
     private var rmsnormPipeline: MTLComputePipelineState!
+    private var rmsnormParallelPipeline: MTLComputePipelineState!  // Optimized parallel version
     private var ropePipeline: MTLComputePipelineState!
+    private var ropeLutPipeline: MTLComputePipelineState!          // Optimized RoPE with precomputed frequencies
     private var softmaxPipeline: MTLComputePipelineState!
+    private var softmaxParallelPipeline: MTLComputePipelineState!  // Optimized parallel softmax
     private var swigluPipeline: MTLComputePipelineState!
     private var addPipeline: MTLComputePipelineState!
     private var embeddingPipeline: MTLComputePipelineState!
@@ -25,6 +28,19 @@ public final class ZetaCoreEngine {
     private var attnOutputPipeline: MTLComputePipelineState!
     private var copyPipeline: MTLComputePipelineState!
     private var q4DequantPipeline: MTLComputePipelineState!
+
+    // MARK: - Compute Pipelines (Z.E.T.A. Features)
+    private var entanglementPipeline: MTLComputePipelineState!      // F3: ReLU(cos)³
+    private var semanticMomentumPipeline: MTLComputePipelineState!  // F4: q + γ(q - q_prev)
+    private var memoryAccumulatePipeline: MTLComputePipelineState!  // F5: Superposition
+    private var kvSummarizePipeline: MTLComputePipelineState!       // F6: Sublimation prep
+    private var argmaxPipeline: MTLComputePipelineState!            // GPU sampling
+
+    // MARK: - Sampling Buffer
+    private var argmaxResultBuffer: MTLBuffer?
+
+    // MARK: - Precomputed LUTs
+    private var ropeFreqLUT: MTLBuffer?  // Precomputed RoPE frequencies [head_dim/2]
 
     // MARK: - Model State
     private var model: ZetaModel?
@@ -45,6 +61,22 @@ public final class ZetaCoreEngine {
     public private(set) var maxContextLength: Int = 4096
     private var rmsNormEps: Float = 1e-5
     private var ropeTheta: Float = 10000.0
+
+    // MARK: - Z.E.T.A. Features
+    /// Feature 1: Temporal Decay rate λ - controls how much older tokens are down-weighted
+    /// Z(t) = Z₀ · e^(-λt) where t = distance from current position
+    /// Default 0.1 = gentle decay, 0.0 = disabled, higher = stronger recency bias
+    public var temporalLambda: Float = 0.1
+
+    /// Feature 2: Tunneling Gate threshold τ - creates sparse attention
+    /// Scores below τ are set to -∞ (become 0 after softmax)
+    /// Default 0.0 = disabled, positive values enable sparsification
+    public var tunnelingTau: Float = 0.0
+
+    /// Feature 4: Semantic Momentum coefficient γ
+    /// I(t) = q + γ(q - q_prev) - predicts semantic drift direction
+    /// Default 0.5 = moderate momentum, 0.0 = disabled
+    public var momentumGamma: Float = 0.5
 
     // MARK: - Init
     public init() throws {
@@ -97,12 +129,16 @@ public final class ZetaCoreEngine {
 
     // MARK: - Pipeline Setup
     private func loadPipelines() throws {
+        // Core inference pipelines
         q4MatMulPipeline = try makePipeline("zeta_q4_matmul")
         f32MatMulPipeline = try makePipeline("zeta_f32_matmul")
         q6kDequantPipeline = try makePipeline("zeta_q6k_dequant")
         rmsnormPipeline = try makePipeline("zeta_rmsnorm")
+        rmsnormParallelPipeline = try makePipeline("zeta_rmsnorm_parallel")
         ropePipeline = try makePipeline("zeta_rope")
+        ropeLutPipeline = try makePipeline("zeta_rope_lut")
         softmaxPipeline = try makePipeline("zeta_softmax")
+        softmaxParallelPipeline = try makePipeline("zeta_softmax_parallel")
         swigluPipeline = try makePipeline("zeta_swiglu")
         addPipeline = try makePipeline("zeta_add")
         embeddingPipeline = try makePipeline("zeta_embedding")
@@ -110,6 +146,19 @@ public final class ZetaCoreEngine {
         attnOutputPipeline = try makePipeline("zeta_attn_output")
         copyPipeline = try makePipeline("zeta_copy")
         q4DequantPipeline = try makePipeline("zeta_q4_dequant")
+
+        // Z.E.T.A. Feature pipelines
+        entanglementPipeline = try makePipeline("zeta_entanglement")
+        semanticMomentumPipeline = try makePipeline("zeta_semantic_momentum")
+        memoryAccumulatePipeline = try makePipeline("zeta_memory_accumulate")
+        kvSummarizePipeline = try makePipeline("zeta_kv_summarize")
+
+        // Sampling pipeline
+        argmaxPipeline = try makePipeline("zeta_argmax")
+
+        // Allocate argmax result buffer (single uint32)
+        argmaxResultBuffer = device.makeBuffer(length: 4, options: .storageModeShared)
+
         print("✅ All compute pipelines loaded")
     }
 
@@ -145,6 +194,9 @@ public final class ZetaCoreEngine {
         try prepareEmbeddingBuffer()
         try prepareOutputProjBuffer()
 
+        // Precompute RoPE frequency LUT (avoids pow() per token)
+        try prepareRoPEFrequencyLUT()
+
         print("✅ Model loaded: \(nLayers) layers, dim=\(dim), vocab=\(vocabSize)")
     }
 
@@ -172,6 +224,26 @@ public final class ZetaCoreEngine {
 
         let totalElements = dim * vocabSize
         self.outputProjBuffer = try dequantizeWeight(weightBuf, type: weightType, totalElements: totalElements, name: "output.weight")
+    }
+
+    /// Precompute RoPE frequency LUT: freq[i] = 1.0 / pow(theta, 2i / head_dim)
+    /// This eliminates the expensive pow() call in every RoPE kernel invocation
+    private func prepareRoPEFrequencyLUT() throws {
+        let halfDim = headDim / 2
+        guard let lutBuffer = device.makeBuffer(length: halfDim * MemoryLayout<Float>.size, options: .storageModeShared) else {
+            throw ZetaError.bufferAllocationFailed
+        }
+
+        // Precompute frequencies on CPU (only done once at model load)
+        let freqPtr = lutBuffer.contents().bindMemory(to: Float.self, capacity: halfDim)
+        for i in 0..<halfDim {
+            // freq[i] = 1.0 / theta^(2i / head_dim)
+            let exponent = Float(i * 2) / Float(headDim)
+            freqPtr[i] = 1.0 / pow(ropeTheta, exponent)
+        }
+
+        self.ropeFreqLUT = lutBuffer
+        print("✅ Precomputed RoPE frequency LUT (\(halfDim) entries)")
     }
 
     /// Helper to dequantize any weight to F32
@@ -230,8 +302,40 @@ public final class ZetaCoreEngine {
         }
     }
 
+    // MARK: - Benchmark Results
+    public struct BenchmarkResults {
+        public let promptTokens: Int
+        public let generatedTokens: Int
+        public let prefillTimeMs: Double
+        public let generateTimeMs: Double
+        public let ttftMs: Double              // Time to first token
+        public let tokensPerSecond: Double
+        public let output: String
+
+        public var summary: String {
+            """
+            ┌─────────────────────────────────────┐
+            │       Z.E.T.A. Benchmark Results    │
+            ├─────────────────────────────────────┤
+            │ Prompt tokens:    \(String(format: "%6d", promptTokens))            │
+            │ Generated tokens: \(String(format: "%6d", generatedTokens))            │
+            │ TTFT:             \(String(format: "%6.1f", ttftMs)) ms         │
+            │ Prefill:          \(String(format: "%6.1f", prefillTimeMs)) ms         │
+            │ Generation:       \(String(format: "%6.1f", generateTimeMs)) ms         │
+            │ Throughput:       \(String(format: "%6.2f", tokensPerSecond)) tok/s     │
+            └─────────────────────────────────────┘
+            """
+        }
+    }
+
     // MARK: - Inference
     public func generate(prompt: String, maxTokens: Int = 100) throws -> String {
+        let results = try generateWithBenchmark(prompt: prompt, maxTokens: maxTokens, silent: false)
+        return results.output
+    }
+
+    /// Generate with timing metrics
+    public func generateWithBenchmark(prompt: String, maxTokens: Int = 100, silent: Bool = false) throws -> BenchmarkResults {
         guard let model = self.model, let _ = self.buffers else {
             throw ZetaError.modelNotLoaded
         }
@@ -239,25 +343,109 @@ public final class ZetaCoreEngine {
         let tokens = model.tokenizer.encode(prompt)
         var outputTokens: [Int] = []
 
-        // Prefill
-        for (pos, token) in tokens.enumerated() {
-            try forward(token: token, position: pos)
-        }
+        // Prefill timing - OPTIMIZED: batch all tokens into single command buffer
+        let prefillStart = CFAbsoluteTimeGetCurrent()
+        try batchPrefill(tokens: tokens)
+        let prefillEnd = CFAbsoluteTimeGetCurrent()
+        let prefillTimeMs = (prefillEnd - prefillStart) * 1000.0
 
-        // Generate
+        // Generate timing
         var pos = tokens.count
+        var ttftMs: Double = 0.0
+        let generateStart = CFAbsoluteTimeGetCurrent()
+
         var nextToken = try sampleNext()
+
+        // TTFT = time from generate start to first token
+        let firstTokenTime = CFAbsoluteTimeGetCurrent()
+        ttftMs = (firstTokenTime - generateStart) * 1000.0
 
         while outputTokens.count < maxTokens && nextToken != model.tokenizer.eosToken {
             outputTokens.append(nextToken)
-            print(" → \(model.tokenizer.decode([nextToken]))", terminator: "")
+            if !silent {
+                print(" → \(model.tokenizer.decode([nextToken]))", terminator: "")
+                fflush(stdout)
+            }
             try forward(token: nextToken, position: pos)
             pos += 1
             nextToken = try sampleNext()
         }
-        print()
+        if !silent { print() }
 
-        return model.tokenizer.decode(outputTokens)
+        let generateEnd = CFAbsoluteTimeGetCurrent()
+        let generateTimeMs = (generateEnd - generateStart) * 1000.0
+
+        // Calculate tokens per second (generation phase only)
+        let tokensPerSecond = generateTimeMs > 0 ? Double(outputTokens.count) / (generateTimeMs / 1000.0) : 0.0
+
+        return BenchmarkResults(
+            promptTokens: tokens.count,
+            generatedTokens: outputTokens.count,
+            prefillTimeMs: prefillTimeMs,
+            generateTimeMs: generateTimeMs,
+            ttftMs: ttftMs,
+            tokensPerSecond: tokensPerSecond,
+            output: model.tokenizer.decode(outputTokens)
+        )
+    }
+
+    // MARK: - Batch Prefill (OPTIMIZED)
+    /// Encode all prompt tokens into a single command buffer
+    /// Reduces command buffer overhead from O(n) to O(1)
+    private func batchPrefill(tokens: [Int]) throws {
+        guard let model = self.model, let buffers = self.buffers else {
+            throw ZetaError.modelNotLoaded
+        }
+
+        let cb = commandQueue.makeCommandBuffer()!
+        let enc = cb.makeComputeCommandEncoder()!
+
+        // Encode all prompt tokens sequentially into single command buffer
+        for (pos, token) in tokens.enumerated() {
+            // 1. Embedding lookup
+            encodeEmbedding(enc, token: token, output: buffers.x)
+
+            // 2. Transformer layers
+            for layer in 0..<nLayers {
+                // Attention block
+                if let normWeight = model.weights["blk.\(layer).attn_norm.weight"] {
+                    encodeRMSNorm(enc, input: buffers.x, weight: normWeight, output: buffers.xb)
+                }
+
+                encodeQKVProjection(enc, input: buffers.xb, layer: layer)
+                encodeRoPE(enc, position: pos)
+                encodeKVCacheStore(enc, layer: layer, position: pos)
+                encodeAttention(enc, layer: layer, position: pos)
+
+                if let outWeight = model.weights["blk.\(layer).attn_output.weight"] {
+                    encodeMatmul(enc, input: buffers.attnOut, weight: outWeight,
+                                weightType: model.weightTypes["blk.\(layer).attn_output.weight"] ?? .Q4_0,
+                                output: buffers.xb2, inDim: dim, outDim: dim)
+                }
+                encodeAdd(enc, a: buffers.x, b: buffers.xb2, output: buffers.x)
+
+                // FFN block
+                if let ffnNorm = model.weights["blk.\(layer).ffn_norm.weight"] {
+                    encodeRMSNorm(enc, input: buffers.x, weight: ffnNorm, output: buffers.xb)
+                }
+                encodeFFN(enc, input: buffers.xb, layer: layer, output: buffers.ffnOut)
+                encodeAdd(enc, a: buffers.x, b: buffers.ffnOut, output: buffers.x)
+            }
+        }
+
+        // Final norm + output projection (only for last token)
+        if let outNorm = model.weights["output_norm.weight"] {
+            encodeRMSNorm(enc, input: buffers.x, weight: outNorm, output: buffers.xb)
+        }
+
+        if let outProjBuf = outputProjBuffer {
+            encodeMatmul(enc, input: buffers.xb, weight: outProjBuf,
+                        weightType: .F32, output: buffers.logits, inDim: dim, outDim: vocabSize)
+        }
+
+        enc.endEncoding()
+        cb.commit()
+        cb.waitUntilCompleted()
     }
 
     // MARK: - Forward Pass
@@ -316,21 +504,37 @@ public final class ZetaCoreEngine {
     }
 
     // MARK: - Sampling
+    /// GPU-accelerated argmax sampling
     private func sampleNext() throws -> Int {
-        guard let buffers = self.buffers else { throw ZetaError.modelNotLoaded }
-
-        let ptr = buffers.logits.contents().bindMemory(to: Float.self, capacity: vocabSize)
-        var maxIdx = 0
-        var maxVal = ptr[0]
-
-        for i in 1..<vocabSize {
-            if ptr[i] > maxVal {
-                maxVal = ptr[i]
-                maxIdx = i
-            }
+        guard let buffers = self.buffers,
+              let resultBuf = argmaxResultBuffer else {
+            throw ZetaError.modelNotLoaded
         }
 
-        return maxIdx
+        let cb = commandQueue.makeCommandBuffer()!
+        let enc = cb.makeComputeCommandEncoder()!
+
+        enc.setComputePipelineState(argmaxPipeline)
+        enc.setBuffer(buffers.logits, offset: 0, index: 0)
+        enc.setBuffer(resultBuf, offset: 0, index: 1)
+        var vocabU = UInt32(vocabSize)
+        enc.setBytes(&vocabU, length: 4, index: 2)
+
+        // Threadgroup memory for parallel reduction
+        let threadgroupSize = 256
+        enc.setThreadgroupMemoryLength(threadgroupSize * MemoryLayout<Float>.size, index: 0)  // shared_max
+        enc.setThreadgroupMemoryLength(threadgroupSize * MemoryLayout<UInt32>.size, index: 1) // shared_idx
+
+        enc.dispatchThreadgroups(MTLSize(width: 1, height: 1, depth: 1),
+                                threadsPerThreadgroup: MTLSize(width: threadgroupSize, height: 1, depth: 1))
+
+        enc.endEncoding()
+        cb.commit()
+        cb.waitUntilCompleted()
+
+        // Read result from GPU buffer
+        let resultPtr = resultBuf.contents().bindMemory(to: UInt32.self, capacity: 1)
+        return Int(resultPtr[0])
     }
 
     // MARK: - Kernel Encoders
@@ -351,8 +555,9 @@ public final class ZetaCoreEngine {
     }
 
     /// RMSNorm: out = x * rsqrt(mean(x^2) + eps) * weight
+    /// OPTIMIZED: Uses parallel threadgroup reduction
     private func encodeRMSNorm(_ enc: MTLComputeCommandEncoder, input: MTLBuffer, weight: MTLBuffer, output: MTLBuffer) {
-        enc.setComputePipelineState(rmsnormPipeline)
+        enc.setComputePipelineState(rmsnormParallelPipeline)
         enc.setBuffer(input, offset: 0, index: 0)
         enc.setBuffer(weight, offset: 0, index: 1)
         enc.setBuffer(output, offset: 0, index: 2)
@@ -360,9 +565,12 @@ public final class ZetaCoreEngine {
         var eps = rmsNormEps
         enc.setBytes(&dimU, length: 4, index: 3)
         enc.setBytes(&eps, length: 4, index: 4)
-        // Single thread for simple implementation
-        enc.dispatchThreads(MTLSize(width: 1, height: 1, depth: 1),
-                           threadsPerThreadgroup: MTLSize(width: 1, height: 1, depth: 1))
+
+        // Parallel reduction with 256 threads per threadgroup
+        let threadgroupSize = 256
+        enc.setThreadgroupMemoryLength(threadgroupSize * MemoryLayout<Float>.size, index: 0)
+        enc.dispatchThreadgroups(MTLSize(width: 1, height: 1, depth: 1),
+                                threadsPerThreadgroup: MTLSize(width: threadgroupSize, height: 1, depth: 1))
     }
 
     /// Q, K, V projections
@@ -393,23 +601,22 @@ public final class ZetaCoreEngine {
         }
     }
 
-    /// Rotary Position Embedding
+    /// Rotary Position Embedding - OPTIMIZED with precomputed frequency LUT
     private func encodeRoPE(_ enc: MTLComputeCommandEncoder, position: Int) {
-        guard let buffers = self.buffers else { return }
+        guard let buffers = self.buffers, let freqLUT = ropeFreqLUT else { return }
 
-        enc.setComputePipelineState(ropePipeline)
+        enc.setComputePipelineState(ropeLutPipeline)
         enc.setBuffer(buffers.q, offset: 0, index: 0)
         enc.setBuffer(buffers.k, offset: 0, index: 1)
+        enc.setBuffer(freqLUT, offset: 0, index: 2)  // Precomputed frequencies
         var headDimU = UInt32(headDim)
         var nHeadsU = UInt32(nHeads)
         var nKVHeadsU = UInt32(nKVHeads)
         var posU = UInt32(position)
-        var theta = ropeTheta
-        enc.setBytes(&headDimU, length: 4, index: 2)
-        enc.setBytes(&nHeadsU, length: 4, index: 3)
-        enc.setBytes(&nKVHeadsU, length: 4, index: 4)
-        enc.setBytes(&posU, length: 4, index: 5)
-        enc.setBytes(&theta, length: 4, index: 6)
+        enc.setBytes(&headDimU, length: 4, index: 3)
+        enc.setBytes(&nHeadsU, length: 4, index: 4)
+        enc.setBytes(&nKVHeadsU, length: 4, index: 5)
+        enc.setBytes(&posU, length: 4, index: 6)
         enc.dispatchThreads(MTLSize(width: nHeads, height: 1, depth: 1),
                            threadsPerThreadgroup: MTLSize(width: min(nHeads, 32), height: 1, depth: 1))
     }
@@ -438,17 +645,15 @@ public final class ZetaCoreEngine {
                            threadsPerThreadgroup: MTLSize(width: min(kvDim, 256), height: 1, depth: 1))
     }
 
-    /// Attention: scores = Q @ K^T, out = softmax(scores) @ V
+    /// Attention: scores = Q @ K^T + temporal_decay, out = softmax(scores) @ V
+    /// Z.E.T.A. Feature 1: Temporal Decay applied here
     private func encodeAttention(_ enc: MTLComputeCommandEncoder, layer: Int, position: Int) {
         guard let buffers = self.buffers else { return }
 
         let kvDim = nKVHeads * headDim
         let seqLen = position + 1
 
-        // For now, simplified single-position attention
-        // Full KV cache attention needs more buffers
-
-        // Compute attention scores
+        // Compute attention scores with Z.E.T.A. Temporal Decay
         enc.setComputePipelineState(attnScoresPipeline)
         enc.setBuffer(buffers.q, offset: 0, index: 0)
         enc.setBuffer(buffers.kvCacheK, offset: layer * maxContextLength * kvDim * 4, index: 1)
@@ -458,21 +663,31 @@ public final class ZetaCoreEngine {
         var nKVHeadsU = UInt32(nKVHeads)
         var seqLenU = UInt32(seqLen)
         var scale = 1.0 / sqrt(Float(headDim))
+        var lambda = temporalLambda      // Z.E.T.A. Feature 1: decay rate
+        var posU = UInt32(position)      // Z.E.T.A. Feature 1: current position
         enc.setBytes(&headDimU, length: 4, index: 3)
         enc.setBytes(&nHeadsU, length: 4, index: 4)
         enc.setBytes(&nKVHeadsU, length: 4, index: 5)
         enc.setBytes(&seqLenU, length: 4, index: 6)
         enc.setBytes(&scale, length: 4, index: 7)
+        var tau = tunnelingTau                       // Z.E.T.A. Feature 2: tunneling threshold
+        enc.setBytes(&lambda, length: 4, index: 8)   // Z.E.T.A. F1: temporal_lambda
+        enc.setBytes(&posU, length: 4, index: 9)     // Z.E.T.A. F1: current_pos
+        enc.setBytes(&tau, length: 4, index: 10)     // Z.E.T.A. F2: tunneling_tau
         enc.dispatchThreads(MTLSize(width: nHeads, height: seqLen, depth: 1),
                            threadsPerThreadgroup: MTLSize(width: min(nHeads, 8), height: min(seqLen, 8), depth: 1))
 
-        // Softmax per head
-        enc.setComputePipelineState(softmaxPipeline)
+        // Softmax per head - OPTIMIZED: parallel threadgroup reduction
+        enc.setComputePipelineState(softmaxParallelPipeline)
         enc.setBuffer(buffers.attnScores, offset: 0, index: 0)
         enc.setBytes(&seqLenU, length: 4, index: 1)
         enc.setBytes(&nHeadsU, length: 4, index: 2)
-        enc.dispatchThreads(MTLSize(width: nHeads, height: 1, depth: 1),
-                           threadsPerThreadgroup: MTLSize(width: min(nHeads, 32), height: 1, depth: 1))
+
+        // One threadgroup per head, 256 threads for parallel reduction
+        let softmaxThreadgroupSize = 256
+        enc.setThreadgroupMemoryLength(softmaxThreadgroupSize * MemoryLayout<Float>.size, index: 0)
+        enc.dispatchThreadgroups(MTLSize(width: nHeads, height: 1, depth: 1),
+                                threadsPerThreadgroup: MTLSize(width: softmaxThreadgroupSize, height: 1, depth: 1))
 
         // Attention output
         enc.setComputePipelineState(attnOutputPipeline)
