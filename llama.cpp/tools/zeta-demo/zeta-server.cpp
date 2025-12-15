@@ -26,7 +26,11 @@ extern "C" {
 #include "zeta-code-streaming.h"
 #include "zeta-streaming.h"
 #include "zeta-conflict.h"
+//MOVED: zeta-tools.h
 }
+
+// C++ tool system (must be outside extern C)
+#include "zeta-tools.h"
 
 // 14B Conscious model
 static llama_model* g_model_14b = nullptr;
@@ -44,7 +48,7 @@ static llama_model* g_model_3b_coder = nullptr;  // 3B Coder model
 static const llama_vocab* g_vocab = nullptr;
 static common_params g_params;
 static std::mutex g_mutex;
-static std::string g_embed_model_path;
+static std::string g_embed_model_path, g_embed_model_code_path;
 static std::string g_storage_dir = "/mnt/HoloGit/blocks";
 static int g_n_embd = 0;
 
@@ -74,6 +78,9 @@ static void zeta_apply_temporal_decay(zeta_dual_ctx_t* ctx) {
     }
 }
 
+// C++ tool system (must be outside extern C)
+#include "zeta-tools.h"
+
 
 
 // Idle decay function
@@ -87,6 +94,9 @@ static void idle_decay() {
     fprintf(stderr, "[IDLE] Applied temporal decay, restaged %d nodes\n", g_dual->num_nodes);
 }
 
+// C++ tool system (must be outside extern C)
+#include "zeta-tools.h"
+
 
 // Watchdog thread
 static void idle_watchdog_thread() {
@@ -99,6 +109,9 @@ static void idle_watchdog_thread() {
         }
     }
 }
+
+// C++ tool system (must be outside extern C)
+#include "zeta-tools.h"
 
 static httplib::Server* g_server = nullptr;
 
@@ -139,6 +152,9 @@ static float compute_momentum_from_logits(float* logits, int n_vocab) {
     
     return momentum;
 }
+
+// C++ tool system (must be outside extern C)
+#include "zeta-tools.h"
 
 static std::string generate(const std::string& prompt, int max_tokens) {
     std::lock_guard<std::mutex> lock(g_mutex);
@@ -256,6 +272,8 @@ static std::string generate(const std::string& prompt, int max_tokens) {
         if (llama_vocab_is_eog(g_vocab, tok)) break;
         
         output += piece;
+        // Stop on chat template tokens (prevents repetition)
+        if (strstr(piece, "<|im_start") || strstr(piece, "<|im_end")) break;
         
         // Prepare next
         common_batch_clear(batch);
@@ -312,6 +330,9 @@ static std::string generate(const std::string& prompt, int max_tokens) {
     return std::string(json);
 }
 
+// C++ tool system (must be outside extern C)
+#include "zeta-tools.h"
+
 static void consolidate_memory() {
     if (!g_dual || g_dual->num_nodes == 0) return;
     
@@ -331,6 +352,9 @@ static void consolidate_memory() {
     }
 }
 
+// C++ tool system (must be outside extern C)
+#include "zeta-tools.h"
+
 static void save_graph() {
     if (!g_dual || g_dual->num_nodes == 0) return;
     
@@ -349,6 +373,9 @@ static void save_graph() {
         fprintf(stderr, "[SAVE] ERROR: Could not open %s for writing\n", path);
     }
 }
+
+// C++ tool system (must be outside extern C)
+#include "zeta-tools.h"
 
 static void load_graph() {
     if (!g_dual) return;
@@ -384,6 +411,9 @@ static void load_graph() {
     }
 }
 
+// C++ tool system (must be outside extern C)
+#include "zeta-tools.h"
+
 static void signal_handler(int sig) {
     const char* sig_name = (sig == SIGTERM) ? "SIGTERM" : 
                            (sig == SIGINT)  ? "SIGINT"  : "SIGNAL";
@@ -392,6 +422,9 @@ static void signal_handler(int sig) {
     g_shutdown_requested = true;
     if (g_server) g_server->stop();
 }
+
+// C++ tool system (must be outside extern C)
+#include "zeta-tools.h"
 // Quiet log callback - filter tensor spam
 static void quiet_log_callback(enum ggml_log_level level, const char* text, void* user_data) {
     (void)user_data;
@@ -403,6 +436,14 @@ static void quiet_log_callback(enum ggml_log_level level, const char* text, void
         fprintf(stderr, "%s", text);
     }
 }
+
+// C++ tool system (must be outside extern C)
+#include "zeta-tools.h"
+
+
+
+// Tool confirmation callback - sends request to client
+
 
 
 int main(int argc, char** argv) {
@@ -416,20 +457,24 @@ int main(int argc, char** argv) {
     signal(SIGTERM, signal_handler);
     signal(SIGINT, signal_handler);
     
-    std::string model_14b_path, model_3b_path, model_3b_coder_path;
+    std::string model_14b_path, model_3b_path, model_3b_coder_path, model_7b_coder_path;
     int port = 9000;
     
     g_params.sampling.temp = 0.7f;
     g_params.sampling.top_p = 0.9f;
     g_params.sampling.top_k = 40;
+    g_params.sampling.penalty_repeat = 1.15f;
+    g_params.sampling.penalty_last_n = 64;
     
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-m") == 0 && i+1 < argc) model_14b_path = argv[++i];
         else if (strcmp(argv[i], "--model-3b") == 0 && i+1 < argc) model_3b_path = argv[++i];
         else if (strcmp(argv[i], "--model-3b-coder") == 0 && i+1 < argc) model_3b_coder_path = argv[++i];
+        else if (strcmp(argv[i], "--model-7b-coder") == 0 && i+1 < argc) model_7b_coder_path = argv[++i];
         else if (strcmp(argv[i], "--port") == 0 && i+1 < argc) port = atoi(argv[++i]);
         else if (strcmp(argv[i], "--zeta-storage") == 0 && i+1 < argc) g_storage_dir = argv[++i];
         else if (strcmp(argv[i], "--embed-model") == 0 && i+1 < argc) g_embed_model_path = argv[++i];
+        else if (strcmp(argv[i], "--embed-model-code") == 0 && i+1 < argc) g_embed_model_code_path = argv[++i];
     }
     
     fprintf(stderr, "Z.E.T.A. Server v5.0 (Parallel Dual-Process)\n");
@@ -493,7 +538,7 @@ int main(int argc, char** argv) {
         (g_storage_dir + "/code").c_str());
     if (g_code) fprintf(stderr, "[INIT] Code mode context initialized\n");
     // Set model paths for dynamic swapping
-    if (g_code) zeta_set_model_paths(g_code, model_3b_path.c_str(), model_3b_coder_path.c_str());
+    if (g_code) zeta_set_model_paths(g_code, model_3b_path.c_str(), model_3b_coder_path.c_str(), model_14b_path.c_str(), model_7b_coder_path.c_str(), g_embed_model_path.c_str(), g_embed_model_code_path.c_str());
     if (g_dual) {
         load_graph();  // Restore previous graph
         g_dual->current_session_id = (int64_t)time(NULL);
@@ -582,6 +627,105 @@ int main(int argc, char** argv) {
             g_dual ? g_dual->num_edges : 0);
         res.set_content(json, "application/json");
     });
+
+        
+    // ========================================================================
+    // TOOL SYSTEM ENDPOINTS
+    // ========================================================================
+
+    svr.Get("/tools", [](const httplib::Request&, httplib::Response& res) {
+        std::string schema = zeta_tools::get_tool_schema();
+        res.set_content(schema, "application/json");
+    });
+
+    svr.Get("/tools/describe", [](const httplib::Request&, httplib::Response& res) {
+        std::string desc = zeta_tools::get_tool_prompt();
+        char json[16384];
+        // Escape special chars in desc for JSON
+        std::string escaped_desc;
+        for (char c : desc) {
+            if (c == '\n') escaped_desc += "\\n";
+            else if (c == '\t') escaped_desc += "\\t";
+            else if (c == '"') escaped_desc += "\\\"";
+            else if (c == '\\') escaped_desc += "\\\\";
+            else escaped_desc += c;
+        }
+        snprintf(json, sizeof(json), "{\"tools\": \"%s\"}", escaped_desc.c_str());
+        res.set_content(json, "application/json");
+    });
+
+    svr.Post("/tool/execute", [](const httplib::Request& req, httplib::Response& res) {
+        char json_out[8192];
+
+        // Simple JSON parsing for tool name and params
+        std::string body = req.body;
+        std::string tool_name;
+        std::map<std::string, std::string> params;
+
+        // Extract tool name
+        size_t tool_pos = body.find("\"tool\"");
+        if (tool_pos != std::string::npos) {
+            size_t start = body.find("\"", tool_pos + 7);
+            if (start != std::string::npos) {
+                size_t end = body.find("\"", start + 1);
+                if (end != std::string::npos) {
+                    tool_name = body.substr(start + 1, end - start - 1);
+                }
+            }
+        }
+
+        // Extract params (simple key-value parsing)
+        size_t params_pos = body.find("\"params\"");
+        if (params_pos != std::string::npos) {
+            size_t brace_start = body.find("{", params_pos);
+            size_t brace_end = body.rfind("}");
+            if (brace_start != std::string::npos && brace_end > brace_start) {
+                std::string params_str = body.substr(brace_start + 1, brace_end - brace_start - 1);
+                // Parse key-value pairs
+                size_t pos = 0;
+                while (pos < params_str.size()) {
+                    size_t key_start = params_str.find("\"", pos);
+                    if (key_start == std::string::npos) break;
+                    size_t key_end = params_str.find("\"", key_start + 1);
+                    if (key_end == std::string::npos) break;
+                    std::string key = params_str.substr(key_start + 1, key_end - key_start - 1);
+
+                    size_t val_start = params_str.find("\"", key_end + 1);
+                    if (val_start == std::string::npos) break;
+                    size_t val_end = params_str.find("\"", val_start + 1);
+                    if (val_end == std::string::npos) break;
+                    std::string val = params_str.substr(val_start + 1, val_end - val_start - 1);
+
+                    params[key] = val;
+                    pos = val_end + 1;
+                }
+            }
+        }
+
+        if (tool_name.empty()) {
+            snprintf(json_out, sizeof(json_out),
+                "{\"error\": \"Missing tool name\", \"blocked\": true}");
+            res.set_content(json_out, "application/json");
+            return;
+        }
+
+        // Execute tool (pass g_dual as context for graph validation)
+        auto result = zeta_tools::g_tool_registry.execute(tool_name, params,
+            reinterpret_cast<zeta_ctx_t*>(g_dual));
+
+        // Build response
+        snprintf(json_out, sizeof(json_out),
+            "{\"tool\": \"%s\", \"status\": %d, \"output\": \"%.4000s\", "
+            "\"error\": \"%s\", \"blocked\": %s}",
+            tool_name.c_str(),
+            static_cast<int>(result.status),
+            result.output.substr(0, 4000).c_str(),
+            result.error_msg.c_str(),
+            result.status != zeta_tools::ToolStatus::SUCCESS ? "true" : "false");
+
+        res.set_content(json_out, "application/json");
+    });
+
 
     // Cache clear endpoint
     svr.Get("/cache/clear", [](const httplib::Request&, httplib::Response& res) {
@@ -695,7 +839,26 @@ int main(int argc, char** argv) {
         
         // Switch to code mode - swap 3B Instruct for 3B Coder
         zeta_switch_to_code_mode(g_code);
-        fprintf(stderr, "[MODE] Switched to CODE mode (3B Coder active)\n");
+        if (g_ctx_14b) { llama_free(g_ctx_14b); g_ctx_14b = nullptr; }
+        if (g_code->models.active_main) {
+            llama_context_params cp = llama_context_default_params();
+            cp.n_ctx = 8192; cp.n_batch = 2048;
+            g_ctx_14b = llama_init_from_model(g_code->models.active_main, cp);
+            g_model_14b = g_code->models.active_main; // Update model pointer for sampler
+            g_vocab = llama_model_get_vocab(g_model_14b); // Update vocab for tokenizer
+        }
+        // Sync dual-process context with new 3B model (7B coder in code mode)
+        if (g_dual) {
+            if (g_dual->ctx_3b) { llama_free(g_dual->ctx_3b); g_dual->ctx_3b = nullptr; }
+            g_dual->model_3b = g_code->models.model_3b_coder;
+            if (g_dual->model_3b) {
+                llama_context_params dp = llama_context_default_params();
+                dp.n_ctx = 8192; dp.n_batch = 2048;
+                g_dual->ctx_3b = llama_init_from_model(g_dual->model_3b, dp);
+                fprintf(stderr, "[MODE] Synced dual-process to 7B Coder\n");
+            }
+        }
+        fprintf(stderr, "[MODE] Switched to CODE mode\n");
 
         char json[2048];
         snprintf(json, sizeof(json),
@@ -714,7 +877,26 @@ int main(int argc, char** argv) {
         
         // Switch back to chat mode - swap 3B Coder for 3B Instruct
         zeta_switch_to_chat_mode(g_code);
-        fprintf(stderr, "[MODE] Switched to CHAT mode (3B Instruct active)\n");
+        if (g_ctx_14b) { llama_free(g_ctx_14b); g_ctx_14b = nullptr; }
+        if (g_code->models.active_main) {
+            llama_context_params cp = llama_context_default_params();
+            cp.n_ctx = 8192; cp.n_batch = 2048;
+            g_ctx_14b = llama_init_from_model(g_code->models.active_main, cp);
+            g_model_14b = g_code->models.active_main; // Update model pointer for sampler
+            g_vocab = llama_model_get_vocab(g_model_14b); // Update vocab for tokenizer
+        }
+        // Sync dual-process context with new 3B model (3B Instruct in chat mode)
+        if (g_dual) {
+            if (g_dual->ctx_3b) { llama_free(g_dual->ctx_3b); g_dual->ctx_3b = nullptr; }
+            g_dual->model_3b = g_code->models.model_3b_instruct;
+            if (g_dual->model_3b) {
+                llama_context_params dp = llama_context_default_params();
+                dp.n_ctx = 8192; dp.n_batch = 2048;
+                g_dual->ctx_3b = llama_init_from_model(g_dual->model_3b, dp);
+                fprintf(stderr, "[MODE] Synced dual-process to 3B Instruct\n");
+            }
+        }
+        fprintf(stderr, "[MODE] Switched to CHAT mode\n");
         zeta_project_close(g_code);
         res.set_content("{\"status\": \"ok\", \"mode\": \"chat\"}", "application/json");
     });
@@ -874,6 +1056,11 @@ int main(int argc, char** argv) {
     g_idle_watchdog = std::thread(idle_watchdog_thread);
     fprintf(stderr, "[IDLE] Watchdog started (decay@5m, 3B always loaded)\n");
     
+    
+    // Initialize tool system
+    fprintf(stderr, "[TOOLS] Tool system initialized with %zu tools\n",
+            zeta_tools::g_tool_registry.tools.size());
+
     svr.listen("0.0.0.0", port);
     
     fprintf(stderr, "\n[SHUTDOWN] Stopping 3B worker...\n");
@@ -895,4 +1082,7 @@ int main(int argc, char** argv) {
     fprintf(stderr, "[SHUTDOWN] Complete.\n");
     return 0;
 }
+
+// C++ tool system (must be outside extern C)
+#include "zeta-tools.h"
 

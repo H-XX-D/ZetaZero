@@ -98,13 +98,19 @@ typedef struct {
 typedef struct {
     llama_model* model_3b_instruct;
     llama_model* model_3b_coder;
-    llama_model* model_14b;
+    llama_model* model_14b_instruct;
+    llama_model* model_7b_coder;
+    llama_model* active_main;
     llama_model* active_3b;
     llama_context* ctx_3b;
     
     // Paths for dynamic loading
     char path_3b_instruct[512];
     char path_3b_coder[512];
+    char path_14b_instruct[512];
+    char path_7b_coder[512];
+    char path_embed_chat[512];
+    char path_embed_code[512];
     
     bool in_code_mode;
 } zeta_model_ctx_t;
@@ -143,7 +149,8 @@ static inline zeta_code_ctx_t* zeta_code_init(
     ctx->base_ctx = base_ctx;
     ctx->models.model_3b_instruct = model_3b_instruct;
     ctx->models.model_3b_coder = model_3b_coder;
-    ctx->models.model_14b = model_14b;
+    ctx->models.model_14b_instruct = model_14b;
+    ctx->models.active_main = model_14b;
     ctx->models.active_3b = model_3b_instruct;
     ctx->models.in_code_mode = false;
     strncpy(ctx->code_storage_dir, code_storage_dir, sizeof(ctx->code_storage_dir) - 1);
@@ -151,15 +158,31 @@ static inline zeta_code_ctx_t* zeta_code_init(
 }
 
 // Set model paths for dynamic swapping
-static inline void zeta_set_model_paths(zeta_code_ctx_t* ctx, const char* instruct_path, const char* coder_path) {
-    if (instruct_path) strncpy(ctx->models.path_3b_instruct, instruct_path, 511);
-    if (coder_path) strncpy(ctx->models.path_3b_coder, coder_path, 511);
+static inline void zeta_set_model_paths(zeta_code_ctx_t* ctx, const char* i3b, const char* c3b, const char* i14b, const char* c7b, const char* e_chat, const char* e_code) {
+    if (i3b) strncpy(ctx->models.path_3b_instruct, i3b, 511);
+    if (c3b) strncpy(ctx->models.path_3b_coder, c3b, 511);
+    if (i14b) strncpy(ctx->models.path_14b_instruct, i14b, 511);
+    if (c7b) strncpy(ctx->models.path_7b_coder, c7b, 511);
+    if (e_chat) strncpy(ctx->models.path_embed_chat, e_chat, 511);
+    if (e_code) strncpy(ctx->models.path_embed_code, e_code, 511);
 }
 
 // Switch to code mode - UNLOAD instruct, LOAD coder
 static inline void zeta_switch_to_code_mode(zeta_code_ctx_t* ctx) {
     if (!ctx) return;
     
+
+    // Swap main: 14B -> 7B
+    if (ctx->models.model_14b_instruct) { llama_model_free(ctx->models.model_14b_instruct); ctx->models.model_14b_instruct = NULL; }
+    if (!ctx->models.model_7b_coder && ctx->models.path_7b_coder[0]) {
+        llama_model_params mp = llama_model_default_params(); mp.n_gpu_layers = 99;
+        ctx->models.model_7b_coder = llama_model_load_from_file(ctx->models.path_7b_coder, mp);
+    }
+    ctx->models.active_main = ctx->models.model_7b_coder;
+
+    // Swap embed: 1.5B -> 4B
+    if (ctx->models.path_embed_code[0]) { zeta_embed_free(); zeta_embed_init(ctx->models.path_embed_code); }
+
     // Free 3B context first
     if (ctx->models.ctx_3b) {
         llama_free(ctx->models.ctx_3b);
@@ -175,12 +198,12 @@ static inline void zeta_switch_to_code_mode(zeta_code_ctx_t* ctx) {
     
     // Load 3B Coder if path set and not already loaded
     if (!ctx->models.model_3b_coder && ctx->models.path_3b_coder[0]) {
-        fprintf(stderr, "[MODE] Loading 3B Coder from %s...\n", ctx->models.path_3b_coder);
+        fprintf(stderr, "[MODE] Loading 7B Coder (extract)...\n", ctx->models.path_3b_coder);
         llama_model_params mparams = llama_model_default_params();
         mparams.n_gpu_layers = 99;
-        ctx->models.model_3b_coder = llama_model_load_from_file(ctx->models.path_3b_coder, mparams);
+        ctx->models.model_3b_coder = llama_model_load_from_file(ctx->models.path_7b_coder, mparams);
         if (ctx->models.model_3b_coder) {
-            fprintf(stderr, "[MODE] 3B Coder loaded\n");
+            fprintf(stderr, "[MODE] 7B Coder (extract) loaded\n");
         }
     }
     
@@ -200,6 +223,18 @@ static inline void zeta_switch_to_code_mode(zeta_code_ctx_t* ctx) {
 static inline void zeta_switch_to_chat_mode(zeta_code_ctx_t* ctx) {
     if (!ctx) return;
     
+
+    // Swap main: 7B -> 14B
+    if (ctx->models.model_7b_coder) { llama_model_free(ctx->models.model_7b_coder); ctx->models.model_7b_coder = NULL; }
+    if (!ctx->models.model_14b_instruct && ctx->models.path_14b_instruct[0]) {
+        llama_model_params mp = llama_model_default_params(); mp.n_gpu_layers = 99;
+        ctx->models.model_14b_instruct = llama_model_load_from_file(ctx->models.path_14b_instruct, mp);
+    }
+    ctx->models.active_main = ctx->models.model_14b_instruct;
+
+    // Swap embed: 4B -> 1.5B
+    if (ctx->models.path_embed_chat[0]) { zeta_embed_free(); zeta_embed_init(ctx->models.path_embed_chat); }
+
     // Free 3B context first
     if (ctx->models.ctx_3b) {
         llama_free(ctx->models.ctx_3b);

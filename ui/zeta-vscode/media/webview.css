@@ -1,0 +1,28 @@
+/* Minimal style aligned with existing ui styles */
+:root {
+  --bg: #111;
+  --fg: #e6e6e6;
+  --muted: #999;
+  --accent: #36c;
+  --border: #222;
+}
+html, body { height: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg); font-family: -apple-system, Segoe UI, Roboto, Ubuntu, sans-serif;
+}
+.header {
+  display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border);
+}
+.logo { width: 20px; height: 20px; }
+#chat .spacer { flex: 1; }
+header .spacer { flex: 1; }
+header button { margin-left: 6px; }
+#chat { display: flex; flex-direction: column; height: calc(100% - 42px); }
+.messages { flex: 1; overflow-y: auto; padding: 12px; }
+.message { padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px; }
+.message.user { background: #16213e; }
+.message.model { background: #1a1a1a; }
+#input-form { display: flex; gap: 8px; padding: 10px; border-top: 1px solid var(--border); }
+#input { flex: 1; background: #0d0d0d; color: var(--fg); border: 1px solid var(--border); border-radius: 6px; padding: 8px; }
+button { background: var(--accent); color: white; border: none; border-radius: 6px; padding: 8px 12px; cursor: pointer; }
+button:hover { filter: brightness(1.1); }

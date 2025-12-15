@@ -1,0 +1,114 @@
+{
+  "name": "zeta-zero",
+  "displayName": "Zeta Zero",
+  "description": "Chat with the local Zeta Zero server from VS Code",
+  "version": "0.0.1",
+  "publisher": "zetazero",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/H-XX-D/ZetaZero.git"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onView:zetaZero.chatView",
+    "onCommand:zetaZero.openChat"
+  ],
+  "main": "out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "zetaZero",
+          "title": "Zeta Zero",
+          "icon": "media/zeta.svg"
+        }
+      ]
+    },
+    "views": {
+      "zetaZero": [
+        {
+          "id": "zetaZero.chatView",
+          "name": "Chat"
+        }
+      ]
+    },
+    "configuration": {
+      "properties": {
+        "zetaZero.serverUrl": {
+          "type": "string",
+          "default": "http://localhost:9000",
+          "description": "Base URL of the local Zeta Zero server"
+        },
+        "zetaZero.stream": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable streaming responses if the server supports it"
+        },
+        "zetaZero.toolsEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable MCP tool access from the chat view"
+        },
+        "zetaZero.mcpEndpoint": {
+          "type": "string",
+          "default": "ws://localhost:9001",
+          "description": "MCP server WebSocket endpoint"
+        },
+        "zetaZero.allowShell": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow running local shell commands from the chat view (per-command confirmation)"
+        },
+        "zetaZero.shellAllowlist": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "echo",
+            "ls",
+            "cat",
+            "pwd"
+          ],
+          "description": "Allowed command prefixes for local shell execution"
+        },
+        "zetaZero.shellCwd": {
+          "type": "string",
+          "default": "${workspaceFolder}",
+          "description": "Working directory for shell commands"
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "zetaZero.openChat",
+        "title": "Zeta Zero: Open Chat"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "test": "echo 'No tests'"
+  },
+  "dependencies": {
+    "ws": "^8.15.0"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "@types/ws": "^8.5.10",
+    "@vscode/vsce": "^2.32.0",
+    "typescript": "^5.4.0"
+  },
+  "overrides": {
+    "undici": "^6.21.0"
+  }
+
+}
+

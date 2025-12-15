@@ -174,3 +174,10 @@ a.out.*
 .git_upstream_backup
 llama.cpp/build*
 llama.cpp/.git_upstream_backup
+
+# VS Code Extension
+out
+dist
+node_modules
+.vscode-test/
+*.vsix
