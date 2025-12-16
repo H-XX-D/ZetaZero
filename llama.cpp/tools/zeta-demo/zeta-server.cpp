@@ -21,6 +21,13 @@
 #include <string>
 #include <mutex>
 #include <vector>
+#include <algorithm>
+#include <cctype>
+#include <regex>
+#include <fstream>
+#include <sstream>
+#include <sys/stat.h>
+#include <unistd.h>
 #include <signal.h>
 #include <atomic>
 #include "log.h"
@@ -586,6 +593,13 @@ int main(int argc, char** argv) {
         std::string mode = "chat";
         std::string project_id;
         int max_tokens = 2048;  // Increased default from 100
+        std::string working_dir;
+        {
+            char cwd_buf[4096];
+            if (getcwd(cwd_buf, sizeof(cwd_buf))) working_dir = cwd_buf;
+            else working_dir = "/home/xx";
+        }
+        bool allow_dangerous = false;
 
         // Try JSON body first
             // Parse mode
@@ -626,6 +640,26 @@ int main(int argc, char** argv) {
                     max_tokens = std::stoi(req.body.substr(num_start));
                 }
             }
+
+            // Optional working_dir
+            size_t wd_pos = req.body.find("\"working_dir\":");
+            if (wd_pos != std::string::npos) {
+                size_t start = req.body.find('"', wd_pos + 14);
+                if (start != std::string::npos) {
+                    size_t end = req.body.find('"', start + 1);
+                    if (end != std::string::npos) {
+                        working_dir = req.body.substr(start + 1, end - start - 1);
+                    }
+                }
+            }
+
+            // Optional allow_dangerous
+            size_t ad_pos = req.body.find("\"allow_dangerous\":");
+            if (ad_pos != std::string::npos) {
+                size_t val_start = ad_pos + 18;
+                while (val_start < req.body.size() && (req.body[val_start] == ' ' || req.body[val_start] == '\t')) val_start++;
+                if (req.body.compare(val_start, 4, "true") == 0) allow_dangerous = true;
+            }
         }
 
         fprintf(stderr, "[GENERATE] Mode: %s, Project: %s\\n", mode.c_str(), project_id.c_str());
@@ -634,6 +668,146 @@ int main(int argc, char** argv) {
             prompt = req.get_param_value("prompt");
             if (req.has_param("max_tokens")) max_tokens = std::stoi(req.get_param_value("max_tokens"));
         }
+
+        // ====== DETERMINISTIC FILE READ SHORT-CIRCUIT ======
+        // This avoids the model replying "I can't access files" by handling reads server-side.
+        if (!prompt.empty()) {
+            std::string prompt_lower = prompt;
+            std::transform(prompt_lower.begin(), prompt_lower.end(), prompt_lower.begin(),
+                           [](unsigned char c){ return (unsigned char)std::tolower(c); });
+
+            bool looks_like_read = (prompt_lower.find("read") != std::string::npos ||
+                                    prompt_lower.find("open") != std::string::npos ||
+                                    prompt_lower.find("show") != std::string::npos ||
+                                    prompt_lower.find("view") != std::string::npos ||
+                                    prompt_lower.find("cat") != std::string::npos ||
+                                    prompt_lower.find("contents of") != std::string::npos ||
+                                    (prompt.find('/') != std::string::npos && prompt.find(' ') == std::string::npos) ||
+                                    (prompt.find('.') != std::string::npos && prompt.find(' ') == std::string::npos));
+
+            if (looks_like_read) {
+                std::string file_to_read;
+
+                // Absolute path anywhere in the prompt
+                {
+                    std::regex abs_path_re("(/[^\\s\"']+)");
+                    std::smatch m;
+                    if (std::regex_search(prompt, m, abs_path_re)) {
+                        file_to_read = m[1].str();
+                    }
+                }
+
+                // If prompt is a single token (e.g. CHANGELOG.md), treat as relative
+                if (file_to_read.empty() && prompt.find(' ') == std::string::npos) {
+                    file_to_read = prompt;
+                }
+
+                // Expand ~
+                if (!file_to_read.empty() && file_to_read[0] == '~') {
+                    const char* home = getenv("HOME");
+                    if (home) file_to_read = std::string(home) + file_to_read.substr(1);
+                }
+
+                // Make relative paths absolute
+                if (!file_to_read.empty() && file_to_read[0] != '/') {
+                    file_to_read = working_dir + "/" + file_to_read;
+                }
+
+                // If still empty, fall through to model generation
+                if (!file_to_read.empty()) {
+                    // Gate sensitive locations
+                    bool path_allowed = allow_dangerous ||
+                        ((file_to_read.find("..") == std::string::npos) &&
+                         (file_to_read.rfind("/home/", 0) == 0 || file_to_read.rfind("/tmp/", 0) == 0 || file_to_read.rfind("/mnt/", 0) == 0) &&
+                         (file_to_read.rfind("/proc/", 0) != 0 && file_to_read.rfind("/sys/", 0) != 0 && file_to_read.rfind("/dev/", 0) != 0));
+
+                    if (!path_allowed) {
+                        std::string msg = "Reading " + file_to_read + " requires permission. Resend with allow_dangerous=true.";
+                        std::string escaped;
+                        for (char c : msg) {
+                            if (c == '"') escaped += "\\\"";
+                            else if (c == '\\') escaped += "\\\\";
+                            else if (c == '\n') escaped += "\\n";
+                            else if (c == '\r') escaped += "\\r";
+                            else if (c == '\t') escaped += "\\t";
+                            else escaped += c;
+                        }
+                        char json[2048];
+                        snprintf(json, sizeof(json),
+                            "{\"output\":\"%s\",\"tokens\":0,\"momentum\":0.500,\"action\":\"permission_required\",\"file\":\"%s\"}",
+                            escaped.c_str(), file_to_read.c_str());
+                        res.set_content(json, "application/json");
+                        return;
+                    }
+
+                    struct stat st;
+                    if (stat(file_to_read.c_str(), &st) != 0 || !S_ISREG(st.st_mode)) {
+                        std::string msg = "File not found or not a regular file: " + file_to_read;
+                        std::string escaped;
+                        for (char c : msg) {
+                            if (c == '"') escaped += "\\\"";
+                            else if (c == '\\') escaped += "\\\\";
+                            else if (c == '\n') escaped += "\\n";
+                            else if (c == '\r') escaped += "\\r";
+                            else if (c == '\t') escaped += "\\t";
+                            else escaped += c;
+                        }
+                        char json[4096];
+                        snprintf(json, sizeof(json),
+                            "{\"output\":\"%s\",\"tokens\":0,\"momentum\":0.500,\"action\":\"error\"}",
+                            escaped.c_str());
+                        res.set_content(json, "application/json");
+                        return;
+                    }
+
+                    std::ifstream file(file_to_read);
+                    if (!file.is_open()) {
+                        std::string msg = "Could not open file: " + file_to_read;
+                        std::string escaped;
+                        for (char c : msg) {
+                            if (c == '"') escaped += "\\\"";
+                            else if (c == '\\') escaped += "\\\\";
+                            else if (c == '\n') escaped += "\\n";
+                            else if (c == '\r') escaped += "\\r";
+                            else if (c == '\t') escaped += "\\t";
+                            else escaped += c;
+                        }
+                        char json[4096];
+                        snprintf(json, sizeof(json),
+                            "{\"output\":\"%s\",\"tokens\":0,\"momentum\":0.500,\"action\":\"error\"}",
+                            escaped.c_str());
+                        res.set_content(json, "application/json");
+                        return;
+                    }
+
+                    std::stringstream buffer;
+                    buffer << file.rdbuf();
+                    std::string content = buffer.str();
+                    if (content.size() > 100000) {
+                        content.resize(100000);
+                        content += "\n... (truncated at 100KB)";
+                    }
+
+                    std::string out = "File: " + file_to_read + " (" + std::to_string((size_t)st.st_size) + " bytes)\\n\\n" + content;
+                    std::string escaped;
+                    for (char c : out) {
+                        if (c == '"') escaped += "\\\"";
+                        else if (c == '\\') escaped += "\\\\";
+                        else if (c == '\n') escaped += "\\n";
+                        else if (c == '\r') escaped += "\\r";
+                        else if (c == '\t') escaped += "\\t";
+                        else escaped += c;
+                    }
+                    char json[16384];
+                    snprintf(json, sizeof(json),
+                        "{\"output\":\"%s\",\"tokens\":0,\"momentum\":0.500,\"action\":\"file_read\",\"file\":\"%s\",\"size\":%lld}",
+                        escaped.c_str(), file_to_read.c_str(), (long long)st.st_size);
+                    res.set_content(json, "application/json");
+                    return;
+                }
+            }
+        }
+
         std::string result = generate(prompt, max_tokens);
         // Save graph after each generate (resilience against crash)
         if (g_dual && g_dual->num_nodes > 0) consolidate_memory();
