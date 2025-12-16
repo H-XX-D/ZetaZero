@@ -585,8 +585,18 @@ int main(int argc, char** argv) {
     httplib::Server svr;
     g_server = &svr;
 
+    // Basic CORS support for local browser UIs (e.g., http://localhost:9001 -> http://localhost:9000)
+    svr.Options(R"(.*)", [](const httplib::Request&, httplib::Response& res) {
+        res.set_header("Access-Control-Allow-Origin", "*");
+        res.set_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        res.set_header("Access-Control-Allow-Headers", "Content-Type");
+        res.status = 204;
+    });
+
     svr.Post("/generate", [](const httplib::Request& req, httplib::Response& res) {
         g_last_activity = time(NULL);  // Track activity
+
+        res.set_header("Access-Control-Allow-Origin", "*");
 
         // Parse JSON body
         std::string prompt;
@@ -815,6 +825,7 @@ int main(int argc, char** argv) {
     });
 
     svr.Get("/health", [](const httplib::Request&, httplib::Response& res) {
+        res.set_header("Access-Control-Allow-Origin", "*");
         char json[512];
         snprintf(json, sizeof(json),
             "{\"status\": \"ok\", \"version\": \"5.0\", "
