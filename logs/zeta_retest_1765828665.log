@@ -1,0 +1,633 @@
+Z.E.T.A. Server v5.0 (Parallel Dual-Process)
+14B Conscious: /home/xx/models/qwen2.5-7b-coder-q4_k_m.gguf
+3B Subconscious: /home/xx/models/qwen2.5-7b-coder-q4_k_m.gguf
+Port: 9000
+ggml_cuda_init: GGML_CUDA_FORCE_MMQ:    no
+ggml_cuda_init: GGML_CUDA_FORCE_CUBLAS: no
+ggml_cuda_init: found 1 CUDA devices:
+  Device 0: NVIDIA GeForce RTX 5060 Ti, compute capability 12.0, VMM: yes
+llama_model_load_from_file_impl: using device CUDA0 (NVIDIA GeForce RTX 5060 Ti) (0000:15:00.0) - 15483 MiB free
+llama_model_loader: loaded meta data with 38 key-value pairs and 339 tensors from /home/xx/models/qwen2.5-7b-coder-q4_k_m.gguf (version GGUF V3 (latest))
+llama_model_loader: Dumping metadata keys/values. Note: KV overrides do not apply in this output.
+llama_model_loader: - type  f32:  141 tensors
+llama_model_loader: - type q4_K:  169 tensors
+llama_model_loader: - type q6_K:   29 tensors
+print_info: file format = GGUF V3 (latest)
+print_info: file type   = Q4_K - Medium
+print_info: file size   = 4.36 GiB (4.91 BPW) 
+load: printing all EOG tokens:
+load:   - 151643 ('<|endoftext|>')
+load:   - 151645 ('<|im_end|>')
+load:   - 151662 ('<|fim_pad|>')
+load:   - 151663 ('<|repo_name|>')
+load:   - 151664 ('<|file_sep|>')
+load: special tokens cache size = 22
+load: token to piece cache size = 0.9310 MB
+print_info: arch             = qwen2
+print_info: vocab_only       = 0
+print_info: n_ctx_train      = 32768
+print_info: n_embd           = 3584
+print_info: n_embd_inp       = 3584
+print_info: n_layer          = 28
+print_info: n_head           = 28
+print_info: n_rot            = 128
+print_info: n_swa            = 0
+print_info: is_swa_any       = 0
+print_info: n_embd_head_k    = 128
+print_info: n_embd_head_v    = 128
+print_info: n_gqa            = 7
+print_info: n_embd_k_gqa     = 512
+print_info: n_embd_v_gqa     = 512
+print_info: f_norm_eps       = 0.0e+00
+print_info: f_norm_rms_eps   = 1.0e-06
+print_info: f_clamp_kqv      = 0.0e+00
+print_info: f_max_alibi_bias = 0.0e+00
+print_info: f_logit_scale    = 0.0e+00
+print_info: f_attn_scale     = 0.0e+00
+print_info: n_ff             = 18944
+print_info: n_expert         = 0
+print_info: n_expert_used    = 0
+print_info: n_expert_groups  = 0
+print_info: n_group_used     = 0
+print_info: causal attn      = 1
+print_info: pooling type     = -1
+print_info: rope type        = 2
+print_info: rope scaling     = linear
+print_info: freq_base_train  = 1000000.0
+print_info: freq_scale_train = 1
+print_info: n_ctx_orig_yarn  = 32768
+print_info: rope_finetuned   = unknown
+print_info: model type       = 7B
+print_info: model params     = 7.62 B
+print_info: general.name     = Qwen2.5 Coder 7B Instruct
+print_info: vocab type       = BPE
+print_info: n_vocab          = 152064
+print_info: n_merges         = 151387
+print_info: BOS token        = 151643 '<|endoftext|>'
+print_info: EOS token        = 151645 '<|im_end|>'
+print_info: EOT token        = 151645 '<|im_end|>'
+print_info: PAD token        = 151643 '<|endoftext|>'
+print_info: LF token         = 198 'Ċ'
+print_info: FIM PRE token    = 151659 '<|fim_prefix|>'
+print_info: FIM SUF token    = 151661 '<|fim_suffix|>'
+print_info: FIM MID token    = 151660 '<|fim_middle|>'
+print_info: FIM PAD token    = 151662 '<|fim_pad|>'
+print_info: FIM REP token    = 151663 '<|repo_name|>'
+print_info: FIM SEP token    = 151664 '<|file_sep|>'
+print_info: EOG token        = 151643 '<|endoftext|>'
+print_info: EOG token        = 151645 '<|im_end|>'
+print_info: EOG token        = 151662 '<|fim_pad|>'
+print_info: EOG token        = 151663 '<|repo_name|>'
+print_info: EOG token        = 151664 '<|file_sep|>'
+print_info: max token length = 256
+load_tensors: loading model tensors, this can take a while... (mmap = true)
+load_tensors: offloading 28 repeating layers to GPU
+load_tensors: offloading output layer to GPU
+load_tensors: offloaded 29/29 layers to GPU
+load_tensors:   CPU_Mapped model buffer size =   292.36 MiB
+load_tensors:        CUDA0 model buffer size =  4168.09 MiB
+llama_model_load_from_file_impl: using device CUDA0 (NVIDIA GeForce RTX 5060 Ti) (0000:15:00.0) - 11313 MiB free
+llama_model_loader: loaded meta data with 38 key-value pairs and 339 tensors from /home/xx/models/qwen2.5-7b-coder-q4_k_m.gguf (version GGUF V3 (latest))
+llama_model_loader: Dumping metadata keys/values. Note: KV overrides do not apply in this output.
+llama_model_loader: - type  f32:  141 tensors
+llama_model_loader: - type q4_K:  169 tensors
+llama_model_loader: - type q6_K:   29 tensors
+print_info: file format = GGUF V3 (latest)
+print_info: file type   = Q4_K - Medium
+print_info: file size   = 4.36 GiB (4.91 BPW) 
+load: printing all EOG tokens:
+load:   - 151643 ('<|endoftext|>')
+load:   - 151645 ('<|im_end|>')
+load:   - 151662 ('<|fim_pad|>')
+load:   - 151663 ('<|repo_name|>')
+load:   - 151664 ('<|file_sep|>')
+load: special tokens cache size = 22
+load: token to piece cache size = 0.9310 MB
+print_info: arch             = qwen2
+print_info: vocab_only       = 0
+print_info: n_ctx_train      = 32768
+print_info: n_embd           = 3584
+print_info: n_embd_inp       = 3584
+print_info: n_layer          = 28
+print_info: n_head           = 28
+print_info: n_rot            = 128
+print_info: n_swa            = 0
+print_info: is_swa_any       = 0
+print_info: n_embd_head_k    = 128
+print_info: n_embd_head_v    = 128
+print_info: n_gqa            = 7
+print_info: n_embd_k_gqa     = 512
+print_info: n_embd_v_gqa     = 512
+print_info: f_norm_eps       = 0.0e+00
+print_info: f_norm_rms_eps   = 1.0e-06
+print_info: f_clamp_kqv      = 0.0e+00
+print_info: f_max_alibi_bias = 0.0e+00
+print_info: f_logit_scale    = 0.0e+00
+print_info: f_attn_scale     = 0.0e+00
+print_info: n_ff             = 18944
+print_info: n_expert         = 0
+print_info: n_expert_used    = 0
+print_info: n_expert_groups  = 0
+print_info: n_group_used     = 0
+print_info: causal attn      = 1
+print_info: pooling type     = -1
+print_info: rope type        = 2
+print_info: rope scaling     = linear
+print_info: freq_base_train  = 1000000.0
+print_info: freq_scale_train = 1
+print_info: n_ctx_orig_yarn  = 32768
+print_info: rope_finetuned   = unknown
+print_info: model type       = 7B
+print_info: model params     = 7.62 B
+print_info: general.name     = Qwen2.5 Coder 7B Instruct
+print_info: vocab type       = BPE
+print_info: n_vocab          = 152064
+print_info: n_merges         = 151387
+print_info: BOS token        = 151643 '<|endoftext|>'
+print_info: EOS token        = 151645 '<|im_end|>'
+print_info: EOT token        = 151645 '<|im_end|>'
+print_info: PAD token        = 151643 '<|endoftext|>'
+print_info: LF token         = 198 'Ċ'
+print_info: FIM PRE token    = 151659 '<|fim_prefix|>'
+print_info: FIM SUF token    = 151661 '<|fim_suffix|>'
+print_info: FIM MID token    = 151660 '<|fim_middle|>'
+print_info: FIM PAD token    = 151662 '<|fim_pad|>'
+print_info: FIM REP token    = 151663 '<|repo_name|>'
+print_info: FIM SEP token    = 151664 '<|file_sep|>'
+print_info: EOG token        = 151643 '<|endoftext|>'
+print_info: EOG token        = 151645 '<|im_end|>'
+print_info: EOG token        = 151662 '<|fim_pad|>'
+print_info: EOG token        = 151663 '<|repo_name|>'
+print_info: EOG token        = 151664 '<|file_sep|>'
+print_info: max token length = 256
+load_tensors: loading model tensors, this can take a while... (mmap = true)
+load_tensors: offloading 28 repeating layers to GPU
+load_tensors: offloading output layer to GPU
+load_tensors: offloaded 29/29 layers to GPU
+load_tensors:   CPU_Mapped model buffer size =   292.36 MiB
+load_tensors:        CUDA0 model buffer size =  4168.09 MiB
+3B Subconscious model loaded
+[EMBED] Loading embedding model: /home/xx/models/Qwen3-Embedding-4B-Q4_K_M.gguf
+llama_model_load_from_file_impl: using device CUDA0 (NVIDIA GeForce RTX 5060 Ti) (0000:15:00.0) - 7143 MiB free
+llama_model_loader: loaded meta data with 36 key-value pairs and 398 tensors from /home/xx/models/Qwen3-Embedding-4B-Q4_K_M.gguf (version GGUF V3 (latest))
+llama_model_loader: Dumping metadata keys/values. Note: KV overrides do not apply in this output.
+llama_model_loader: - type  f32:  145 tensors
+llama_model_loader: - type q4_K:  216 tensors
+llama_model_loader: - type q6_K:   37 tensors
+print_info: file format = GGUF V3 (latest)
+print_info: file type   = Q4_K - Medium
+print_info: file size   = 2.32 GiB (4.95 BPW) 
+load: printing all EOG tokens:
+load:   - 151643 ('<|endoftext|>')
+load:   - 151645 ('<|im_end|>')
+load:   - 151662 ('<|fim_pad|>')
+load:   - 151663 ('<|repo_name|>')
+load:   - 151664 ('<|file_sep|>')
+load: special tokens cache size = 22
+load: token to piece cache size = 0.9310 MB
+print_info: arch             = qwen3
+print_info: vocab_only       = 0
+print_info: n_ctx_train      = 40960
+print_info: n_embd           = 2560
+print_info: n_embd_inp       = 2560
+print_info: n_layer          = 36
+print_info: n_head           = 32
+print_info: n_rot            = 128
+print_info: n_swa            = 0
+print_info: is_swa_any       = 0
+print_info: n_embd_head_k    = 128
+print_info: n_embd_head_v    = 128
+print_info: n_gqa            = 4
+print_info: n_embd_k_gqa     = 1024
+print_info: n_embd_v_gqa     = 1024
+print_info: f_norm_eps       = 0.0e+00
+print_info: f_norm_rms_eps   = 1.0e-06
+print_info: f_clamp_kqv      = 0.0e+00
+print_info: f_max_alibi_bias = 0.0e+00
+print_info: f_logit_scale    = 0.0e+00
+print_info: f_attn_scale     = 0.0e+00
+print_info: n_ff             = 9728
+print_info: n_expert         = 0
+print_info: n_expert_used    = 0
+print_info: n_expert_groups  = 0
+print_info: n_group_used     = 0
+print_info: causal attn      = 1
+print_info: pooling type     = 3
+print_info: rope type        = 2
+print_info: rope scaling     = linear
+print_info: freq_base_train  = 1000000.0
+print_info: freq_scale_train = 1
+print_info: n_ctx_orig_yarn  = 40960
+print_info: rope_finetuned   = unknown
+print_info: model type       = 4B
+print_info: model params     = 4.02 B
+print_info: general.name     = Qwen3 Embedding 4B
+print_info: vocab type       = BPE
+print_info: n_vocab          = 151665
+print_info: n_merges         = 151387
+print_info: BOS token        = 151643 '<|endoftext|>'
+print_info: EOS token        = 151643 '<|endoftext|>'
+print_info: EOT token        = 151645 '<|im_end|>'
+print_info: PAD token        = 151643 '<|endoftext|>'
+print_info: LF token         = 198 'Ċ'
+print_info: FIM PRE token    = 151659 '<|fim_prefix|>'
+print_info: FIM SUF token    = 151661 '<|fim_suffix|>'
+print_info: FIM MID token    = 151660 '<|fim_middle|>'
+print_info: FIM PAD token    = 151662 '<|fim_pad|>'
+print_info: FIM REP token    = 151663 '<|repo_name|>'
+print_info: FIM SEP token    = 151664 '<|file_sep|>'
+print_info: EOG token        = 151643 '<|endoftext|>'
+print_info: EOG token        = 151645 '<|im_end|>'
+print_info: EOG token        = 151662 '<|fim_pad|>'
+print_info: EOG token        = 151663 '<|repo_name|>'
+print_info: EOG token        = 151664 '<|file_sep|>'
+print_info: max token length = 256
+load_tensors: loading model tensors, this can take a while... (mmap = true)
+load_tensors: offloading 36 repeating layers to GPU
+load_tensors: offloading output layer to GPU
+load_tensors: offloaded 37/37 layers to GPU
+load_tensors:   CPU_Mapped model buffer size =   303.74 MiB
+load_tensors:        CUDA0 model buffer size =  2375.37 MiB
+llama_context: constructing llama_context
+llama_context: n_seq_max     = 1
+llama_context: n_ctx         = 512
+llama_context: n_ctx_seq     = 512
+llama_context: n_batch       = 512
+llama_context: n_ubatch      = 512
+llama_context: causal_attn   = 1
+llama_context: flash_attn    = auto
+llama_context: kv_unified    = false
+llama_context: freq_base     = 1000000.0
+llama_context: freq_scale    = 1
+llama_context: n_ctx_seq (512) < n_ctx_train (40960) -- the full capacity of the model will not be utilized
+llama_context:  CUDA_Host  output buffer size =     0.59 MiB
+llama_kv_cache:      CUDA0 KV buffer size =    72.00 MiB
+llama_kv_cache: size =   72.00 MiB (   512 cells,  36 layers,  1/1 seqs), K (f16):   36.00 MiB, V (f16):   36.00 MiB
+llama_context: Flash Attention was auto, set to enabled
+llama_context:      CUDA0 compute buffer size =   302.23 MiB
+llama_context:  CUDA_Host compute buffer size =     6.01 MiB
+llama_context: graph nodes  = 1268
+llama_context: graph splits = 2
+[EMBED] Initialized: dim=2560
+Embedding model loaded: /home/xx/models/Qwen3-Embedding-4B-Q4_K_M.gguf
+llama_context: constructing llama_context
+llama_context: n_seq_max     = 1
+llama_context: n_ctx         = 8192
+llama_context: n_ctx_seq     = 8192
+llama_context: n_batch       = 4096
+llama_context: n_ubatch      = 512
+llama_context: causal_attn   = 1
+llama_context: flash_attn    = auto
+llama_context: kv_unified    = false
+llama_context: freq_base     = 1000000.0
+llama_context: freq_scale    = 1
+llama_context: n_ctx_seq (8192) < n_ctx_train (32768) -- the full capacity of the model will not be utilized
+llama_context:  CUDA_Host  output buffer size =     0.58 MiB
+llama_kv_cache:      CUDA0 KV buffer size =   448.00 MiB
+llama_kv_cache: size =  448.00 MiB (  8192 cells,  28 layers,  1/1 seqs), K (f16):  224.00 MiB, V (f16):  224.00 MiB
+llama_context: Flash Attention was auto, set to enabled
+llama_context:      CUDA0 compute buffer size =   311.00 MiB
+llama_context:  CUDA_Host compute buffer size =    23.01 MiB
+llama_context: graph nodes  = 959
+llama_context: graph splits = 2
+[CONSTITUTION] Hash: c5e6454b65e7b9c694af9448174f0c54966b32b5fd55b1d01c0b4a0299653e61
+[CONSTITUTION] Seed: 0xc6b9e7654b45e6c5
+
+=== Z.E.T.A. Constitutional Lock ===
+Path:     (embedded)
+Hash:     c5e6454b65e7b9c694af9448174f0c54966b32b5fd55b1d01c0b4a0299653e61
+Seed:     0xc6b9e7654b45e6c5
+Verified: YES
+====================================
+
+[CONSTITUTION] Verified. Entropy key derived successfully.
+[MODEL-BIND] Constitutional binding ACTIVE
+[MODEL-BIND] Vocabulary size: 152064, Embedding dim: 3584
+[ZETA] Compiled without Metal support.
+[ZETA] Constitutional lock engaged. Model operational.
+llama_context: constructing llama_context
+llama_context: n_seq_max     = 1
+llama_context: n_ctx         = 8192
+llama_context: n_ctx_seq     = 8192
+llama_context: n_batch       = 2048
+llama_context: n_ubatch      = 512
+llama_context: causal_attn   = 1
+llama_context: flash_attn    = auto
+llama_context: kv_unified    = false
+llama_context: freq_base     = 1000000.0
+llama_context: freq_scale    = 1
+llama_context: n_ctx_seq (8192) < n_ctx_train (32768) -- the full capacity of the model will not be utilized
+llama_context:  CUDA_Host  output buffer size =     0.58 MiB
+llama_kv_cache:      CUDA0 KV buffer size =   448.00 MiB
+llama_kv_cache: size =  448.00 MiB (  8192 cells,  28 layers,  1/1 seqs), K (f16):  224.00 MiB, V (f16):  224.00 MiB
+llama_context: Flash Attention was auto, set to enabled
+llama_context:      CUDA0 compute buffer size =   311.00 MiB
+llama_context:  CUDA_Host compute buffer size =    23.01 MiB
+llama_context: graph nodes  = 959
+llama_context: graph splits = 2
+[INIT] Code mode context initialized
+[LOAD] Restored 100 nodes, 145 edges from /mnt/HoloGit/blocks/graph.bin (next_id=101)
+[SESSION] Started session 1765828670
+Dual-process engine initialized (nodes=100, edges=145)
+3B parallel worker started
+
+Z.E.T.A. Server v5.0 listening on port 9000
+  POST /generate - Generate with parallel 3B memory
+  GET  /health   - Health check
+  GET  /graph    - View memory graph
+  POST /shutdown - Graceful shutdown
+  POST /project/open  - Open project (code mode)
+  POST /project/close - Close project (chat mode)
+  GET  /project/current - Current project info
+  GET  /projects/list - List all projects
+  POST /code/check    - Check if can create entity
+  GET  /code/recent   - Recent work in project
+
+  POST /code/extract  - Extract code entities from text
+[3B] Parallel worker started
+[IDLE] Watchdog started (decay@5m, 3B always loaded)
+[TOOLS] Tool system initialized with 5 tools
+[GENERATE] Mode: chat, Project: \n[GENERATE] Received prompt (len=494): You are acting as a principal engineer hired to deliver a cr...
+[CYCLIC:PUSH] Stored: You are acting as a principal engineer hired to deliver a cr...
+[CYCLIC:POP] Retrieved: You are acting as a principal engineer hired to deliver a cr... is_input=1
+[EXTRACT DEBUG] Text starts with: You are acting as a principal engineer h...
+[STREAM] Query embedded: 1536 dims
+[STREAM] Query domain: credentials
+[3B-SEMANTIC] Output: service_topology|active-active_failover
+data_contract_schemas|CRDT_document_model
+concurrency_strategy|deterministic_audit_trail
+live_diff_subscriptions|on-the-fly_plugin_marketplace
+[3B] Extracted: service_topology = active-active_failover (concept_key=none)
+[3B] Extracted: data_contract_schemas = CRDT_document_model (concept_key=none)
+[3B] Extracted: concurrency_strategy = deterministic_audit_trail (concept_key=none)
+[3B] Extracted: live_diff_subscriptions = on-the-fly_plugin_marketplace (concept_key=none)
+[3B:WORKER] INPUT: 4 facts extracted
+[STREAM] Surfaced: cache_ttl (id=98, priority=0.69, tokens=8, total=8/500)
+[STREAM] Query embedded: 1536 dims
+[STREAM] Query domain: credentials
+[STREAM] Surfaced: max_connections (id=99, priority=0.68, tokens=9, total=17/500)
+[STREAM] Query embedded: 1536 dims
+[STREAM] Query domain: credentials
+[STREAM] Surfaced: timeout (id=100, priority=0.68, tokens=7, total=24/500)
+[STREAM] Query embedded: 1536 dims
+[STREAM] Query domain: credentials
+[STREAM] Surfaced: user_name (id=97, priority=0.66, tokens=10, total=34/500)
+[STREAM] Query embedded: 1536 dims
+[STREAM] Query domain: credentials
+[STREAM] Surfaced: data_contract_schemas (id=80, priority=0.58, tokens=15, total=49/500)
+[STREAM] Query embedded: 1536 dims
+[STREAM] Query domain: credentials
+[STREAM] Surfaced: live_diff_subscriptions (id=82, priority=0.56, tokens=18, total=67/500)
+[STREAM] Query embedded: 1536 dims
+[STREAM] Query domain: credentials
+[STREAM] Surfaced: concurrency_strategy (id=81, priority=0.55, tokens=16, total=83/500)
+[STREAM] Query embedded: 1536 dims
+[STREAM] Query domain: credentials
+[STREAM] Surfaced: secret_code (id=93, priority=0.50, tokens=11, total=94/500)
+[FORMAT] Added: 3600s (id=98)
+[FORMAT] Added: 250 (id=99)
+[FORMAT] Added: 30s (id=100)
+[FORMAT] Added: Marcus Chen (id=97)
+[FORMAT] Added: CRDT_document_model (id=80)
+[FORMAT] Added: on-the-fly_plugin_marketplace (id=82)
+[FORMAT] Added: deterministic_audit_trail (id=81)
+[FORMAT] Added: WebSocket_diffs (id=93)
+[STREAM] 8 nodes (94 tokens) surfaced for 14B
+[STREAM] Context: [FACTS]
+3600s
+250
+30s
+Marcus Chen
+CRDT_document_model
+on-the-fly_plugin_marketplace
+deterministic_audit_trail
+WebSocket_diffs
+[/FACTS]
+...
+[CYCLIC:PUSH] Stored:  (a) Service Topology:
+[TOPOLOGY]
+Region 1: Primary Data Cen...
+[STREAM] Ack served: cache_ttl (new salience=0.54)
+[STREAM] Ack served: max_connections (new salience=0.54)
+[STREAM] Ack served: timeout (new salience=0.54)
+[STREAM] Ack served: user_name (new salience=0.51)
+[STREAM] Ack served: data_contract_schemas (new salience=0.35)
+[STREAM] Ack served: live_diff_subscriptions (new salience=0.35)
+[STREAM] Ack served: concurrency_strategy (new salience=0.35)
+[STREAM] Ack served: secret_code (new salience=0.35)
+[CONFLICT_CHECK] Output:  (a) Service Topology:
+[TOPOLOGY]
+Region 1: Primary Data Center Region 2: Backup...
+[CONFLICT_CHECK] Nodes: 100
+[CONFLICT_CHECK] Node 31: age = 34 (sal=0.95)
+[CONFLICT_CHECK]   Numeric: 34=num (ctx=unknown)
+[CONFLICT_CHECK] Node 58: favorite_X = 42 (sal=0.85)
+[CONFLICT_CHECK]   Numeric: 42=num (ctx=unknown)
+[CONFLICT_CHECK] Checked 2 nodes, no conflicts
+[CYCLIC:POP] Retrieved:  (a) Service Topology:
+[TOPOLOGY]
+Region 1: Primary Data Cen... is_input=0
+[CONSOLIDATE] Saving 100 nodes, 145 edges...
+[3B:WORKER] OUTPUT: 0 correlations
+[CONSOLIDATE] Saved to /mnt/HoloGit/blocks/graph.bin
+[GENERATE] Mode: chat, Project: \n[GENERATE] Received prompt (len=99): Design cross-region collaborative CRDT coding platform with ...
+[CYCLIC:PUSH] Stored: Design cross-region collaborative CRDT coding platform with ...
+[STREAM] Evicted 8 nodes, freed 94 tokens
+[CYCLIC:POP] Retrieved: Design cross-region collaborative CRDT coding platform with ... is_input=1
+[EXTRACT DEBUG] Text starts with: Design cross-region collaborative CRDT c...
+[STREAM] Query embedded: 1536 dims
+[STREAM] Query domain: preferences
+[3B-SEMANTIC] Output: project_codename|CRDT-Platform
+[3B] Version update: project_codename = 'FastAPIAuthMicroservice' -> 'CRDT-Platform' (v101)
+[3B] Extracted: project_codename = CRDT-Platform (concept_key=none)
+[3B:WORKER] INPUT: 1 facts extracted
+[STREAM] Surfaced: project_codename (id=101, priority=1.11, tokens=12, total=12/500)
+[STREAM] Query embedded: 1536 dims
+[STREAM] Query domain: preferences
+[STREAM] Surfaced: cache_ttl (id=98, priority=0.62, tokens=8, total=20/500)
+[STREAM] Query embedded: 1536 dims
+[STREAM] Query domain: preferences
+[STREAM] Surfaced: max_connections (id=99, priority=0.62, tokens=9, total=29/500)
+[STREAM] Query embedded: 1536 dims
+[STREAM] Query domain: preferences
+[STREAM] Surfaced: timeout (id=100, priority=0.60, tokens=7, total=36/500)
+[STREAM] Query embedded: 1536 dims
+[STREAM] Query domain: preferences
+[STREAM] Surfaced: user_name (id=97, priority=0.60, tokens=10, total=46/500)
+[STREAM] Query embedded: 1536 dims
+[STREAM] Query domain: preferences
+[STREAM] Surfaced: service_topology (id=79, priority=0.57, tokens=14, total=60/500)
+[STREAM] Query embedded: 1536 dims
+[STREAM] Query domain: preferences
+[STREAM] Surfaced: rate_limit (id=96, priority=0.53, tokens=8, total=68/500)
+[STREAM] Query embedded: 1536 dims
+[STREAM] Query domain: preferences
+[STREAM] Surfaced: data_contract_schemas (id=80, priority=0.53, tokens=15, total=83/500)
+[FORMAT] Added: CRDT-Platform (id=101)
+[FORMAT] Added: 3600s (id=98)
+[FORMAT] Added: 250 (id=99)
+[FORMAT] Added: 30s (id=100)
+[FORMAT] Added: Marcus Chen (id=97)
+[FORMAT] Added: active-active_failover (id=79)
+[FORMAT] Added: 10000 (id=96)
+[FORMAT] Added: CRDT_document_model (id=80)
+[STREAM] 8 nodes (83 tokens) surfaced for 14B
+[STREAM] Context: [FACTS]
+CRDT-Platform
+3600s
+250
+30s
+Marcus Chen
+active-active_failover
+10000
+CRDT_document_model
+[/FACTS]
+...
+[CYCLIC:PUSH] Stored: 
+<|im_start|>...
+[STREAM] Ack served: project_codename (new salience=0.72)
+[STREAM] Ack served: cache_ttl (new salience=0.44)
+[STREAM] Ack served: max_connections (new salience=0.44)
+[STREAM] Ack served: timeout (new salience=0.44)
+[STREAM] Ack served: user_name (new salience=0.41)
+[STREAM] Ack served: service_topology (new salience=0.35)
+[STREAM] Ack served: rate_limit (new salience=0.35)
+[STREAM] Ack served: data_contract_schemas (new salience=0.28)
+[CONFLICT_CHECK] Output: 
+<|im_start|>...
+[CONFLICT_CHECK] Nodes: 101
+[CONFLICT_CHECK] Node 31: age = 34 (sal=0.95)
+[CONFLICT_CHECK]   Numeric: 34=num (ctx=unknown)
+[CONFLICT_CHECK] Node 58: favorite_X = 42 (sal=0.85)
+[CONFLICT_CHECK]   Numeric: 42=num (ctx=unknown)
+[CONFLICT_CHECK] Node 100: project_codename = CRDT-Platform (sal=0.72)
+[CONFLICT_CHECK]   Entity: CRDT-Platform
+[CONFLICT_CHECK] Checked 3 nodes, no conflicts
+[CONSOLIDATE] Saving 101 nodes, 146 edges...
+[CYCLIC:POP] Retrieved: 
+<|im_start|>... is_input=0
+[3B:WORKER] OUTPUT: 0 correlations
+[CONSOLIDATE] Saved to /mnt/HoloGit/blocks/graph.bin
+[GENERATE] Mode: chat, Project: \n[GENERATE] Received prompt (len=51): Pivot to air-gapped HPC with Rust+Arrow diff engine...
+[CYCLIC:PUSH] Stored: Pivot to air-gapped HPC with Rust+Arrow diff engine...
+[STREAM] Evicted 8 nodes, freed 83 tokens
+[CYCLIC:POP] Retrieved: Pivot to air-gapped HPC with Rust+Arrow diff engine... is_input=1
+[EXTRACT DEBUG] Text starts with: Pivot to air-gapped HPC with Rust+Arrow ...
+[STREAM] Query embedded: 1536 dims
+[STREAM] Query domain: general
+[3B-SEMANTIC] Output: project_codename|Pivot
+[3B] Version update: project_codename = 'FastAPIAuthMicroservice' -> 'Pivot' (v102)
+[3B] Extracted: project_codename = Pivot (concept_key=none)
+[3B:WORKER] INPUT: 1 facts extracted
+[STREAM] Surfaced: project_codename (id=102, priority=1.03, tokens=10, total=10/500)
+[STREAM] Query embedded: 1536 dims
+[STREAM] Query domain: general
+[STREAM] Surfaced: project_codename (id=101, priority=0.86, tokens=12, total=22/500)
+[STREAM] Query embedded: 1536 dims
+[STREAM] Query domain: general
+[STREAM] Surfaced: raw_memory (id=62, priority=0.60, tokens=19, total=41/500)
+[STREAM] Query embedded: 1536 dims
+[STREAM] Query domain: general
+[STREAM] Surfaced: library (id=85, priority=0.57, tokens=9, total=50/500)
+[STREAM] Query embedded: 1536 dims
+[STREAM] Query domain: general
+[STREAM] Surfaced: architecture (id=83, priority=0.56, tokens=13, total=63/500)
+[STREAM] Query embedded: 1536 dims
+[STREAM] Query domain: general
+[STREAM] Surfaced: FUNC_PARAM (id=75, priority=0.55, tokens=9, total=72/500)
+[STREAM] Query embedded: 1536 dims
+[STREAM] Query domain: general
+[STREAM] Surfaced: programming_language (id=84, priority=0.54, tokens=11, total=83/500)
+[STREAM] Query embedded: 1536 dims
+[STREAM] Query domain: general
+[STREAM] Surfaced: cache_ttl (id=98, priority=0.54, tokens=8, total=91/500)
+[FORMAT] Added: Pivot (id=102)
+[FORMAT] Added: CRDT-Platform (id=101)
+[FORMAT] Added: SELECT * FROM graph; DROP TABLE nodes; -- Comment (id=62)
+[FORMAT] Added: Apache Arrow (id=85)
+[FORMAT] Added: air-gapped HPC cluster (id=83)
+[FORMAT] Added: name: n (id=75)
+[FORMAT] Added: Rust (id=84)
+[FORMAT] Added: 3600s (id=98)
+[STREAM] 8 nodes (91 tokens) surfaced for 14B
+[STREAM] Context: [FACTS]
+Pivot
+CRDT-Platform
+SELECT * FROM graph; DROP TABLE nodes; -- Comment
+Apache Arrow
+air-gapped HPC cluster
+name: n
+Rust
+3600s
+[/FACTS]
+...
+[CYCLIC:PUSH] Stored: , 3600s execution time. To achieve this goal, we need to set...
+[STREAM] Ack served: project_codename (new salience=0.72)
+[STREAM] Ack served: project_codename (new salience=0.58)
+[STREAM] Ack served: raw_memory (new salience=0.08)
+[STREAM] Ack served: library (new salience=0.35)
+[STREAM] Ack served: architecture (new salience=0.35)
+[STREAM] Ack served: FUNC_PARAM (new salience=0.44)
+[STREAM] Ack served: programming_language (new salience=0.35)
+[STREAM] Ack served: cache_ttl (new salience=0.35)
+[CONFLICT_CHECK] Output: , 3600s execution time. To achieve this goal, we need to set up an air-gapped HP...
+[CONFLICT_CHECK] Nodes: 102
+[CONFLICT_CHECK] Node 31: age = 34 (sal=0.95)
+[CONFLICT_CHECK]   Numeric: 34=num (ctx=unknown)
+[CONFLICT_CHECK] Node 58: favorite_X = 42 (sal=0.85)
+[CONFLICT_CHECK]   Numeric: 42=num (ctx=unknown)
+[CONFLICT_CHECK] Node 101: project_codename = Pivot (sal=0.72)
+[CONFLICT_CHECK]   Entity: Pivot
+[CONFLICT_CHECK] Checked 3 nodes, no conflicts
+[CONSOLIDATE] Saving 102 nodes, 147 edges...
+[CYCLIC:POP] Retrieved: , 3600s execution time. To achieve this goal, we need to set... is_input=0
+[3B:CYCLIC] Edge: Rust <-> air-gapped HPC cluster (w=0.95)
+[3B:CYCLIC] Edge: Rust <-> Rust (w=0.95)
+[3B:CYCLIC] Edge: Rust <-> Apache Arrow (w=0.95)
+[3B:CYCLIC] Edge: Rust <-> 3600s (w=0.95)
+[3B:CYCLIC] Edge: Rust <-> CRDT-Platform (w=0.95)
+[3B:CYCLIC] Edge: Rust <-> Rust (w=0.95)
+[3B:CYCLIC] Edge: Rust <-> air-gapped HPC cluster (w=0.95)
+[3B:CYCLIC] Edge: Rust <-> Apache Arrow (w=0.95)
+[3B:CYCLIC] Edge: Rust <-> 3600s (w=0.95)
+[3B:CYCLIC] Edge: Rust <-> CRDT-Platform (w=0.95)
+[3B:CYCLIC] Edge: Pivot <-> Rust (w=0.95)
+[3B:CYCLIC] Edge: Pivot <-> air-gapped HPC cluster (w=0.95)
+[3B:CYCLIC] Edge: Pivot <-> Rust (w=0.95)
+[3B:CYCLIC] Edge: Pivot <-> Apache Arrow (w=0.95)
+[3B:CYCLIC] Edge: Pivot <-> 3600s (w=0.95)
+[3B:CYCLIC] Edge: Pivot <-> CRDT-Platform (w=0.95)
+[3B:WORKER] OUTPUT: 16 correlations
+[CONSOLIDATE] Saved to /mnt/HoloGit/blocks/graph.bin
+[SAVE] Persisted 102 nodes, 163 edges to /mnt/HoloGit/blocks/graph.bin
+
+[SHUTDOWN] Stopping 3B worker...
+[3B] Parallel worker stopped
+[SHUTDOWN] Consolidating memory...
+[CONSOLIDATE] Saving 102 nodes, 163 edges...
+[CONSOLIDATE] Saved to /mnt/HoloGit/blocks/graph.bin
+[SHUTDOWN] Complete.
+[New LWP 171754]
+[New LWP 171758]
+[New LWP 171759]
+[New LWP 171811]
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/lib/x86_64-linux-gnu/libthread_db.so.1".
+0x00007fa2d0e4fc7f in __GI___wait4 (pid=173987, stat_loc=0x0, options=0, usage=0x0) at ../sysdeps/unix/sysv/linux/wait4.c:27
+27	../sysdeps/unix/sysv/linux/wait4.c: No such file or directory.
+#0  0x00007fa2d0e4fc7f in __GI___wait4 (pid=173987, stat_loc=0x0, options=0, usage=0x0) at ../sysdeps/unix/sysv/linux/wait4.c:27
+27	in ../sysdeps/unix/sysv/linux/wait4.c
+#1  0x00007fa2d12c6b63 in ggml_print_backtrace () from /home/xx/ZetaZero/llama.cpp/build/bin/libggml-base.so.0
+#2  0x00007fa2d12da2cf in ggml_uncaught_exception() () from /home/xx/ZetaZero/llama.cpp/build/bin/libggml-base.so.0
+#3  0x00007fa2d117537c in ?? () from /lib/x86_64-linux-gnu/libstdc++.so.6
+#4  0x00007fa2d11753e7 in std::terminate() () from /lib/x86_64-linux-gnu/libstdc++.so.6
+#5  0x00005607ebcf82b1 in std::thread::~thread() ()
+#6  0x00007fa2d0db38a7 in __run_exit_handlers (status=0, listp=0x7fa2d0f59718 <__exit_funcs>, run_list_atexit=run_list_atexit@entry=true, run_dtors=run_dtors@entry=true) at exit.c:108
+108	exit.c: No such file or directory.
+#7  0x00007fa2d0db3a60 in __GI_exit (status=<optimized out>) at exit.c:139
+139	in exit.c
+#8  0x00007fa2d0d9108a in __libc_start_main (main=0x5607ebce3e30 <main>, argc=13, argv=0x7fff887a3ee8, init=<optimized out>, fini=<optimized out>, rtld_fini=<optimized out>, stack_end=0x7fff887a3ed8) at ../csu/libc-start.c:342
+342	../csu/libc-start.c: No such file or directory.
+#9  0x00005607ebce596e in _start ()
+[Inferior 1 (process 171752) detached]
+terminate called without an active exception

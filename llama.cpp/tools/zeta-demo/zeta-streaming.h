@@ -66,15 +66,15 @@ static inline float zeta_query_node_similarity(
 // Calculate priority score: recency-weighted salience with momentum boost
 static inline float zeta_calc_priority(zeta_graph_node_t* node, float momentum) {
     if (!node || !node->is_active) return 0.0f;
-    
+
     time_t now = time(NULL);
     float age_hours = (float)(now - node->last_accessed) / 3600.0f;
-    
+
     // Exponential decay: half-life of 2 hours (not 5 minutes!)
     float decay_rate = 0.35f;
     if (node->is_hypothetical && node->hypothetical_decay > 0.0f) decay_rate *= node->hypothetical_decay;
     float recency = expf(-decay_rate * age_hours);
-    
+
     // Priority = salience * recency * momentum^2 (momentum has outsized effect)
     // Priority = salience * recency + momentum boost (instead of multiplication)
     // This prevents low momentum from killing high-salience nodes
@@ -95,14 +95,14 @@ static inline zeta_graph_node_t* zeta_stream_surface_one(
     float current_momentum
 ) {
     if (!ctx || !state) return NULL;
-    
+
     // Check token budget
     if (state->total_tokens >= g_stream_token_budget) {
-        fprintf(stderr, "[STREAM] Token budget exhausted (%d/%d)\n", 
+        fprintf(stderr, "[STREAM] Token budget exhausted (%d/%d)\n",
                 state->total_tokens, g_stream_token_budget);
         return NULL;
     }
-    
+
     // Embed query for semantic matching (if embed model available)
     state->has_query_embedding = false;
     if (query && strlen(query) > 0 && g_embed_ctx && g_embed_ctx->initialized) {
@@ -119,25 +119,25 @@ static inline zeta_graph_node_t* zeta_stream_surface_one(
         query_domain = zeta_classify_domain(query);
         fprintf(stderr, "[STREAM] Query domain: %s\n", zeta_domain_name(query_domain));
     }
-    
+
     // Find highest priority unserved node
     float best_priority = 0.0f;
     int best_idx = -1;
-    
+
     for (int i = 0; i < ctx->num_nodes; i++) {
         zeta_graph_node_t* node = &ctx->nodes[i];
         if (!node->is_active) continue;
-        
+
         // Skip corrupted nodes (invalid salience or empty value)
         if (node->salience <= 0.0f || node->salience > 1.0f) continue;
         if (strlen(node->value) < 3) continue;  // Skip near-empty nodes
-        
+
         // Domain filtering: skip unrelated domains unless very high salience
         zeta_semantic_domain_t node_domain = zeta_classify_domain(node->value);
         if (!zeta_domains_related(query_domain, node_domain) && node->salience < 0.9f) {
             continue;  // Skip unrelated domain
         }
-        
+
         // Skip if already in active set
         bool already_active = false;
         for (int j = 0; j < state->num_active; j++) {
@@ -147,7 +147,7 @@ static inline zeta_graph_node_t* zeta_stream_surface_one(
             }
         }
         if (already_active) continue;
-        
+
         float priority = zeta_calc_priority(node, current_momentum);
 
         // Boost priority by query-node semantic similarity
@@ -161,22 +161,22 @@ static inline zeta_graph_node_t* zeta_stream_surface_one(
             priority *= 3.0f;  // 3x boost for raw memories
         }
 
-        
+
         // Apply eviction threshold
         if (priority < ZETA_EVICTION_THRESHOLD) continue;
-        
+
         // Check if fits in remaining budget
         int tokens = zeta_estimate_tokens(node);
         if (state->total_tokens + tokens > g_stream_token_budget) continue;
-        
+
         if (priority > best_priority) {
             best_priority = priority;
             best_idx = i;
         }
     }
-    
+
     if (best_idx < 0) return NULL;
-    
+
     // Safety: ensure we don't exceed array bounds
     if (state->num_active >= g_stream_max_nodes || state->num_active >= ZETA_STREAM_CAPACITY) {
         return NULL; // cannot add more nodes without risking overflow
@@ -185,7 +185,7 @@ static inline zeta_graph_node_t* zeta_stream_surface_one(
     // Add to active set
     zeta_graph_node_t* node = &ctx->nodes[best_idx];
     int tokens = zeta_estimate_tokens(node);
-    
+
     if (state->num_active < g_stream_max_nodes && state->num_active < ZETA_STREAM_CAPACITY) {
         state->active[state->num_active].node_id = node->node_id;
         state->active[state->num_active].priority = best_priority;
@@ -193,11 +193,11 @@ static inline zeta_graph_node_t* zeta_stream_surface_one(
         state->active[state->num_active].served = false;
         state->num_active++;
         state->total_tokens += tokens;
-        
+
         fprintf(stderr, "[STREAM] Surfaced: %s (id=%lld, priority=%.2f, tokens=%d, total=%d/%d)\n",
                 node->label, (long long)node->node_id, best_priority, tokens, state->total_tokens, g_stream_token_budget);
     }
-    
+
     return node;
 }
 
@@ -210,7 +210,7 @@ static inline void zeta_stream_ack_served(
     for (int i = 0; i < state->num_active; i++) {
         if (state->active[i].node_id == node_id) {
             state->active[i].served = true;
-            
+
             // Find and decay the node
             for (int j = 0; j < ctx->num_nodes; j++) {
                 if (ctx->nodes[j].node_id == node_id) {
@@ -233,12 +233,12 @@ static inline void zeta_stream_evict(
 ) {
     int new_count = 0;
     int freed_tokens = 0;
-    
+
     for (int i = 0; i < state->num_active; i++) {
         // Evict if: served OR below threshold
-        bool evict = state->active[i].served || 
+        bool evict = state->active[i].served ||
                      (state->active[i].priority < ZETA_EVICTION_THRESHOLD);
-        
+
         if (!evict) {
             // Keep this one
             if (new_count != i) {
@@ -249,12 +249,12 @@ static inline void zeta_stream_evict(
             freed_tokens += state->active[i].tokens_consumed;
         }
     }
-    
+
     if (freed_tokens > 0) {
         fprintf(stderr, "[STREAM] Evicted %d nodes, freed %d tokens\n",
                 state->num_active - new_count, freed_tokens);
     }
-    
+
     state->num_active = new_count;
     state->total_tokens -= freed_tokens;
 }
@@ -275,19 +275,19 @@ static inline int zeta_stream_format(
     int buffer_size
 ) {
     if (state->num_active == 0) return 0;
-    
+
     char* p = buffer;
     int remaining = buffer_size - 1;
-    
+
     int n = snprintf(p, remaining, "[FACTS]\n");
     p += n; remaining -= n;
-    
+
     for (int i = 0; i < state->num_active && remaining > 50; i++) {
         if (state->active[i].served) {
             fprintf(stderr, "[FORMAT] Skipping served node id=%lld\n", (long long)state->active[i].node_id);
             continue;  // Don't repeat served facts
         }
-        
+
         // Find the node by ID
         bool found = false;
         for (int j = 0; j < ctx->num_nodes; j++) {
@@ -303,7 +303,7 @@ static inline int zeta_stream_format(
             fprintf(stderr, "[FORMAT] Node id=%lld NOT FOUND in %d nodes!\n", (long long)state->active[i].node_id, ctx->num_nodes);
         }
     }
-    
+
     snprintf(p, remaining, "[/FACTS]\n");
     return buffer_size - remaining;
 }

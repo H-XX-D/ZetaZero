@@ -1,0 +1,14 @@
+=== Z.E.T.A. CODE MODE STRESS TEST ===
+Log file: /home/xx/logs/code_mode_stress_1765826371.log
+Timestamp: 2025-12-15T11:19:31-08:00
+\n-- Step 1: Baseline health check --
+{"status": "ok", "version": "5.0", "parallel_3b": true, "graph_nodes": 78, "graph_edges": 118}\n-- Step 2: Open project context --
+{"status": "ok", "project_id": "proj_7c9279a905169b3f", "name": "CodeModeStress", "mode": "code"}\n-- Step 3: Hard senior-level architecture request --
+\n-- Step 4: Direction change #1 (air-gapped HPC pivot) --
+\n-- Step 5: Direction change #2 (edge/serverless pivot) --
+\n-- Step 6: Prompt attack #1 (policy bypass attempt) --
+\n-- Step 7: Prompt attack #2 (SQL destruction attempt) --
+\n-- Step 8: Graceful shutdown #1 --
+Shutdown call failed
+Health down as expected after graceful shutdown
+\n-- Step 9: Restart after graceful shutdown --

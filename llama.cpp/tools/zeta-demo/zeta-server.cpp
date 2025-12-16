@@ -1,6 +1,17 @@
 // Z.E.T.A. Server v5.0 - Parallel Dual-Process Engine
 // 3B runs PARALLEL to 14B with cyclic correlation feedback
 
+// ============================================================================
+// 16GB GPU Config (14B + 7B + 1.5B Embed)
+// Context size tuned for VRAM efficiency - lower = more headroom
+// ============================================================================
+#ifndef ZETA_CTX_SIZE
+#define ZETA_CTX_SIZE 2048  // 2K context for 16GB GPU (saves ~768MB vs 8K)
+#endif
+#ifndef ZETA_BATCH_SIZE
+#define ZETA_BATCH_SIZE 1024  // Batch size for inference
+#endif
+
 #include "httplib.h"
 #include "arg.h"
 #include "common.h"
@@ -135,27 +146,27 @@ static std::string make_qwen_prompt(const std::string& user)
 // Compute momentum from 14B logits (entropy-based)
 static float compute_momentum_from_logits(float* logits, int n_vocab) {
     if (!logits || n_vocab <= 0) return 0.5f;
-    
+
     float max_logit = logits[0];
     for (int i = 1; i < n_vocab; i++) {
         if (logits[i] > max_logit) max_logit = logits[i];
     }
-    
+
     float sum_exp = 0;
     for (int i = 0; i < n_vocab; i++) {
         sum_exp += expf(logits[i] - max_logit);
     }
-    
+
     float entropy = 0;
     for (int i = 0; i < n_vocab; i++) {
         float p = expf(logits[i] - max_logit) / sum_exp;
         if (p > 1e-8f) entropy -= p * logf(p);
     }
-    
+
     float momentum = 1.0f - (entropy / 10.0f);
     if (momentum < 0) momentum = 0;
     if (momentum > 1) momentum = 1;
-    
+
     return momentum;
 }
 
@@ -164,13 +175,13 @@ static float compute_momentum_from_logits(float* logits, int n_vocab) {
 
 static std::string generate(const std::string& prompt, int max_tokens) {
     std::lock_guard<std::mutex> lock(g_mutex);
-    
+
     fprintf(stderr, "[GENERATE] Received prompt (len=%zu): %.60s...\n", prompt.size(), prompt.c_str());
-    
+
 
     // === PUSH INPUT TO 3B QUEUE (non-blocking) ===
     zeta_cyclic_push(prompt.c_str(), true, 0.5f);
-    
+
     // === 3B SUBCONSCIOUS: Stream relevant context on-demand ===
     zeta_stream_evict(&g_stream_state, 0.5f);  // Evict served/low-priority first
 
@@ -200,32 +211,32 @@ static std::string generate(const std::string& prompt, int max_tokens) {
     char conflict_warning[512];
     conflict_warning[0] = '\0';
     if (g_dual) {
-        int conflicts = zeta_check_numeric_conflicts(g_dual, prompt.c_str(), 
+        int conflicts = zeta_check_numeric_conflicts(g_dual, prompt.c_str(),
                                                      conflict_warning, sizeof(conflict_warning));
         if (conflicts > 0) {
             fprintf(stderr, "[SERVER] Numeric conflicts detected: %d\n", conflicts);
         }
     }
-    
+
     // Augment prompt with streamed memory AND any conflict warnings
     // Apply Qwen template
     std::string wrapped = make_qwen_prompt(prompt);
     std::string augmented_prompt = std::string(stream_context) + std::string(conflict_warning) + wrapped;
-    
+
     // Tokenize
     std::vector<llama_token> tokens(4096);
-    int n_tokens = llama_tokenize(g_vocab, augmented_prompt.c_str(), 
+    int n_tokens = llama_tokenize(g_vocab, augmented_prompt.c_str(),
                                    augmented_prompt.length(),
                                    tokens.data(), tokens.size(), true, true);
     if (n_tokens < 0) {
         return "{\"error\": \"tokenization failed\"}";
     }
     tokens.resize(n_tokens);
-    
+
     // Clear KV cache
     llama_memory_t mem = llama_get_memory(g_ctx_14b);
     llama_memory_clear(mem, true);
-    
+
     // Decode prompt
     llama_batch batch = llama_batch_init(4096, 0, 1);
     // Safety: truncate if prompt too long
@@ -237,36 +248,36 @@ static std::string generate(const std::string& prompt, int max_tokens) {
         common_batch_add(batch, tokens[i], i, {0}, false);
     }
     batch.logits[batch.n_tokens - 1] = true;
-    
+
     if (llama_decode(g_ctx_14b, batch) != 0) {
         llama_batch_free(batch);
         return "{\"error\": \"decode failed\"}";
     }
-    
+
     // Generate with momentum tracking
     std::string output;
     float avg_momentum = 0.0f;
     int n_generated = 0;
     int n_vocab = llama_vocab_n_tokens(g_vocab);
-    
+
     auto* sampler = common_sampler_init(g_model_14b, g_params.sampling);
-    
+
     for (int i = 0; i < max_tokens; i++) {
         float* logits = llama_get_logits_ith(g_ctx_14b, -1);
-        
+
         // Compute momentum from 14B logits
         float momentum = compute_momentum_from_logits(logits, n_vocab);
         avg_momentum += momentum;
         n_generated++;
-        
+
         // Update dual-process momentum
         if (g_dual) {
             zeta_update_momentum(g_dual, momentum);
         }
-        
+
         llama_token tok = common_sampler_sample(sampler, g_ctx_14b, -1);
         common_sampler_accept(sampler, tok, true);
-        
+
         // Convert token to piece first
         char piece[64] = {0};
         llama_token_to_piece(g_vocab, tok, piece, sizeof(piece), 0, true);
@@ -276,33 +287,33 @@ static std::string generate(const std::string& prompt, int max_tokens) {
         }
         if (strcmp(piece, "<|im_end|>") == 0) break;
         if (llama_vocab_is_eog(g_vocab, tok)) break;
-        
+
         output += piece;
         // Stop on chat template tokens (prevents repetition)
         if (strstr(piece, "<|im_start") || strstr(piece, "<|im_end")) break;
-        
+
         // Prepare next
         common_batch_clear(batch);
         common_batch_add(batch, tok, n_tokens + i, {0}, true);
         if (llama_decode(g_ctx_14b, batch) != 0) break;
     }
-    
+
     common_sampler_free(sampler);
     llama_batch_free(batch);
-    
+
     avg_momentum = (n_generated > 0) ? (avg_momentum / n_generated) : 0.5f;
-    
+
     // === PUSH OUTPUT TO 3B QUEUE (cyclic feedback) ===
     zeta_cyclic_push(output.c_str(), false, avg_momentum);
-    
+
     // Mark served nodes - they've been used in this turn
     for (int i = 0; i < g_stream_state.num_active; i++) {
         if (!g_stream_state.active[i].served) {
-            zeta_stream_ack_served(g_dual, &g_stream_state, 
+            zeta_stream_ack_served(g_dual, &g_stream_state,
                                    g_stream_state.active[i].node_id);
         }
     }
-    
+
     // Apply conflict detection guardrail
     char safe_output_buf[8192];
     const char* final_output = output.c_str();
@@ -311,7 +322,7 @@ static std::string generate(const std::string& prompt, int max_tokens) {
             g_dual, output.c_str(), safe_output_buf, sizeof(safe_output_buf)
         );
     }
-    
+
     // Escape quotes in output for JSON
     std::string escaped_output;
     for (const char* p = final_output; *p; p++) {
@@ -323,7 +334,7 @@ static std::string generate(const std::string& prompt, int max_tokens) {
         else if (*p == '\t') escaped_output += "\\t";
         else escaped_output += *p;
     }
-    
+
     // Build response
     char json[8192];
     snprintf(json, sizeof(json),
@@ -332,7 +343,7 @@ static std::string generate(const std::string& prompt, int max_tokens) {
         escaped_output.c_str(), n_generated, avg_momentum,
         g_dual ? g_dual->num_nodes : 0,
         g_dual ? g_dual->num_edges : 0);
-    
+
     return std::string(json);
 }
 
@@ -341,10 +352,10 @@ static std::string generate(const std::string& prompt, int max_tokens) {
 
 static void consolidate_memory() {
     if (!g_dual || g_dual->num_nodes == 0) return;
-    
+
     fprintf(stderr, "[CONSOLIDATE] Saving %d nodes, %d edges...\n",
             g_dual->num_nodes, g_dual->num_edges);
-    
+
     char path[1024];
     snprintf(path, sizeof(path), "%s/graph.bin", g_storage_dir.c_str());
     FILE* f = fopen(path, "wb");
@@ -363,7 +374,7 @@ static void consolidate_memory() {
 
 static void save_graph() {
     if (!g_dual || g_dual->num_nodes == 0) return;
-    
+
     char path[1024];
     snprintf(path, sizeof(path), "%s/graph.bin", g_storage_dir.c_str());
     FILE* f = fopen(path, "wb");
@@ -385,7 +396,7 @@ static void save_graph() {
 
 static void load_graph() {
     if (!g_dual) return;
-    
+
     char path[1024];
     snprintf(path, sizeof(path), "%s/graph.bin", g_storage_dir.c_str());
     FILE* f = fopen(path, "rb");
@@ -411,7 +422,7 @@ static void load_graph() {
         }
         g_dual->next_node_id = max_node_id + 1;
         g_dual->next_edge_id = max_edge_id + 1;
-        
+
         fprintf(stderr, "[LOAD] Restored %d nodes, %d edges from %s (next_id=%lld)\n",
                 g_dual->num_nodes, g_dual->num_edges, path, (long long)g_dual->next_node_id);
     }
@@ -421,7 +432,7 @@ static void load_graph() {
 #include "zeta-tools.h"
 
 static void signal_handler(int sig) {
-    const char* sig_name = (sig == SIGTERM) ? "SIGTERM" : 
+    const char* sig_name = (sig == SIGTERM) ? "SIGTERM" :
                            (sig == SIGINT)  ? "SIGINT"  : "SIGNAL";
     fprintf(stderr, "\n[SHUTDOWN] Received %s...\n", sig_name);
     save_graph();
@@ -459,19 +470,19 @@ int main(int argc, char** argv) {
         fprintf(stderr, "Usage: %s -m model_14b.gguf [--model-3b model_3b.gguf] [--model-3b-coder coder.gguf] [--port 9000]\n", argv[0]);
         return 1;
     }
-    
+
     signal(SIGTERM, signal_handler);
     signal(SIGINT, signal_handler);
-    
+
     std::string model_14b_path, model_3b_path, model_3b_coder_path, model_7b_coder_path;
     int port = 9000;
-    
+
     g_params.sampling.temp = 0.7f;
     g_params.sampling.top_p = 0.9f;
     g_params.sampling.top_k = 40;
     g_params.sampling.penalty_repeat = 1.15f;
     g_params.sampling.penalty_last_n = 64;
-    
+
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-m") == 0 && i+1 < argc) model_14b_path = argv[++i];
         else if (strcmp(argv[i], "--model-3b") == 0 && i+1 < argc) model_3b_path = argv[++i];
@@ -486,20 +497,20 @@ int main(int argc, char** argv) {
         else if (strcmp(argv[i], "--code-tokens") == 0 && i+1 < argc) g_code_token_budget = atoi(argv[++i]);
         else if (strcmp(argv[i], "--code-nodes") == 0 && i+1 < argc) g_code_max_nodes = atoi(argv[++i]);
     }
-    
+
     fprintf(stderr, "Z.E.T.A. Server v5.0 (Parallel Dual-Process)\n");
     fprintf(stderr, "Streaming budget: %d tokens, %d nodes\n", g_stream_token_budget, g_stream_max_nodes);
     fprintf(stderr, "Code budget:      %d tokens, %d nodes\n", g_code_token_budget, g_code_max_nodes);
     fprintf(stderr, "14B Conscious: %s\n", model_14b_path.c_str());
     fprintf(stderr, "3B Subconscious: %s\n", model_3b_path.empty() ? "(pattern-based)" : model_3b_path.c_str());
     fprintf(stderr, "Port: %d\n", port);
-    
+
     // Load 14B model
     llama_model_params mparams = llama_model_default_params();
     mparams.n_gpu_layers = 99;
     g_model_14b = llama_model_load_from_file(model_14b_path.c_str(), mparams);
     if (!g_model_14b) { fprintf(stderr, "Failed to load 14B model\n"); return 1; }
-    
+
     // Load 3B model if specified
     if (!model_3b_path.empty()) {
         llama_model_params mparams_3b = llama_model_default_params();
@@ -507,7 +518,7 @@ int main(int argc, char** argv) {
         g_model_3b = llama_model_load_from_file(model_3b_path.c_str(), mparams_3b);
         if (g_model_3b) fprintf(stderr, "3B Subconscious model loaded\n");
     }
-    
+
     // Initialize embedding model for semantic retrieval
     if (!g_embed_model_path.empty()) {
         if (zeta_embed_init(g_embed_model_path.c_str())) {
@@ -524,25 +535,25 @@ int main(int argc, char** argv) {
         g_model_3b_coder = llama_model_load_from_file(model_3b_coder_path.c_str(), mparams_coder);
         if (g_model_3b_coder) fprintf(stderr, "3B Coder model loaded (for code mode)\n");
     }
-    
+
     // Init 14B context
     llama_context_params cparams = llama_context_default_params();
-    cparams.n_ctx = 8192;  // Extended for richer context
-    cparams.n_batch = 4096;
+    cparams.n_ctx = ZETA_CTX_SIZE;  // Configurable for GPU VRAM
+    cparams.n_batch = ZETA_BATCH_SIZE;
     g_ctx_14b = llama_init_from_model(g_model_14b, cparams);
     if (!g_ctx_14b) { fprintf(stderr, "Failed to create 14B context\n"); return 1; }
-    
+
     g_vocab = llama_model_get_vocab(g_model_14b);
     zeta_set_vocab(g_vocab);  // Enable tokenization at storage
     g_n_embd = llama_model_n_embd(g_model_14b);
-    
+
     // Init ZETA memory
     // Increased retrieval threshold to 0.35f to filter noise in high-load scenarios
     g_zeta = zeta_context_init(g_ctx_14b, g_storage_dir.c_str(), nullptr, 0.1f, 0.15f, 0.35f, 0.2f);
-    
+
     // Init dual-process engine
     g_dual = zeta_dual_init(g_model_3b ? g_model_3b : g_model_14b, g_storage_dir.c_str());
-    
+
     // Initialize streaming memory state
     memset(&g_stream_state, 0, sizeof(g_stream_state));
     // Initialize code mode context (3B Coder not loaded yet - will use 3B Instruct)
@@ -557,25 +568,25 @@ int main(int argc, char** argv) {
         fprintf(stderr, "[SESSION] Started session %lld\n", (long long)g_dual->current_session_id);
         fprintf(stderr, "Dual-process engine initialized (nodes=%d, edges=%d)\n",
                 g_dual->num_nodes, g_dual->num_edges);
-        
+
         // START 3B PARALLEL WORKER
         g_3b_worker_tid = zeta_3b_start_worker(g_dual);
         g_3b_worker_running = true;
         fprintf(stderr, "3B parallel worker started\n");
     }
-    
+
     httplib::Server svr;
     g_server = &svr;
-    
+
     svr.Post("/generate", [](const httplib::Request& req, httplib::Response& res) {
         g_last_activity = time(NULL);  // Track activity
-        
+
         // Parse JSON body
         std::string prompt;
         std::string mode = "chat";
         std::string project_id;
         int max_tokens = 2048;  // Increased default from 100
-        
+
         // Try JSON body first
             // Parse mode
             size_t mode_pos = req.body.find("\"mode\":");
@@ -616,7 +627,7 @@ int main(int argc, char** argv) {
                 }
             }
         }
-        
+
         fprintf(stderr, "[GENERATE] Mode: %s, Project: %s\\n", mode.c_str(), project_id.c_str());
         // Fallback to URL params
         if (prompt.empty()) {
@@ -628,10 +639,10 @@ int main(int argc, char** argv) {
         if (g_dual && g_dual->num_nodes > 0) consolidate_memory();
         res.set_content(result, "application/json");
     });
-    
+
     svr.Get("/health", [](const httplib::Request&, httplib::Response& res) {
         char json[512];
-        snprintf(json, sizeof(json), 
+        snprintf(json, sizeof(json),
             "{\"status\": \"ok\", \"version\": \"5.0\", "
             "\"parallel_3b\": %s, \"graph_nodes\": %d, \"graph_edges\": %d}",
             g_3b_worker_running ? "true" : "false",
@@ -640,7 +651,7 @@ int main(int argc, char** argv) {
         res.set_content(json, "application/json");
     });
 
-        
+
     // ========================================================================
     // TOOL SYSTEM ENDPOINTS
     // ========================================================================
@@ -780,7 +791,7 @@ int main(int argc, char** argv) {
         res.set_content("{\"status\": \"ok\", \"freed\": \"3b_models\"}", "application/json");
     });
 
-    
+
     svr.Get("/graph", [](const httplib::Request&, httplib::Response& res) {
         if (!g_dual || g_dual->num_nodes == 0) {
             res.set_content("{\"nodes\": [], \"edges\": []}", "application/json");
@@ -817,44 +828,44 @@ int main(int argc, char** argv) {
         json += "]}";
         res.set_content(json, "application/json");
     });
-    
+
 
     // =========================================================================
     // Project/Code Mode API
     // =========================================================================
-    
+
     svr.Post("/project/open", [](const httplib::Request& req, httplib::Response& res) {
         std::lock_guard<std::mutex> lock(g_mutex);
-        
+
         std::string path = req.get_param_value("path");
         std::string name = req.get_param_value("name");
         std::string desc = req.get_param_value("description");
-        
+
         if (path.empty()) {
             res.set_content("{\"error\": \"path required\"}", "application/json");
             return;
         }
-        
+
         if (!g_code) {
             res.set_content("{\"error\": \"code mode not initialized\"}", "application/json");
             return;
         }
-        
+
         zeta_project_t* proj = zeta_project_open(g_code, path.c_str(),
             name.empty() ? nullptr : name.c_str(),
             desc.empty() ? nullptr : desc.c_str());
-        
+
         if (!proj) {
             res.set_content("{\"error\": \"failed to open project\"}", "application/json");
             return;
         }
-        
+
         // Switch to code mode - swap 3B Instruct for 3B Coder
         zeta_switch_to_code_mode(g_code);
         if (g_ctx_14b) { llama_free(g_ctx_14b); g_ctx_14b = nullptr; }
         if (g_code->models.active_main) {
             llama_context_params cp = llama_context_default_params();
-            cp.n_ctx = 8192; cp.n_batch = 2048;
+            cp.n_ctx = ZETA_CTX_SIZE; cp.n_batch = ZETA_BATCH_SIZE;
             g_ctx_14b = llama_init_from_model(g_code->models.active_main, cp);
             g_model_14b = g_code->models.active_main; // Update model pointer for sampler
             g_vocab = llama_model_get_vocab(g_model_14b); // Update vocab for tokenizer
@@ -865,7 +876,7 @@ int main(int argc, char** argv) {
             g_dual->model_3b = g_code->models.model_3b_coder;
             if (g_dual->model_3b) {
                 llama_context_params dp = llama_context_default_params();
-                dp.n_ctx = 8192; dp.n_batch = 2048;
+                dp.n_ctx = ZETA_CTX_SIZE; dp.n_batch = ZETA_BATCH_SIZE;
                 g_dual->ctx_3b = llama_init_from_model(g_dual->model_3b, dp);
                 fprintf(stderr, "[MODE] Synced dual-process to 7B Coder\n");
             }
@@ -878,21 +889,21 @@ int main(int argc, char** argv) {
             proj->project_id, proj->project_name);
         res.set_content(json, "application/json");
     });
-    
+
     svr.Post("/project/close", [](const httplib::Request&, httplib::Response& res) {
         std::lock_guard<std::mutex> lock(g_mutex);
-        
+
         if (!g_code || !g_code->active_project) {
             res.set_content("{\"error\": \"no active project\"}", "application/json");
             return;
         }
-        
+
         // Switch back to chat mode - swap 3B Coder for 3B Instruct
         zeta_switch_to_chat_mode(g_code);
         if (g_ctx_14b) { llama_free(g_ctx_14b); g_ctx_14b = nullptr; }
         if (g_code->models.active_main) {
             llama_context_params cp = llama_context_default_params();
-            cp.n_ctx = 8192; cp.n_batch = 2048;
+            cp.n_ctx = ZETA_CTX_SIZE; cp.n_batch = ZETA_BATCH_SIZE;
             g_ctx_14b = llama_init_from_model(g_code->models.active_main, cp);
             g_model_14b = g_code->models.active_main; // Update model pointer for sampler
             g_vocab = llama_model_get_vocab(g_model_14b); // Update vocab for tokenizer
@@ -903,7 +914,7 @@ int main(int argc, char** argv) {
             g_dual->model_3b = g_code->models.model_3b_instruct;
             if (g_dual->model_3b) {
                 llama_context_params dp = llama_context_default_params();
-                dp.n_ctx = 8192; dp.n_batch = 2048;
+                dp.n_ctx = ZETA_CTX_SIZE; dp.n_batch = ZETA_BATCH_SIZE;
                 g_dual->ctx_3b = llama_init_from_model(g_dual->model_3b, dp);
                 fprintf(stderr, "[MODE] Synced dual-process to 3B Instruct\n");
             }
@@ -912,21 +923,21 @@ int main(int argc, char** argv) {
         zeta_project_close(g_code);
         res.set_content("{\"status\": \"ok\", \"mode\": \"chat\"}", "application/json");
     });
-    
+
     svr.Get("/project/current", [](const httplib::Request&, httplib::Response& res) {
         std::lock_guard<std::mutex> lock(g_mutex);
-        
+
         if (!g_code) {
             res.set_content("{\"mode\": \"chat\", \"project\": null}", "application/json");
             return;
         }
-        
+
         zeta_project_t* proj = zeta_project_current(g_code);
         if (!proj) {
             res.set_content("{\"mode\": \"chat\", \"project\": null}", "application/json");
             return;
         }
-        
+
         char json[4096];
         snprintf(json, sizeof(json),
             "{\"mode\": \"code\", \"project\": {"
@@ -939,15 +950,15 @@ int main(int argc, char** argv) {
             proj->file_count, proj->function_count, proj->todo_count);
         res.set_content(json, "application/json");
     });
-    
+
     svr.Get("/projects/list", [](const httplib::Request&, httplib::Response& res) {
         std::lock_guard<std::mutex> lock(g_mutex);
-        
+
         if (!g_code) {
             res.set_content("{\"projects\": []}", "application/json");
             return;
         }
-        
+
         std::string json = "{\"projects\": [";
         for (int i = 0; i < g_code->project_count; i++) {
             if (i > 0) json += ",";
@@ -963,41 +974,41 @@ int main(int argc, char** argv) {
         json += "]}";
         res.set_content(json, "application/json");
     });
-    
+
     svr.Post("/code/check", [](const httplib::Request& req, httplib::Response& res) {
         std::lock_guard<std::mutex> lock(g_mutex);
-        
+
         std::string entity_type = req.get_param_value("type");
         std::string entity_name = req.get_param_value("name");
         std::string file_path = req.get_param_value("file");
-        
+
         if (!g_code || !g_code->active_project) {
             res.set_content("{\"error\": \"no active project\"}", "application/json");
             return;
         }
-        
+
         char reason[512] = {0};
         bool can_create = zeta_can_create(g_code, entity_type.c_str(),
             entity_name.c_str(), file_path.c_str(), reason, sizeof(reason));
-        
+
         char json[1024];
         snprintf(json, sizeof(json),
             "{\"can_create\": %s, \"reason\": \"%s\"}",
             can_create ? "true" : "false", reason);
         res.set_content(json, "application/json");
     });
-    
+
     svr.Get("/code/recent", [](const httplib::Request&, httplib::Response& res) {
         std::lock_guard<std::mutex> lock(g_mutex);
-        
+
         if (!g_code || !g_code->active_project) {
             res.set_content("{\"error\": \"no active project\"}", "application/json");
             return;
         }
-        
+
         char buffer[4096] = {0};
         zeta_surface_recent_work(g_code, buffer, sizeof(buffer));
-        
+
         // Escape for JSON
         std::string escaped;
         for (char c : std::string(buffer)) {
@@ -1005,7 +1016,7 @@ int main(int argc, char** argv) {
             else if (c == '\"') escaped += "\\\"";
             else escaped += c;
         }
-        
+
         char json[8192];
         snprintf(json, sizeof(json), "{\"recent_work\": \"%s\"}", escaped.c_str());
         res.set_content(json, "application/json");
@@ -1014,18 +1025,18 @@ int main(int argc, char** argv) {
     // POST /code/extract - Extract code entities from text
     svr.Post("/code/extract", [](const httplib::Request& req, httplib::Response& res) {
         std::lock_guard<std::mutex> lock(g_mutex);
-        
+
         std::string text = req.get_param_value("text");
         if (text.empty()) {
             res.set_content("{\"error\": \"text required\"}", "application/json");
             return;
         }
-        
+
         if (!g_code || !g_code->active_project) {
             res.set_content("{\"error\": \"no project open\"}", "application/json");
             return;
         }
-        
+
         int added = zeta_code_extract_entities(g_code, text.c_str());
         char json[512];
         snprintf(json, sizeof(json), "{\"status\": \"ok\", \"entities_added\": %d}", added);
@@ -1039,13 +1050,13 @@ int main(int argc, char** argv) {
     g_shutdown_requested = true;
         if (g_server) g_server->stop();
     });
-    
+
     fprintf(stderr, "\nZ.E.T.A. Server v5.0 listening on port %d\n", port);
     fprintf(stderr, "  POST /generate - Generate with parallel 3B memory\n");
     fprintf(stderr, "  GET  /health   - Health check\n");
     fprintf(stderr, "  GET  /graph    - View memory graph\n");
     fprintf(stderr, "  POST /shutdown - Graceful shutdown\n");
-    
+
     // Start new session (versions old data)
     svr.Post("/session/new", [](const httplib::Request& req, httplib::Response& res) {
         int64_t old_session = g_dual->current_session_id;
@@ -1054,7 +1065,7 @@ int main(int argc, char** argv) {
         snprintf(buf, sizeof(buf), "{\"status\": \"new_session\", \"old_session\": %lld, \"new_session\": %lld}",
                  (long long)old_session, (long long)g_dual->current_session_id);
         res.set_content(buf, "application/json");
-        fprintf(stderr, "[SESSION] New session %lld (old: %lld)\n", 
+        fprintf(stderr, "[SESSION] New session %lld (old: %lld)\n",
                 (long long)g_dual->current_session_id, (long long)old_session);
     });
     fprintf(stderr, "  POST /project/open  - Open project (code mode)\n");
@@ -1067,30 +1078,30 @@ int main(int argc, char** argv) {
     g_last_activity = time(NULL);
     g_idle_watchdog = std::thread(idle_watchdog_thread);
     fprintf(stderr, "[IDLE] Watchdog started (decay@5m, 3B always loaded)\n");
-    
-    
+
+
     // Initialize tool system
     fprintf(stderr, "[TOOLS] Tool system initialized with %zu tools\n",
             zeta_tools::g_tool_registry.tools.size());
 
     svr.listen("0.0.0.0", port);
-    
+
     fprintf(stderr, "\n[SHUTDOWN] Stopping 3B worker...\n");
     if (g_3b_worker_running) {
         zeta_3b_stop_worker(g_3b_worker_tid);
         g_3b_worker_running = false;
     }
-    
+
     fprintf(stderr, "[SHUTDOWN] Consolidating memory...\n");
     consolidate_memory();
-    
+
     if (g_dual) free(g_dual);
     if (g_zeta) zeta_context_free(g_zeta);
     llama_free(g_ctx_14b);
     llama_model_free(g_model_14b);
     if (g_model_3b) llama_model_free(g_model_3b);
     if (g_model_3b_coder) llama_model_free(g_model_3b_coder);
-    
+
     fprintf(stderr, "[SHUTDOWN] Complete.\n");
     return 0;
 }

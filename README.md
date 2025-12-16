@@ -1,18 +1,18 @@
 # ZetaLm Chat - VS Code Extension
 
-A Cyberpunk 2077-themed VS Code extension for chatting with your local ZetaLm AI model.
+A Cyberpunk 2077-themed VS Code extension for chatting with your local ZetaZero AI model.
 
 ## Features
 
 - **Cyberpunk Aesthetic**: CD Projekt Red-inspired UI with neon colors, grid backgrounds, and scan line effects
-- **Streaming Responses**: Real-time token-by-token streaming from ZetaLm
+- **Streaming Responses**: Real-time token-by-token streaming from ZetaZero
 - **Sidebar Integration**: Chat interface accessible from the VS Code activity bar
 - **Conversation History**: Maintains full conversation context
 - **Error Handling**: Clear error messages when server is unreachable
 
 ## Requirements
 
-- ZetaLm server running on `http://localhost:9000`
+- ZetaZero server running on `http://localhost:9000`
 - Node.js and npm
 
 ## Installation
