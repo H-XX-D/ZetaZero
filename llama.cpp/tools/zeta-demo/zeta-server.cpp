@@ -3,13 +3,16 @@
 
 // ============================================================================
 // 16GB GPU Config (14B + 7B + 1.5B Embed)
-// Context size tuned for VRAM efficiency - lower = more headroom
+// Context size 4K for tight VRAM budget
 // ============================================================================
 #ifndef ZETA_CTX_SIZE
-#define ZETA_CTX_SIZE 2048  // 2K context for 16GB GPU (saves ~768MB vs 8K)
+#define ZETA_CTX_SIZE 4096  // 4K context for 14B+7B+1.5B config (~2GB headroom)
 #endif
 #ifndef ZETA_BATCH_SIZE
-#define ZETA_BATCH_SIZE 1024  // Batch size for inference
+#define ZETA_BATCH_SIZE 1024  // Smaller batch for 14B
+#endif
+#ifndef ZETA_MAX_TOKENS
+#define ZETA_MAX_TOKENS 1200  // Default max generation tokens
 #endif
 
 #include "httplib.h"
@@ -40,10 +43,10 @@ extern "C" {
 //MOVED: zeta-tools.h
 }
 
-// C++ tool system (must be outside extern C)
-#include "zeta-tools.h"
 
 // 14B Conscious model
+// C++ tool system (must be outside extern C)
+#include "zeta-tools.h"
 static llama_model* g_model_14b = nullptr;
 static llama_context* g_ctx_14b = nullptr;
 
@@ -95,8 +98,6 @@ static void zeta_apply_temporal_decay(zeta_dual_ctx_t* ctx) {
     }
 }
 
-// C++ tool system (must be outside extern C)
-#include "zeta-tools.h"
 
 
 
@@ -111,8 +112,6 @@ static void idle_decay() {
     fprintf(stderr, "[IDLE] Applied temporal decay, restaged %d nodes\n", g_dual->num_nodes);
 }
 
-// C++ tool system (must be outside extern C)
-#include "zeta-tools.h"
 
 
 // Watchdog thread
@@ -127,8 +126,6 @@ static void idle_watchdog_thread() {
     }
 }
 
-// C++ tool system (must be outside extern C)
-#include "zeta-tools.h"
 
 static httplib::Server* g_server = nullptr;
 
@@ -170,8 +167,6 @@ static float compute_momentum_from_logits(float* logits, int n_vocab) {
     return momentum;
 }
 
-// C++ tool system (must be outside extern C)
-#include "zeta-tools.h"
 
 static std::string generate(const std::string& prompt, int max_tokens) {
     std::lock_guard<std::mutex> lock(g_mutex);
@@ -347,8 +342,6 @@ static std::string generate(const std::string& prompt, int max_tokens) {
     return std::string(json);
 }
 
-// C++ tool system (must be outside extern C)
-#include "zeta-tools.h"
 
 static void consolidate_memory() {
     if (!g_dual || g_dual->num_nodes == 0) return;
@@ -369,8 +362,6 @@ static void consolidate_memory() {
     }
 }
 
-// C++ tool system (must be outside extern C)
-#include "zeta-tools.h"
 
 static void save_graph() {
     if (!g_dual || g_dual->num_nodes == 0) return;
@@ -391,8 +382,6 @@ static void save_graph() {
     }
 }
 
-// C++ tool system (must be outside extern C)
-#include "zeta-tools.h"
 
 static void load_graph() {
     if (!g_dual) return;
@@ -428,8 +417,6 @@ static void load_graph() {
     }
 }
 
-// C++ tool system (must be outside extern C)
-#include "zeta-tools.h"
 
 static void signal_handler(int sig) {
     const char* sig_name = (sig == SIGTERM) ? "SIGTERM" :
@@ -440,8 +427,6 @@ static void signal_handler(int sig) {
     if (g_server) g_server->stop();
 }
 
-// C++ tool system (must be outside extern C)
-#include "zeta-tools.h"
 // Quiet log callback - filter tensor spam
 static void quiet_log_callback(enum ggml_log_level level, const char* text, void* user_data) {
     (void)user_data;
@@ -454,8 +439,6 @@ static void quiet_log_callback(enum ggml_log_level level, const char* text, void
     }
 }
 
-// C++ tool system (must be outside extern C)
-#include "zeta-tools.h"
 
 
 
@@ -585,7 +568,7 @@ int main(int argc, char** argv) {
         std::string prompt;
         std::string mode = "chat";
         std::string project_id;
-        int max_tokens = 2048;  // Increased default from 100
+        int max_tokens = ZETA_MAX_TOKENS;  // Default 1200 tokens
 
         // Try JSON body first
             // Parse mode
@@ -1106,6 +1089,4 @@ int main(int argc, char** argv) {
     return 0;
 }
 
-// C++ tool system (must be outside extern C)
-#include "zeta-tools.h"
 
