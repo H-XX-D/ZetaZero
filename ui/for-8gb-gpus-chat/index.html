@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>For 8GB GPUs</title>
+  <style>
+    :root { color-scheme: dark; }
+    body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background: #0f111a; color: #e6e6e6; }
+    header { padding: 12px 16px; border-bottom: 1px solid #2a2f45; font-weight: 600; }
+    #wrap { display: flex; flex-direction: column; height: 100vh; }
+    #msgs { flex: 1; overflow: auto; padding: 12px 16px; }
+    .msg { margin: 10px 0; white-space: pre-wrap; line-height: 1.35; }
+    .role { font-size: 12px; opacity: 0.8; margin-bottom: 4px; }
+    .bubble { padding: 10px 12px; background: #171a27; border: 1px solid #2a2f45; border-radius: 10px; }
+    .user .bubble { background: #121826; }
+    footer { padding: 10px 16px; border-top: 1px solid #2a2f45; display: flex; gap: 8px; }
+    textarea { flex: 1; resize: none; height: 56px; padding: 10px 12px; border-radius: 10px; border: 1px solid #2a2f45; background: #0f111a; color: #e6e6e6; }
+    button { padding: 0 14px; border-radius: 10px; border: 1px solid #2a2f45; background: #171a27; color: #e6e6e6; font-weight: 600; }
+    button:disabled { opacity: 0.6; }
+    .hint { font-size: 12px; opacity: 0.7; padding: 0 16px 10px; }
+    a { color: inherit; }
+  </style>
+</head>
+<body>
+  <div id="wrap">
+    <header>For 8GB GPUs — Chat (local :9000)</header>
+    <div class="hint">Sends prompts to <code id="ep">http://localhost:9000/generate</code>. Use messages like <code>read README.md</code> to trigger deterministic file reads.</div>
+    <div id="msgs"></div>
+    <footer>
+      <textarea id="input" placeholder="Type a message… (Shift+Enter for newline)"></textarea>
+      <button id="send">Send</button>
+    </footer>
+  </div>
+
+<script>
+  const endpoint = 'http://localhost:9000/generate';
+  const workingDir = new URLSearchParams(location.search).get('wd') || '';
+  const msgs = document.getElementById('msgs');
+  const input = document.getElementById('input');
+  const sendBtn = document.getElementById('send');
+
+  function addMsg(role, text) {
+    const wrap = document.createElement('div');
+    wrap.className = 'msg ' + role;
+
+    const roleDiv = document.createElement('div');
+    roleDiv.className = 'role';
+    roleDiv.textContent = role === 'user' ? 'You' : 'Zeta';
+
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble';
+    bubble.textContent = text;
+
+    wrap.appendChild(roleDiv);
+    wrap.appendChild(bubble);
+    msgs.appendChild(wrap);
+    msgs.scrollTop = msgs.scrollHeight;
+  }
+
+  async function send() {
+    const text = input.value.trim();
+    if (!text) return;
+
+    input.value = '';
+    addMsg('user', text);
+    sendBtn.disabled = true;
+
+    try {
+      const body = { prompt: text, max_tokens: 768 };
+      if (workingDir) body.working_dir = workingDir;
+
+      const resp = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+      const data = await resp.json().catch(() => null);
+      if (!resp.ok) {
+        addMsg('assistant', `HTTP ${resp.status}: ${await resp.text().catch(() => '')}`);
+      } else if (data && typeof data.output === 'string') {
+        addMsg('assistant', data.output);
+      } else {
+        addMsg('assistant', JSON.stringify(data ?? {}, null, 2));
+      }
+    } catch (e) {
+      addMsg('assistant', String(e));
+    } finally {
+      sendBtn.disabled = false;
+      input.focus();
+    }
+  }
+
+  sendBtn.addEventListener('click', send);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      send();
+    }
+  });
+
+  addMsg('assistant', 'Ready. Try: "read README.md" (and pass ?wd=/home/xx/ZetaZero if needed).');
+</script>
+</body>
+</html>

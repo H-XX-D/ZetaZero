@@ -36,7 +36,7 @@ static bool zeta_embed_init(const char* model_path) {
 
     // Load model
     llama_model_params mparams = llama_model_default_params();
-    mparams.n_gpu_layers = 99;  // Offload all layers to GPU
+    mparams.n_gpu_layers = 0;   // Keep embedding model on CPU to avoid GPU OOM in 7B+7B configs
 
     fprintf(stderr, "[EMBED] Loading embedding model: %s\n", model_path);
     g_embed_ctx->model = llama_model_load_from_file(model_path, mparams);
