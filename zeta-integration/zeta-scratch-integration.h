@@ -596,16 +596,14 @@ static inline void zeta_scratch_register_endpoints(httplib::Server& svr) {
 // ============================================================================
 
 // Call at server init (after model load)
+// TEMPORARILY DISABLED for debugging
 #define ZETA_SCRATCH_INIT(vocab) do { \
-    zeta_scratch_register_tokens(vocab); \
-    zeta_decode_hook_init([](const char* t, size_t l) { /* default no-op */ }); \
-    fprintf(stderr, "[SCRATCH] Scratch buffer initialized\n"); \
+    fprintf(stderr, "[SCRATCH] Scratch buffer DISABLED for debugging\n"); \
 } while(0)
 
-// Call before each generation
-#define ZETA_SCRATCH_START_GENERATION() do { \
-    zeta_decode_hook_reset(); \
-} while(0)
+// Call before each generation  
+// TEMPORARILY DISABLED
+#define ZETA_SCRATCH_START_GENERATION() do {} while(0)
 
 // Call for each token in decode loop
 // Returns true if token should be output to user
