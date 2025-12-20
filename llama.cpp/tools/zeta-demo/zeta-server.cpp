@@ -55,6 +55,7 @@
 #include <unistd.h>
 #include <signal.h>
 #include <atomic>
+#include <netinet/tcp.h>  // For TCP_NODELAY
 #include "log.h"
 
 extern "C" {
@@ -543,10 +544,311 @@ static std::string critic_check(const std::string& query, const std::string& res
     return result;
 }
 
+// ============================================================================
+// CHUNKED LONG OUTPUT GENERATION
+// Enables outputs beyond context window by generating in chunks with plan
+// ============================================================================
+
+static const int CHUNK_SIZE = 800;  // Tokens per chunk (larger for more coherent sections)
+static const int LONG_OUTPUT_THRESHOLD = 1000;  // When to use chunked generation
+
+// Generate a plan for long output (outline with sections)
+static std::string generate_output_plan(const std::string& prompt, int target_tokens) {
+    if (!g_ctx_conscious || !g_model_conscious) return "";
+    
+    int num_sections = (target_tokens + CHUNK_SIZE - 1) / CHUNK_SIZE;  // Ceiling division
+    
+    std::string plan_prompt = 
+        "<|im_start|>system\n"
+        "You are a planning assistant. Create a structured outline.\n"
+        "<|im_end|>\n"
+        "<|im_start|>user\n"
+        "The user wants a detailed response about: " + prompt.substr(0, 500) + "\n\n"
+        "Create an outline with exactly " + std::to_string(num_sections) + " sections.\n"
+        "Format each section as: SECTION N: [Title] - [Brief 10-word description]\n"
+        "Only output the outline, nothing else.\n"
+        "<|im_end|>\n"
+        "<|im_start|>assistant\n";
+    
+    // Tokenize plan prompt
+    std::vector<llama_token> tokens(1024);
+    int n_tokens = llama_tokenize(g_vocab, plan_prompt.c_str(), plan_prompt.length(),
+                                   tokens.data(), tokens.size(), true, true);
+    if (n_tokens < 0) return "";
+    tokens.resize(n_tokens);
+    
+    // Clear KV and decode
+    llama_memory_t mem = llama_get_memory(g_ctx_conscious);
+    llama_memory_clear(mem, true);
+    
+    llama_batch batch = llama_batch_init(n_tokens + 256, 0, 1);
+    for (int i = 0; i < n_tokens; i++) {
+        common_batch_add(batch, tokens[i], i, {0}, (i == n_tokens - 1));
+    }
+    
+    if (llama_decode(g_ctx_conscious, batch) != 0) {
+        llama_batch_free(batch);
+        return "";
+    }
+    
+    // Generate plan (short - just section titles)
+    std::string plan;
+    auto* sampler = common_sampler_init(g_model_conscious, g_params.sampling);
+    int kv_pos = n_tokens;
+    
+    for (int i = 0; i < 300; i++) {  // Max 300 tokens for plan
+        llama_token tok = common_sampler_sample(sampler, g_ctx_conscious, -1);
+        common_sampler_accept(sampler, tok, true);
+        
+        char piece[64] = {0};
+        llama_token_to_piece(g_vocab, tok, piece, sizeof(piece), 0, true);
+        
+        if (strcmp(piece, "<|im_end|>") == 0) break;
+        if (llama_vocab_is_eog(g_vocab, tok)) break;
+        plan += piece;
+        
+        common_batch_clear(batch);
+        common_batch_add(batch, tok, kv_pos++, {0}, true);
+        if (llama_decode(g_ctx_conscious, batch) != 0) break;
+    }
+    
+    common_sampler_free(sampler);
+    llama_batch_free(batch);
+    
+    fprintf(stderr, "[CHUNK-PLAN] Generated %d-section plan:\n%s\n", num_sections, plan.c_str());
+    return plan;
+}
+
+// Parse sections from plan
+static std::vector<std::string> parse_plan_sections(const std::string& plan) {
+    std::vector<std::string> sections;
+    std::istringstream stream(plan);
+    std::string line;
+    
+    while (std::getline(stream, line)) {
+        if (line.find("SECTION") != std::string::npos || 
+            line.find("Section") != std::string::npos ||
+            (line.length() > 5 && isdigit(line[0]))) {
+            sections.push_back(line);
+        }
+    }
+    
+    // Fallback if parsing fails
+    if (sections.empty()) {
+        sections.push_back("Section 1: Introduction");
+        sections.push_back("Section 2: Main Content");
+        sections.push_back("Section 3: Conclusion");
+    }
+    
+    return sections;
+}
+
+// Generate a single chunk for a specific section
+static std::string generate_chunk(const std::string& original_prompt,
+                                   const std::string& section_title,
+                                   const std::string& previous_summary,
+                                   const std::string& last_anchor,
+                                   int chunk_tokens) {
+    if (!g_ctx_conscious || !g_model_conscious) return "";
+    
+    // Build continuation prompt
+    std::string chunk_prompt = 
+        "<|im_start|>system\n"
+        "You are Z.E.T.A., continuing a detailed response. Write ONLY the content for the specified section.\n"
+        "<|im_end|>\n"
+        "<|im_start|>user\n"
+        "Original request: " + original_prompt.substr(0, 300) + "\n\n";
+    
+    if (!previous_summary.empty()) {
+        chunk_prompt += "Summary of what you've written so far:\n" + previous_summary + "\n\n";
+    }
+    
+    if (!last_anchor.empty()) {
+        chunk_prompt += "You ended with: \"..." + last_anchor + "\"\n\n";
+    }
+    
+    chunk_prompt += "Now write the content for: " + section_title + "\n"
+                    "Continue naturally from where you left off. Write about " + 
+                    std::to_string(chunk_tokens * 3) + " characters.\n"
+                    "<|im_end|>\n"
+                    "<|im_start|>assistant\n";
+    
+    // Tokenize
+    std::vector<llama_token> tokens(2048);
+    int n_tokens = llama_tokenize(g_vocab, chunk_prompt.c_str(), chunk_prompt.length(),
+                                   tokens.data(), tokens.size(), true, true);
+    if (n_tokens < 0) return "";
+    tokens.resize(n_tokens);
+    
+    // Clear KV and decode prompt
+    llama_memory_t mem = llama_get_memory(g_ctx_conscious);
+    llama_memory_clear(mem, true);
+    
+    llama_batch batch = llama_batch_init(n_tokens + chunk_tokens + 100, 0, 1);
+    for (int i = 0; i < n_tokens; i++) {
+        common_batch_add(batch, tokens[i], i, {0}, (i == n_tokens - 1));
+    }
+    
+    if (llama_decode(g_ctx_conscious, batch) != 0) {
+        llama_batch_free(batch);
+        return "";
+    }
+    
+    // Generate chunk
+    std::string chunk;
+    auto* sampler = common_sampler_init(g_model_conscious, g_params.sampling);
+    int kv_pos = n_tokens;
+    
+    for (int i = 0; i < chunk_tokens; i++) {
+        llama_token tok = common_sampler_sample(sampler, g_ctx_conscious, -1);
+        common_sampler_accept(sampler, tok, true);
+        
+        char piece[64] = {0};
+        llama_token_to_piece(g_vocab, tok, piece, sizeof(piece), 0, true);
+        
+        if (strcmp(piece, "<|im_end|>") == 0) break;
+        if (llama_vocab_is_eog(g_vocab, tok)) break;
+        if (strstr(piece, "<|im_start")) break;
+        chunk += piece;
+        
+        common_batch_clear(batch);
+        common_batch_add(batch, tok, kv_pos++, {0}, true);
+        if (llama_decode(g_ctx_conscious, batch) != 0) break;
+    }
+    
+    common_sampler_free(sampler);
+    llama_batch_free(batch);
+    
+    return chunk;
+}
+
+// Generate a brief summary of content for continuity
+static std::string generate_summary(const std::string& content) {
+    if (content.length() < 200) return content;
+    
+    // Quick extraction: first sentence + last sentence + key points
+    std::string summary;
+    
+    // First 150 chars
+    summary = content.substr(0, std::min((size_t)150, content.length()));
+    
+    // Add "..." if truncated
+    if (content.length() > 150) {
+        summary += "...";
+        // Last 100 chars
+        if (content.length() > 250) {
+            summary += content.substr(content.length() - 100);
+        }
+    }
+    
+    return summary;
+}
+
+// Main chunked generation function
+static std::string generate_chunked_output(const std::string& prompt, int max_tokens) {
+    fprintf(stderr, "[CHUNK] Starting chunked generation for %d tokens\n", max_tokens);
+    
+    // Step 1: Generate plan
+    std::string plan = generate_output_plan(prompt, max_tokens);
+    std::vector<std::string> sections = parse_plan_sections(plan);
+    
+    fprintf(stderr, "[CHUNK] Plan has %zu sections\n", sections.size());
+    
+    // Step 2: Generate each section into scratch buffer
+    std::string accumulated_output;
+    std::string running_summary;
+    std::string last_anchor;
+    
+    int tokens_per_section = max_tokens / sections.size();
+    if (tokens_per_section < 100) tokens_per_section = 100;
+    if (tokens_per_section > CHUNK_SIZE) tokens_per_section = CHUNK_SIZE;
+    
+    for (size_t i = 0; i < sections.size(); i++) {
+        fprintf(stderr, "[CHUNK] Generating section %zu/%zu: %s\n", 
+                i + 1, sections.size(), sections[i].c_str());
+        
+        // Generate this section's content
+        std::string chunk = generate_chunk(
+            prompt,
+            sections[i],
+            running_summary,
+            last_anchor,
+            tokens_per_section
+        );
+        
+        if (chunk.empty()) {
+            fprintf(stderr, "[CHUNK] Section %zu failed, stopping\n", i + 1);
+            break;
+        }
+        
+        // Accumulate into RAM buffer
+        if (!accumulated_output.empty() && !chunk.empty()) {
+            // Add newline between sections if needed
+            char last_char = accumulated_output.back();
+            if (last_char != '\n' && last_char != ' ') {
+                accumulated_output += "\n\n";
+            }
+        }
+        accumulated_output += chunk;
+        
+        // Update continuity anchors
+        running_summary = generate_summary(accumulated_output);
+        if (chunk.length() > 150) {
+            last_anchor = chunk.substr(chunk.length() - 150);
+        } else {
+            last_anchor = chunk;
+        }
+        
+        fprintf(stderr, "[CHUNK] Section %zu complete: %zu chars, total: %zu chars\n",
+                i + 1, chunk.length(), accumulated_output.length());
+    }
+    
+    fprintf(stderr, "[CHUNK] Chunked generation complete: %zu total chars\n", 
+            accumulated_output.length());
+    
+    return accumulated_output;
+}
+
+// ============================================================================
+// END CHUNKED GENERATION
+// ============================================================================
+
 static std::string generate(const std::string& prompt, int max_tokens) {
     std::lock_guard<std::mutex> lock(g_mutex);
 
     fprintf(stderr, "[GENERATE] Received prompt (len=%zu): %.60s...\n", prompt.size(), prompt.c_str());
+
+    // === CHUNKED GENERATION: For very long outputs, use plan-based chunking ===
+    if (max_tokens >= LONG_OUTPUT_THRESHOLD) {
+        fprintf(stderr, "[GENERATE] Long output requested (%d tokens), using chunked generation\n", max_tokens);
+        std::string chunked_result = generate_chunked_output(prompt, max_tokens);
+        
+        if (!chunked_result.empty()) {
+            // Escape for JSON
+            std::string escaped;
+            for (char c : chunked_result) {
+                if (c == '"') escaped += "\\\"";
+                else if (c == '\\') escaped += "\\\\";
+                else if (c == '\n') escaped += "\\n";
+                else if (c == '\r') escaped += "\\r";
+                else if (c == '\t') escaped += "\\t";
+                else escaped += c;
+            }
+            
+            int graph_nodes = g_dual ? g_dual->num_nodes : 0;
+            int graph_edges = g_dual ? g_dual->num_edges : 0;
+            
+            char json[65536];  // Large buffer for chunked output
+            snprintf(json, sizeof(json),
+                "{\"output\": \"%s\", \"tokens\": %d, \"momentum\": 0.85, "
+                "\"chunked\": true, \"graph_nodes\": %d, \"graph_edges\": %d}",
+                escaped.c_str(), max_tokens, graph_nodes, graph_edges);
+            
+            return std::string(json);
+        }
+        // Fall through to normal generation if chunked fails
+        fprintf(stderr, "[GENERATE] Chunked generation failed, falling back to normal\n");
+    }
 
     // 14B is the only generator - specialists run automatically in background
     // Router/Immune/Tools have their own threads and triggers
@@ -957,6 +1259,7 @@ static std::string generate(const std::string& prompt, int max_tokens) {
                     std::string continued;
                     auto* cont_sampler = common_sampler_init(g_model_conscious, g_params.sampling);
 
+                    int cont_tokens_generated = 0;  // Track ACTUAL tokens
                     for (int t = 0; t < max_tokens; t++) {
                         llama_token tok = common_sampler_sample(cont_sampler, g_ctx_conscious, -1);
                         common_sampler_accept(cont_sampler, tok, true);
@@ -972,8 +1275,9 @@ static std::string generate(const std::string& prompt, int max_tokens) {
                         common_batch_clear(refine_batch);
                         common_batch_add(refine_batch, tok, kv_pos + t, {0}, true);
                         if (llama_decode(g_ctx_conscious, refine_batch) != 0) break;
+                        cont_tokens_generated++;  // Count actual successful decodes
                     }
-                    kv_pos += continued.length() / 4;
+                    kv_pos += cont_tokens_generated;  // Use EXACT token count
 
                     common_sampler_free(cont_sampler);
 
@@ -1057,6 +1361,7 @@ static std::string generate(const std::string& prompt, int max_tokens) {
             fprintf(stderr, "[SCRATCH] Semantic critique: %d tokens allowed (response ~%d tokens)\n",
                     eval_max_tokens, response_tokens);
 
+            int eval_tokens_generated = 0;  // Track ACTUAL tokens, not estimates
             for (int t = 0; t < eval_max_tokens; t++) {
                 llama_token tok = common_sampler_sample(eval_sampler, g_ctx_conscious, -1);
                 common_sampler_accept(eval_sampler, tok, true);
@@ -1071,8 +1376,9 @@ static std::string generate(const std::string& prompt, int max_tokens) {
                 common_batch_clear(refine_batch);
                 common_batch_add(refine_batch, tok, kv_pos + t, {0}, true);
                 if (llama_decode(g_ctx_conscious, refine_batch) != 0) break;
+                eval_tokens_generated++;  // Count actual successful decodes
             }
-            kv_pos += self_eval.length() / 4;  // Rough token estimate
+            kv_pos += eval_tokens_generated;  // Use EXACT token count
 
             common_sampler_free(eval_sampler);
             fprintf(stderr, "[SCRATCH] Self-eval: %s\n", self_eval.substr(0, 300).c_str());
@@ -1141,6 +1447,7 @@ static std::string generate(const std::string& prompt, int max_tokens) {
         std::string refined;
         auto* fix_sampler = common_sampler_init(g_model_conscious, g_params.sampling);
 
+        int refine_tokens_generated = 0;  // Track ACTUAL tokens
         for (int t = 0; t < max_tokens; t++) {
             llama_token tok = common_sampler_sample(fix_sampler, g_ctx_conscious, -1);
             common_sampler_accept(fix_sampler, tok, true);
@@ -1156,8 +1463,9 @@ static std::string generate(const std::string& prompt, int max_tokens) {
             common_batch_clear(refine_batch);
             common_batch_add(refine_batch, tok, kv_pos + t, {0}, true);
             if (llama_decode(g_ctx_conscious, refine_batch) != 0) break;
+            refine_tokens_generated++;  // Count actual successful decodes
         }
-        kv_pos += refined.length() / 4;
+        kv_pos += refine_tokens_generated;  // Use EXACT token count
 
         common_sampler_free(fix_sampler);
 
@@ -1570,21 +1878,27 @@ int main(int argc, char** argv) {
 
         // Wire automatic domain-based branching for fact extraction
         zeta_git_wire_auto_commit(g_git);
+        // Wire edge commits for tracked correlations
+        zeta_git_wire_edge_commit(g_git);
     }
 
     // Create 3B/7B extraction context with runtime-configurable size
     // DYNAMIC BATCHING: n_batch = n_ctx allows any prompt up to context size
-    if (g_dual && g_dual->model_subconscious) {
+    // NOTE: Share context with generation to save VRAM - extraction runs async
+    if (g_dual && g_dual->model_subconscious && !g_dual->ctx_subconscious) {
         llama_context_params dp = llama_context_default_params();
-        int ctx_7b = std::max(g_ctx_size_3b, 2048);  // At least 2K for semantic critic
-        dp.n_ctx = ctx_7b;
-        dp.n_batch = ctx_7b;  // Dynamic: batch = context for max flexibility
-        dp.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_ENABLED;  // Reduce KV cache memory
+        // Use smaller context for extraction to fit in remaining VRAM
+        // 2048 tokens is enough for fact extraction from output chunks
+        int ctx_extract = 2048;
+        dp.n_ctx = ctx_extract;
+        dp.n_batch = ctx_extract;
+        dp.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_ENABLED;
         g_dual->ctx_subconscious = llama_init_from_model(g_dual->model_subconscious, dp);
         if (g_dual->ctx_subconscious) {
-            fprintf(stderr, "Extraction context: %d tokens\n", g_ctx_size_3b);
+            fprintf(stderr, "Extraction context: %d tokens (fits VRAM)\n", ctx_extract);
         } else {
-            fprintf(stderr, "WARNING: Failed to create extraction context\n");
+            // If still fails, extraction will use main 7B context opportunistically
+            fprintf(stderr, "WARNING: Failed to create extraction context - will share with 7B generation\n");
         }
     }
 
@@ -1634,6 +1948,12 @@ int main(int argc, char** argv) {
 
     httplib::Server svr;
     g_server = &svr;
+
+    // Set socket options for immediate data transmission
+    svr.set_socket_options([](socket_t sock) {
+        int yes = 1;
+        setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(yes));
+    });
 
     // Basic CORS support for local browser UIs (e.g., http://localhost:9001 -> http://localhost:9000)
     svr.Options(R"(.*)", [](const httplib::Request&, httplib::Response& res) {
@@ -1914,9 +2234,16 @@ int main(int argc, char** argv) {
         }
 
         std::string result = generate(prompt, max_tokens);
+        fprintf(stderr, "[HTTP] generate() returned, result size=%zu\n", result.size());
         // Save graph after each generate (resilience against crash)
         if (g_dual && g_dual->num_nodes > 0) consolidate_memory();
+        fprintf(stderr, "[HTTP] About to set_content\n");
+        // Force HTTP/1.0 and explicit Content-Length for better compatibility
+        res.set_header("Connection", "close");
+        res.set_header("Content-Length", std::to_string(result.size()));
         res.set_content(result, "application/json");
+        fprintf(stderr, "[HTTP] set_content done, sent %zu bytes, returning from handler...\n", result.size());
+        fflush(stderr);
     });
 
     svr.Get("/health", [](const httplib::Request&, httplib::Response& res) {

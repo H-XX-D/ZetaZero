@@ -31,6 +31,13 @@ static zeta_git_commit_fn g_zeta_git_commit_auto = NULL;
 
 static inline void zeta_set_git_commit_fn(zeta_git_commit_fn fn) { g_zeta_git_commit_auto = fn; }
 
+// Function pointer for git edge commits (set by zeta-graph-git.h)
+// Signature: (ctx, source_id, target_id, type, weight) -> edge_id
+typedef int64_t (*zeta_git_edge_fn)(void*, int64_t, int64_t, int, float);
+static zeta_git_edge_fn g_zeta_git_commit_edge = NULL;
+
+static inline void zeta_set_git_edge_fn(zeta_git_edge_fn fn) { g_zeta_git_commit_edge = fn; }
+
 // Function pointer for 4B embedding model (set by zeta-embed-integration.h)
 // Signature: (text, output, max_dim) -> actual_dim or -1
 typedef int (*zeta_embed_fn)(const char*, float*, int);
@@ -189,13 +196,10 @@ static inline zeta_dual_ctx_t* zeta_dual_init(
     ctx->next_edge_id = 1;
     strncpy(ctx->storage_dir, storage_dir, sizeof(ctx->storage_dir) - 1);
     
-    // Create 3B context for semantic operations
-    if (model_subconscious) {
-        llama_context_params cparams = llama_context_default_params();
-        cparams.n_ctx = 8192;  // Larger context for smarter 3B semantic understanding
-        cparams.n_batch = 2048;  // Larger batch for better throughput
-        ctx->ctx_subconscious = llama_init_from_model(model_subconscious, cparams);
-    }
+    // DON'T create 3B/7B context here - let main() do it with proper VRAM sizing
+    // The extraction context will be created after all models are loaded
+    // so we know how much VRAM is available
+    ctx->ctx_subconscious = NULL;  // Will be set by main()
     
     return ctx;
 }
@@ -415,6 +419,17 @@ static inline int64_t zeta_commit_fact(
 }
 
 // Create edge between nodes
+// Max edges per source node (prevents explosion)
+#define ZETA_MAX_EDGES_PER_SOURCE 8
+
+static inline int zeta_count_source_edges(zeta_dual_ctx_t* ctx, int64_t source_id) {
+    int count = 0;
+    for (int i = 0; i < ctx->num_edges; i++) {
+        if (ctx->edges[i].source_id == source_id) count++;
+    }
+    return count;
+}
+
 static inline int64_t zeta_create_edge(
     zeta_dual_ctx_t* ctx,
     int64_t source_id,
@@ -423,7 +438,15 @@ static inline int64_t zeta_create_edge(
     float weight
 ) {
     if (!ctx || ctx->num_edges >= ZETA_MAX_EDGES) return -1;
-    
+
+    // Limit edges per source (except structural edges)
+    if (type == EDGE_RELATED) {
+        int source_edges = zeta_count_source_edges(ctx, source_id);
+        if (source_edges >= ZETA_MAX_EDGES_PER_SOURCE) {
+            return -1;  // Skip - this node already has enough edges
+        }
+    }
+
     zeta_graph_edge_t* edge = &ctx->edges[ctx->num_edges];
     edge->edge_id = ctx->next_edge_id++;
     edge->source_id = source_id;
@@ -432,9 +455,29 @@ static inline int64_t zeta_create_edge(
     edge->weight = weight;
     edge->created_at = (int64_t)time(NULL);
     edge->version = 1;
-    
+
     ctx->num_edges++;
     return edge->edge_id;
+}
+
+// Smart edge commit: routes through GitGraph when enabled (tracked/permanent)
+// Use this for important edges (CAUSES, PREVENTS, CREATED)
+static inline int64_t zeta_commit_edge(
+    zeta_dual_ctx_t* ctx,
+    int64_t source_id,
+    int64_t target_id,
+    zeta_edge_type_t type,
+    float weight
+) {
+    // If GitGraph is wired up, use git-tracked edge creation
+    if (g_zeta_git_ctx && g_zeta_git_commit_edge) {
+        int64_t edge_id = g_zeta_git_commit_edge(g_zeta_git_ctx, source_id, target_id, (int)type, weight);
+        if (edge_id >= 0) {
+            return edge_id;
+        }
+    }
+    // Fallback to direct creation
+    return zeta_create_edge(ctx, source_id, target_id, type, weight);
 }
 
 // ============================================================================
@@ -485,6 +528,7 @@ static inline int64_t zeta_create_edge_dedup(
 }
 
 // Prune low-weight edges (weight < threshold)
+// Protected edges: SUPERSEDES, CAUSES, PREVENTS, CREATED (semantic structure)
 static inline int zeta_prune_edges(
     zeta_dual_ctx_t* ctx,
     float weight_threshold,
@@ -496,20 +540,21 @@ static inline int zeta_prune_edges(
     int i = 0;
 
     while (i < ctx->num_edges && pruned < max_prune) {
-        // Don't prune SUPERSEDES edges (versioning)
-        if (ctx->edges[i].type == EDGE_SUPERSEDES) {
+        zeta_edge_type_t type = ctx->edges[i].type;
+
+        // Never prune structural/causal edges - they define the knowledge graph
+        if (type == EDGE_SUPERSEDES || type == EDGE_CAUSES ||
+            type == EDGE_PREVENTS || type == EDGE_CREATED) {
             i++;
             continue;
         }
 
         if (ctx->edges[i].weight < weight_threshold) {
-            // Remove by shifting remaining edges
             for (int j = i; j < ctx->num_edges - 1; j++) {
                 ctx->edges[j] = ctx->edges[j + 1];
             }
             ctx->num_edges--;
             pruned++;
-            // Don't increment i - check the shifted element
         } else {
             i++;
         }
@@ -524,16 +569,30 @@ static inline int zeta_prune_edges(
 }
 
 // Apply weight decay to all edges (for aging)
+// Protected edges: SUPERSEDES, CAUSES, PREVENTS, CREATED (semantic structure)
 static inline void zeta_decay_edges(
     zeta_dual_ctx_t* ctx,
     float decay_factor
 ) {
     if (!ctx) return;
     for (int i = 0; i < ctx->num_edges; i++) {
-        // Don't decay SUPERSEDES edges
-        if (ctx->edges[i].type != EDGE_SUPERSEDES) {
-            ctx->edges[i].weight *= decay_factor;
+        zeta_edge_type_t type = ctx->edges[i].type;
+
+        // Never decay structural/causal edges - they define the knowledge graph
+        if (type == EDGE_SUPERSEDES || type == EDGE_CAUSES ||
+            type == EDGE_PREVENTS || type == EDGE_CREATED) {
+            continue;
         }
+
+        // Slow decay for high-weight edges (important relationships)
+        float effective_decay = decay_factor;
+        if (ctx->edges[i].weight > 0.8f) {
+            effective_decay = 0.98f;  // Only 2% decay for important edges
+        } else if (ctx->edges[i].weight > 0.5f) {
+            effective_decay = (decay_factor + 1.0f) / 2.0f;  // Half decay rate
+        }
+
+        ctx->edges[i].weight *= effective_decay;
     }
 }
 
@@ -946,7 +1005,7 @@ static inline int zeta_subconscious_extract_facts(
                     if (strlen(subj) > 1 && strlen(obj) > 1) {
                         int64_t subj_id = zeta_commit_fact(ctx, NODE_ENTITY, "causal_agent", subj, 0.9f, SOURCE_USER);
                         int64_t obj_id = zeta_commit_fact(ctx, NODE_ENTITY, "causal_target", obj, 0.9f, SOURCE_USER);
-                        zeta_create_edge(ctx, subj_id, obj_id, EDGE_CAUSES, 1.0f);
+                        zeta_commit_edge(ctx, subj_id, obj_id, EDGE_CAUSES, 1.0f);
                         facts_created++;
                         fprintf(stderr, "[CAUSAL] %s --CAUSES--> %s\n", subj, obj);
                     }
@@ -978,7 +1037,7 @@ static inline int zeta_subconscious_extract_facts(
                     if (strlen(subj) > 1 && strlen(obj) > 1) {
                         int64_t subj_id = zeta_commit_fact(ctx, NODE_ENTITY, "preventer", subj, 0.95f, SOURCE_USER);
                         int64_t obj_id = zeta_commit_fact(ctx, NODE_ENTITY, "prevented", obj, 0.9f, SOURCE_USER);
-                        zeta_create_edge(ctx, subj_id, obj_id, EDGE_PREVENTS, 1.0f);
+                        zeta_commit_edge(ctx, subj_id, obj_id, EDGE_PREVENTS, 1.0f);
                         facts_created++;
                         fprintf(stderr, "[PREVENTS] %s --PREVENTS--> %s\n", subj, obj);
                     }
@@ -1284,10 +1343,10 @@ static inline int zeta_subconscious_extract_facts(
                     ? "project_codename" : "project";
                 int64_t pid = zeta_commit_fact(ctx, NODE_ENTITY, etype, value, 0.9f, SOURCE_USER);
 
-                // Create creator edge from user to project
+                // Create creator edge from user to project (git-tracked)
                 for (int i = 0; i < ctx->num_nodes; i++) {
                     if (strcmp(ctx->nodes[i].label, "user") == 0) {
-                        zeta_create_edge(ctx, ctx->nodes[i].node_id, pid,
+                        zeta_commit_edge(ctx, ctx->nodes[i].node_id, pid,
                                         EDGE_CREATED, 1.0f);
                         break;
                     }
@@ -1408,7 +1467,7 @@ static inline int zeta_subconscious_extract_facts(
             if (strlen(c_subject) > 1 && strlen(c_object) > 1) {
                 int64_t c_subj_id = zeta_commit_fact(ctx, NODE_ENTITY, "causal_agent", c_subject, 0.85f, SOURCE_USER);
                 int64_t c_obj_id = zeta_commit_fact(ctx, NODE_ENTITY, "causal_target", c_object, 0.85f, SOURCE_USER);
-                zeta_create_edge(ctx, c_subj_id, c_obj_id, EDGE_CAUSES, 1.0f);
+                zeta_commit_edge(ctx, c_subj_id, c_obj_id, EDGE_CAUSES, 1.0f);
                 facts_created++;
                 fprintf(stderr, "[3B] CAUSAL: %s --CAUSES--> %s\n", c_subject, c_object);
 
@@ -1448,7 +1507,7 @@ static inline int zeta_subconscious_extract_facts(
             if (strlen(p_subject) > 1 && strlen(p_object) > 1) {
                 int64_t p_subj_id = zeta_commit_fact(ctx, NODE_ENTITY, "preventer", p_subject, 0.9f, SOURCE_USER);
                 int64_t p_obj_id = zeta_commit_fact(ctx, NODE_ENTITY, "prevented", p_object, 0.85f, SOURCE_USER);
-                zeta_create_edge(ctx, p_subj_id, p_obj_id, EDGE_PREVENTS, 1.0f);
+                zeta_commit_edge(ctx, p_subj_id, p_obj_id, EDGE_PREVENTS, 1.0f);
                 facts_created++;
                 fprintf(stderr, "[3B] PREVENTS: %s --PREVENTS--> %s\n", p_subject, p_object);
 
