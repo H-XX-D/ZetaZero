@@ -18,6 +18,19 @@ static const llama_vocab* g_zeta_vocab = NULL;
 
 static inline void zeta_set_vocab(const llama_vocab* vocab) { g_zeta_vocab = vocab; }
 
+// Global git context for automatic versioning (set by server)
+// Uses void* to avoid circular dependency with zeta-graph-git.h
+static void* g_zeta_git_ctx = NULL;
+
+static inline void zeta_set_git_ctx(void* git) { g_zeta_git_ctx = git; }
+
+// Function pointer for automatic git commits (set by zeta-graph-git.h)
+// Signature: (ctx, type, label, value, salience, source) -> node_id
+typedef int64_t (*zeta_git_commit_fn)(void*, int, const char*, const char*, float, int);
+static zeta_git_commit_fn g_zeta_git_commit_auto = NULL;
+
+static inline void zeta_set_git_commit_fn(zeta_git_commit_fn fn) { g_zeta_git_commit_auto = fn; }
+
 static inline bool zeta_tokenize_value(const char* value, int32_t* tokens, int* n_tok, int max_tok) {
     if (!g_zeta_vocab || !value || !tokens || !n_tok) return false;
     *n_tok = llama_tokenize(g_zeta_vocab, value, strlen(value), tokens, max_tok, false, false);
@@ -373,6 +386,29 @@ static inline int64_t zeta_create_node_with_source(
     
     return node->node_id;
 }
+
+// Smart commit: routes through GitGraph when enabled, otherwise direct storage
+// This provides automatic domain branching and version tracking invisibly
+static inline int64_t zeta_commit_fact(
+    zeta_dual_ctx_t* ctx,
+    zeta_node_type_t type,
+    const char* label,
+    const char* value,
+    float salience,
+    zeta_source_t source
+) {
+    // If GitGraph is wired up, use automatic domain-based branching
+    if (g_zeta_git_ctx && g_zeta_git_commit_auto) {
+        int64_t node_id = g_zeta_git_commit_auto(g_zeta_git_ctx, (int)type, label, value, salience, (int)source);
+        if (node_id >= 0) {
+            fprintf(stderr, "[GIT-AUTO] Committed to domain branch: %s = %.40s...\n", label, value);
+            return node_id;
+        }
+    }
+    // Fallback to direct storage
+    return zeta_create_node_with_source(ctx, type, label, value, salience, source);
+}
+
 // Create edge between nodes
 static inline int64_t zeta_create_edge(
     zeta_dual_ctx_t* ctx,
@@ -868,8 +904,8 @@ static inline int zeta_subconscious_extract_facts(
         while (*content == ' ') content++;  // Skip spaces
         
         if (strlen(content) > 5) {
-            // Store as raw_memory with high salience
-            zeta_create_node(ctx, NODE_FACT, "raw_memory", content, 0.95f);
+            // Store as raw_memory with high salience (routes through GitGraph if enabled)
+            zeta_commit_fact(ctx, NODE_FACT, "raw_memory", content, 0.95f, SOURCE_USER);
             facts_created++;
             fprintf(stderr, "[REMEMBER] Direct storage: %.60s...\n", content);
 
@@ -903,8 +939,8 @@ static inline int zeta_subconscious_extract_facts(
                     obj[oi] = '\0';
 
                     if (strlen(subj) > 1 && strlen(obj) > 1) {
-                        int64_t subj_id = zeta_create_node(ctx, NODE_ENTITY, "causal_agent", subj, 0.9f);
-                        int64_t obj_id = zeta_create_node(ctx, NODE_ENTITY, "causal_target", obj, 0.9f);
+                        int64_t subj_id = zeta_commit_fact(ctx, NODE_ENTITY, "causal_agent", subj, 0.9f, SOURCE_USER);
+                        int64_t obj_id = zeta_commit_fact(ctx, NODE_ENTITY, "causal_target", obj, 0.9f, SOURCE_USER);
                         zeta_create_edge(ctx, subj_id, obj_id, EDGE_CAUSES, 1.0f);
                         facts_created++;
                         fprintf(stderr, "[CAUSAL] %s --CAUSES--> %s\n", subj, obj);
@@ -935,8 +971,8 @@ static inline int zeta_subconscious_extract_facts(
                     obj[oi] = '\0';
 
                     if (strlen(subj) > 1 && strlen(obj) > 1) {
-                        int64_t subj_id = zeta_create_node(ctx, NODE_ENTITY, "preventer", subj, 0.95f);
-                        int64_t obj_id = zeta_create_node(ctx, NODE_ENTITY, "prevented", obj, 0.9f);
+                        int64_t subj_id = zeta_commit_fact(ctx, NODE_ENTITY, "preventer", subj, 0.95f, SOURCE_USER);
+                        int64_t obj_id = zeta_commit_fact(ctx, NODE_ENTITY, "prevented", obj, 0.9f, SOURCE_USER);
                         zeta_create_edge(ctx, subj_id, obj_id, EDGE_PREVENTS, 1.0f);
                         facts_created++;
                         fprintf(stderr, "[PREVENTS] %s --PREVENTS--> %s\n", subj, obj);
@@ -1105,7 +1141,7 @@ static inline int zeta_subconscious_extract_facts(
                                 }
                             }
                             
-                            int64_t new_id = zeta_create_node(ctx, nt, type, value, sal);
+                            int64_t new_id = zeta_commit_fact(ctx, nt, type, value, sal, SOURCE_MODEL);
                             
                             // Set concept_key on new node
                             if (concept_key[0] && new_id > 0) {
@@ -1180,8 +1216,8 @@ static inline int zeta_subconscious_extract_facts(
             value[vi] = '\0';
             
             if (vi > 0) {
-                int64_t nid = zeta_create_node(ctx, NODE_ENTITY, "user", value, 1.0f);
-                zeta_create_node(ctx, NODE_FACT, "user_name", value, 0.95f);
+                int64_t nid = zeta_commit_fact(ctx, NODE_ENTITY, "user", value, 1.0f, SOURCE_USER);
+                zeta_commit_fact(ctx, NODE_FACT, "user_name", value, 0.95f, SOURCE_USER);
                 facts_created++;
             }
         }
@@ -1213,7 +1249,7 @@ static inline int zeta_subconscious_extract_facts(
                 if (vi > 0) {
                     char entity[64];
                     snprintf(entity, sizeof(entity), "favorite_%s", types[t]);
-                    zeta_create_node(ctx, NODE_FACT, entity, value, 0.85f);
+                    zeta_commit_fact(ctx, NODE_FACT, entity, value, 0.85f, SOURCE_USER);
                     facts_created++;
                 }
             }
@@ -1239,14 +1275,14 @@ static inline int zeta_subconscious_extract_facts(
             value[vi] = '\0';
             
             if (vi > 0) {
-                const char* etype = (strstr(project_patterns[p], "codename")) 
+                const char* etype = (strstr(project_patterns[p], "codename"))
                     ? "project_codename" : "project";
-                int64_t pid = zeta_create_node(ctx, NODE_ENTITY, etype, value, 0.9f);
-                
+                int64_t pid = zeta_commit_fact(ctx, NODE_ENTITY, etype, value, 0.9f, SOURCE_USER);
+
                 // Create creator edge from user to project
                 for (int i = 0; i < ctx->num_nodes; i++) {
                     if (strcmp(ctx->nodes[i].label, "user") == 0) {
-                        zeta_create_edge(ctx, ctx->nodes[i].node_id, pid, 
+                        zeta_create_edge(ctx, ctx->nodes[i].node_id, pid,
                                         EDGE_CREATED, 1.0f);
                         break;
                     }
@@ -1275,7 +1311,7 @@ static inline int zeta_subconscious_extract_facts(
             value[vi] = '\0';
             
             if (vi > 1) {
-                zeta_create_node(ctx, NODE_FACT, "location", value, 0.85f);
+                zeta_commit_fact(ctx, NODE_FACT, "location", value, 0.85f, SOURCE_USER);
                 facts_created++;
                 fprintf(stderr, "[3B] Extracted location: %s\n", value);
             }
@@ -1306,7 +1342,7 @@ static inline int zeta_subconscious_extract_facts(
                 const char* label = "numeric_fact";
                 if (strstr(numeric_patterns[p], "rate")) label = "rate_limit";
                 else if (strstr(numeric_patterns[p], "count")) label = "count";
-                zeta_create_node(ctx, NODE_FACT, label, value, 0.85f);
+                zeta_commit_fact(ctx, NODE_FACT, label, value, 0.85f, SOURCE_USER);
                 facts_created++;
                 fprintf(stderr, "[3B] Extracted numeric: %s = %s\n", label, value);
             }
@@ -1365,8 +1401,8 @@ static inline int zeta_subconscious_extract_facts(
             c_object[coi] = '\0';
 
             if (strlen(c_subject) > 1 && strlen(c_object) > 1) {
-                int64_t c_subj_id = zeta_create_node(ctx, NODE_ENTITY, "causal_agent", c_subject, 0.85f);
-                int64_t c_obj_id = zeta_create_node(ctx, NODE_ENTITY, "causal_target", c_object, 0.85f);
+                int64_t c_subj_id = zeta_commit_fact(ctx, NODE_ENTITY, "causal_agent", c_subject, 0.85f, SOURCE_USER);
+                int64_t c_obj_id = zeta_commit_fact(ctx, NODE_ENTITY, "causal_target", c_object, 0.85f, SOURCE_USER);
                 zeta_create_edge(ctx, c_subj_id, c_obj_id, EDGE_CAUSES, 1.0f);
                 facts_created++;
                 fprintf(stderr, "[3B] CAUSAL: %s --CAUSES--> %s\n", c_subject, c_object);
@@ -1374,7 +1410,7 @@ static inline int zeta_subconscious_extract_facts(
                 // Store full causal sentence for surfacing
                 char c_sent[256];
                 snprintf(c_sent, sizeof(c_sent), "%s causes %s", c_subject, c_object);
-                zeta_create_node(ctx, NODE_FACT, "causes_relation", c_sent, 0.95f);
+                zeta_commit_fact(ctx, NODE_FACT, "causes_relation", c_sent, 0.95f, SOURCE_USER);
             }
         }
     }
@@ -1405,8 +1441,8 @@ static inline int zeta_subconscious_extract_facts(
             p_object[poi] = '\0';
 
             if (strlen(p_subject) > 1 && strlen(p_object) > 1) {
-                int64_t p_subj_id = zeta_create_node(ctx, NODE_ENTITY, "preventer", p_subject, 0.9f);
-                int64_t p_obj_id = zeta_create_node(ctx, NODE_ENTITY, "prevented", p_object, 0.85f);
+                int64_t p_subj_id = zeta_commit_fact(ctx, NODE_ENTITY, "preventer", p_subject, 0.9f, SOURCE_USER);
+                int64_t p_obj_id = zeta_commit_fact(ctx, NODE_ENTITY, "prevented", p_object, 0.85f, SOURCE_USER);
                 zeta_create_edge(ctx, p_subj_id, p_obj_id, EDGE_PREVENTS, 1.0f);
                 facts_created++;
                 fprintf(stderr, "[3B] PREVENTS: %s --PREVENTS--> %s\n", p_subject, p_object);
@@ -1414,7 +1450,7 @@ static inline int zeta_subconscious_extract_facts(
                 // Store full prevents sentence for surfacing
                 char p_sent[256];
                 snprintf(p_sent, sizeof(p_sent), "%s prevents %s", p_subject, p_object);
-                zeta_create_node(ctx, NODE_FACT, "prevents_relation", p_sent, 0.95f);
+                zeta_commit_fact(ctx, NODE_FACT, "prevents_relation", p_sent, 0.95f, SOURCE_USER);
             }
         }
     }
