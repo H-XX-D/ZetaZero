@@ -1,0 +1,15 @@
+
+// Find node by ID (add before surface_context function)
+static inline zeta_graph_node_t* zeta_find_node_by_id(
+    zeta_dual_ctx_t* ctx,
+    int64_t node_id
+) {
+    if (!ctx) return NULL;
+    for (int i = 0; i < ctx->num_nodes; i++) {
+        if (ctx->nodes[i].is_active && ctx->nodes[i].node_id == node_id) {
+            return &ctx->nodes[i];
+        }
+    }
+    return NULL;
+}
+

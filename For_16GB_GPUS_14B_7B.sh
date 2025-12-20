@@ -13,7 +13,7 @@ UI_DIR="$ROOT/ui/for-8gb-gpus-chat"
 MODEL_MAIN_NAME="${MODEL_MAIN_NAME:-qwen2.5-14b-instruct-q4_k_m.gguf}"
 MODEL_3B_NAME="${MODEL_3B_NAME:-qwen2.5-7b-coder-q4_k_m.gguf}"
 MODEL_3B_CODER_NAME="${MODEL_3B_CODER_NAME:-qwen2.5-7b-coder-q4_k_m.gguf}"
-EMBED_NAME="${EMBED_NAME:-gte-Qwen2-1.5B-instruct-Q4_K_M.gguf}"
+EMBED_NAME="${EMBED_NAME:-Qwen3-Embedding-4B-Q4_K_M.gguf}"
 
 MODEL_MAIN_URL="${MODEL_MAIN_URL:-}"
 MODEL_3B_URL="${MODEL_3B_URL:-}"

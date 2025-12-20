@@ -263,9 +263,9 @@ int zeta_causal_extract_edges(
                          (causal_type == 1) ? "causes" : "prevents");
                 int64_t sentence_id = zeta_create_node(ctx, NODE_FACT, relation_label, sentence, 0.95f);
 
-                // Link sentence to both subject and object (with dedup to prevent explosion)
-                zeta_create_edge_dedup(ctx, sentence_id, subj_id, EDGE_RELATED, 0.9f);
-                zeta_create_edge_dedup(ctx, sentence_id, obj_id, EDGE_RELATED, 0.9f);
+                // Link sentence to both subject and object
+                zeta_create_edge(ctx, sentence_id, subj_id, EDGE_RELATED, 0.9f);
+                zeta_create_edge(ctx, sentence_id, obj_id, EDGE_RELATED, 0.9f);
 
                 edges_created++;
                 fprintf(stderr, "[CAUSAL-EMB] Edge: %s --%s--> %s (conf=%.2f)\n",

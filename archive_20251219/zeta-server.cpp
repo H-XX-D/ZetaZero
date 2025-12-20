@@ -1,18 +1,8 @@
-// Z.E.T.A. Server v5.1 - Parallel Dual-Process Engine
+// Z.E.T.A. Server v5.0 - Parallel Dual-Process Engine
 // 3B runs PARALLEL to 14B with cyclic correlation feedback
 
 // ============================================================================
-// Z6 DEFAULT MODEL PATHS (RTX 5060 Ti 16GB)
-// Override with -m, --model-7b-coder, --embed-model flags if needed
-// ============================================================================
-#define Z6_MODEL_14B    "/home/xx/models/qwen2.5-14b-instruct-q4.gguf"
-#define Z6_MODEL_7B     "/home/xx/models/qwen2.5-7b-coder-q4_k_m.gguf"
-#define Z6_MODEL_EMBED  "/home/xx/models/Qwen3-Embedding-4B-Q4_K_M.gguf"
-#define Z6_DEFAULT_PORT 8080
-#define Z6_DEFAULT_GPU_LAYERS 999
-
-// ============================================================================
-// 16GB GPU Config (14B + 7B + 4B Embed)
+// 16GB GPU Config (14B + 7B + 1.5B Embed)
 // Context size tuned for VRAM efficiency - lower = more headroom
 // ============================================================================
 #ifndef ZETA_CTX_SIZE
@@ -22,7 +12,7 @@
 #define ZETA_CTX_SIZE_3B 1024  // 1K context for 7B extraction (saves ~650MB)
 #endif
 #ifndef ZETA_BATCH_SIZE
-#define ZETA_BATCH_SIZE 2048  // Batch size for inference (increased for semantic critic)
+#define ZETA_BATCH_SIZE 512  // Batch size for inference
 #endif
 
 #include <cpp-httplib/httplib.h>
@@ -60,7 +50,6 @@ extern "C" {
 #include "zeta-graph-kv.h"
 #include "zeta-graph-manager.h"
 #include "zeta-semantic-attacks.h"
-#include "zeta-critic.h"
 //MOVED: zeta-tools.h
 }
 
@@ -311,8 +300,8 @@ static std::string run_specialist(llama_model* model, llama_context* ctx,
     llama_memory_t mem = llama_get_memory(ctx);
     llama_memory_clear(mem, true);
 
-    // Decode prompt - DYNAMIC: batch sized to actual tokens
-    llama_batch batch = llama_batch_init(n_tokens + 64, 0, 1);  // +64 for generation
+    // Decode prompt
+    llama_batch batch = llama_batch_init(512, 0, 1);
     for (int i = 0; i < n_tokens; i++) {
         common_batch_add(batch, tokens[i], i, {0}, false);
     }
@@ -348,79 +337,6 @@ static std::string run_specialist(llama_model* model, llama_context* ctx,
         common_batch_clear(batch);
         common_batch_add(batch, best_tok, n_tokens + i, {0}, true);
         if (llama_decode(ctx, batch) != 0) break;
-    }
-
-    llama_batch_free(batch);
-    return output;
-}
-
-// =============================================================================
-// SEMANTIC CRITIC: Use 7B for intelligent response analysis
-// =============================================================================
-static std::string semantic_generate_7b(const char* prompt, int max_tokens) {
-    // Use the 7B coder model via g_dual->ctx_3b if available
-    if (!g_dual || !g_dual->model_3b || !g_dual->ctx_3b) {
-        fprintf(stderr, "[SEMANTIC] 7B model not available for critic\n");
-        return "";
-    }
-
-    const llama_vocab* vocab = llama_model_get_vocab(g_dual->model_3b);
-    if (!vocab) return "";
-
-    // Tokenize the prompt
-    std::vector<llama_token> tokens(2048);
-    int n_tokens = llama_tokenize(vocab, prompt, strlen(prompt),
-                                   tokens.data(), tokens.size(), true, true);
-    if (n_tokens < 0 || n_tokens > 1500) {
-        fprintf(stderr, "[SEMANTIC] Prompt too long: %d tokens\n", n_tokens);
-        return "";
-    }
-    tokens.resize(n_tokens);
-
-    // Clear KV cache
-    llama_memory_clear(llama_get_memory(g_dual->ctx_3b), true);
-
-    // Decode prompt
-    llama_batch batch = llama_batch_init(n_tokens, 0, 1);
-    for (int i = 0; i < n_tokens; i++) {
-        common_batch_add(batch, tokens[i], i, {0}, false);
-    }
-    batch.logits[batch.n_tokens - 1] = true;
-
-    if (llama_decode(g_dual->ctx_3b, batch) != 0) {
-        llama_batch_free(batch);
-        return "";
-    }
-
-    // Generate response
-    std::string output;
-    int n_vocab = llama_vocab_n_tokens(vocab);
-    int n_cur = n_tokens;
-
-    for (int i = 0; i < max_tokens && output.size() < 600; i++) {
-        float* logits = llama_get_logits_ith(g_dual->ctx_3b, -1);
-
-        // Greedy sampling
-        llama_token best = 0;
-        float best_logit = logits[0];
-        for (int v = 1; v < n_vocab; v++) {
-            if (logits[v] > best_logit) {
-                best_logit = logits[v];
-                best = v;
-            }
-        }
-
-        if (llama_vocab_is_eog(vocab, best)) break;
-
-        std::string piece = common_token_to_piece(vocab, best, true);
-        if (piece.find("<|im_end|>") != std::string::npos) break;
-
-        output += piece;
-
-        llama_batch_free(batch);
-        batch = llama_batch_init(1, 0, 1);
-        common_batch_add(batch, best, n_cur++, {0}, true);
-        if (llama_decode(g_dual->ctx_3b, batch) != 0) break;
     }
 
     llama_batch_free(batch);
@@ -677,27 +593,36 @@ static std::string generate(const std::string& prompt, int max_tokens) {
     llama_memory_t mem = llama_get_memory(g_ctx_14b);
     llama_memory_clear(mem, true);
 
+    // Decode prompt in batches (must not exceed ZETA_BATCH_SIZE per decode call)
+    llama_batch batch = llama_batch_init(ZETA_BATCH_SIZE, 0, 1);
     // Safety: truncate if prompt too long for context
     if (n_tokens > 3800) {
         fprintf(stderr, "[WARN] Truncating prompt from %d to 3800 tokens\n", n_tokens);
         n_tokens = 3800;
     }
 
-    // DYNAMIC: batch sized to actual prompt tokens (context n_batch is now = n_ctx)
-    llama_batch batch = llama_batch_init(n_tokens + 512, 0, 1);  // +512 for generation
+    // Decode in chunks to avoid batch size overflow
+    int decoded = 0;
+    while (decoded < n_tokens) {
+        common_batch_clear(batch);
 
-    // Decode entire prompt in one pass (n_batch = n_ctx enables this)
-    for (int i = 0; i < n_tokens; i++) {
-        bool is_last = (i == n_tokens - 1);
-        common_batch_add(batch, tokens[i], i, {0}, is_last);
-    }
+        int chunk_size = std::min(ZETA_BATCH_SIZE, n_tokens - decoded);
+        for (int i = 0; i < chunk_size; i++) {
+            // Only request logits on the very last token of the entire prompt
+            bool is_last = (decoded + i == n_tokens - 1);
+            common_batch_add(batch, tokens[decoded + i], decoded + i, {0}, is_last);
+        }
 
-    if (llama_decode(g_ctx_14b, batch) != 0) {
-        llama_batch_free(batch);
-        fprintf(stderr, "[ERROR] Decode failed for %d tokens\n", n_tokens);
-        return "{\"error\": \"decode failed\"}";
+        if (llama_decode(g_ctx_14b, batch) != 0) {
+            llama_batch_free(batch);
+            fprintf(stderr, "[ERROR] Decode failed at chunk %d-%d\n", decoded, decoded + chunk_size);
+            return "{\"error\": \"decode failed\"}";
+        }
+
+        decoded += chunk_size;
     }
-    fprintf(stderr, "[DECODE] Prompt decoded: %d tokens (single pass)\n", n_tokens);
+    fprintf(stderr, "[DECODE] Prompt decoded: %d tokens in %d chunks\n",
+            n_tokens, (n_tokens + ZETA_BATCH_SIZE - 1) / ZETA_BATCH_SIZE);
 
     // Generate with momentum tracking
     std::string output;
@@ -821,204 +746,14 @@ static std::string generate(const std::string& prompt, int max_tokens) {
         else escaped_output += *p;
     }
 
-    // === CONSCIOUS SCRATCH BUFFER: Build thought, patch issues, output final ===
-    // Like human cognition: draft internally → spot issues → edit draft → speak
-    // The person you're talking to never sees your mental drafts, only the final
-
-    std::string scratch_buffer = final_output;  // Working draft (internal)
-    zeta_critic_result_t critic_result;
-    int patch_count = 0;
-    const int MAX_PATCHES = 3;  // Limit refinement passes
-    bool was_patched = false;
-
-    while (patch_count < MAX_PATCHES) {
-        // Internal review: Analyze current draft
-        critic_result = zeta_critic_analyze(prompt.c_str(), scratch_buffer.c_str());
-        zeta_critic_log(critic_result);
-
-        // Draft is clean - ready to speak
-        if (!critic_result.has_issues) {
-            if (patch_count > 0) {
-                fprintf(stderr, "[SCRATCH] Clean after %d patch(es) - ready to output\n", patch_count);
-            }
-            break;
-        }
-
-        // Found issues - generate targeted patches, not full regen
-        fprintf(stderr, "[SCRATCH] Pass %d: %d issues found, patching...\n",
-                patch_count + 1, critic_result.issue_count);
-
-        // For each issue, find the bad code and generate a replacement snippet
-        for (int i = 0; i < critic_result.issue_count; i++) {
-            std::string issue(critic_result.issues[i]);
-            std::string bad_pattern, issue_type;
-
-            // Extract what to fix
-            size_t quote1 = issue.find("'");
-            size_t quote2 = issue.find("'", quote1 + 1);
-            if (quote1 != std::string::npos && quote2 != std::string::npos) {
-                bad_pattern = issue.substr(quote1 + 1, quote2 - quote1 - 1);
-            }
-
-            if (issue.find("COMPLEXITY") != std::string::npos) issue_type = "complexity";
-            else if (issue.find("HFT") != std::string::npos) issue_type = "hft";
-            else if (issue.find("REDUNDANCY") != std::string::npos) issue_type = "redundancy";
-            else continue;  // Unknown issue type
-
-            // Find the problematic code block in scratch buffer
-            size_t bad_pos = scratch_buffer.find(bad_pattern);
-            if (bad_pos == std::string::npos) continue;
-
-            // Extract surrounding context (find the code block containing the issue)
-            size_t block_start = scratch_buffer.rfind("```", bad_pos);
-            size_t block_end = scratch_buffer.find("```", bad_pos + bad_pattern.length());
-            if (block_start == std::string::npos) block_start = bad_pos > 200 ? bad_pos - 200 : 0;
-            if (block_end == std::string::npos) block_end = std::min(bad_pos + 500, scratch_buffer.length());
-            else block_end += 3;  // Include closing ```
-
-            std::string bad_section = scratch_buffer.substr(block_start, block_end - block_start);
-
-            // Ask 7B (fast coder) to generate ONLY the replacement snippet
-            std::string patch_prompt = "<|im_start|>system\nOutput ONLY the fixed code snippet. No explanation.\n<|im_end|>\n<|im_start|>user\n";
-            if (issue_type == "complexity") {
-                patch_prompt += "Fix this O(N) operation to O(1). Replace '" + bad_pattern + "' with O(1) alternative:\n";
-            } else if (issue_type == "hft") {
-                patch_prompt += "Fix this HFT code - remove lock/mutex. Replace '" + bad_pattern + "' with lock-free:\n";
-            } else if (issue_type == "redundancy") {
-                patch_prompt += "Remove redundant/repeated content from:\n";
-            }
-            patch_prompt += bad_section + "\n<|im_end|>\n<|im_start|>assistant\n";
-
-            // Use 7B coder context (faster, code-focused) if available, else 14B
-            llama_context* patch_ctx = g_ctx_14b;  // TODO: use 7B when loaded
-
-            llama_memory_t mem = llama_get_memory(patch_ctx);
-            llama_memory_clear(mem, true);
-
-            std::vector<llama_token> patch_tokens(1024);
-            int n_patch_tokens = llama_tokenize(g_vocab, patch_prompt.c_str(),
-                                                patch_prompt.length(),
-                                                patch_tokens.data(), patch_tokens.size(), true, true);
-            if (n_patch_tokens <= 0) continue;
-            patch_tokens.resize(n_patch_tokens);
-
-            // DYNAMIC: batch sized to actual patch tokens + generation headroom
-            llama_batch patch_batch = llama_batch_init(n_patch_tokens + 300, 0, 1);
-            for (int j = 0; j < n_patch_tokens; j++) {
-                common_batch_add(patch_batch, patch_tokens[j], j, {0}, (j == n_patch_tokens - 1));
-            }
-            if (llama_decode(patch_ctx, patch_batch) != 0) {
-                llama_batch_free(patch_batch);
-                continue;
-            }
-
-            // Generate short patch (max 300 tokens - just the fix)
-            std::string patch;
-            auto* patch_sampler = common_sampler_init(g_model_14b, g_params.sampling);
-
-            for (int t = 0; t < 300; t++) {
-                llama_token tok = common_sampler_sample(patch_sampler, patch_ctx, -1);
-                common_sampler_accept(patch_sampler, tok, true);
-
-                char piece[64] = {0};
-                llama_token_to_piece(g_vocab, tok, piece, sizeof(piece), 0, true);
-
-                if (strcmp(piece, "<|im_end|>") == 0) break;
-                if (llama_vocab_is_eog(g_vocab, tok)) break;
-                patch += piece;
-
-                common_batch_clear(patch_batch);
-                common_batch_add(patch_batch, tok, n_patch_tokens + t, {0}, true);
-                if (llama_decode(patch_ctx, patch_batch) != 0) break;
-            }
-
-            common_sampler_free(patch_sampler);
-            llama_batch_free(patch_batch);
-
-            // Apply patch: replace bad_section with the fix
-            if (patch.length() > 20) {
-                scratch_buffer.replace(block_start, block_end - block_start, patch);
-                was_patched = true;
-                fprintf(stderr, "[SCRATCH] Patched %zu chars -> %zu chars\n", bad_section.length(), patch.length());
-            }
-        }
-
-        if (!was_patched) break;  // Couldn't patch, stop trying
-        patch_count++;
-    }
-
-    // Final output is the patched scratch buffer - user never saw the drafts
-    std::string corrected_output = scratch_buffer;
-    bool made_corrections = was_patched;
-    int iteration = patch_count;
-
-    if (was_patched && patch_count > 0) {
-        fprintf(stderr, "[SCRATCH] Final output after %d patch pass(es)\n", patch_count);
-    }
-
-    // Use corrected output for response
-    if (made_corrections) {
-        final_output = corrected_output.c_str();
-        // Re-escape the corrected output for JSON
-        escaped_output.clear();
-        for (const char* p = final_output; *p; p++) {
-            if (*p == '"') escaped_output += "\\\"";
-            else if (*p == '\\') escaped_output += "\\\\";
-            else if (*p == '\n') escaped_output += "\\n";
-            else if (*p == '\r') escaped_output += "\\r";
-            else if (*p == '\t') escaped_output += "\\t";
-            else escaped_output += *p;
-        }
-    }
-
-    // Build response with refinement info
-    char json[16384];
-    if (critic_result.has_issues && !made_corrections) {
-        // Issues found but couldn't fix - include original issues
-        std::string critic_json = "[";
-        for (int i = 0; i < critic_result.issue_count; i++) {
-            if (i > 0) critic_json += ",";
-            critic_json += "{\"severity\":\"";
-            critic_json += critic_result.severity[i];
-            critic_json += "\",\"issue\":\"";
-            // Escape the issue text
-            for (const char* p = critic_result.issues[i]; *p; p++) {
-                if (*p == '"') critic_json += "\\\"";
-                else if (*p == '\\') critic_json += "\\\\";
-                else if (*p == '\n') critic_json += "\\n";
-                else critic_json += *p;
-            }
-            critic_json += "\"}";
-        }
-        critic_json += "]";
-
-        snprintf(json, sizeof(json),
-            "{\"output\": \"%s\", \"tokens\": %d, \"momentum\": %.3f, "
-            "\"graph_nodes\": %d, \"graph_edges\": %d, "
-            "\"critic_issues\": %s, \"critic_count\": %d, \"refined\": false}",
-            escaped_output.c_str(), n_generated, avg_momentum,
-            g_dual ? g_dual->num_nodes : 0,
-            g_dual ? g_dual->num_edges : 0,
-            critic_json.c_str(), critic_result.issue_count);
-    } else if (made_corrections) {
-        // Issues found AND fixed - output is refined
-        snprintf(json, sizeof(json),
-            "{\"output\": \"%s\", \"tokens\": %d, \"momentum\": %.3f, "
-            "\"graph_nodes\": %d, \"graph_edges\": %d, "
-            "\"refined\": true, \"refinements\": %d}",
-            escaped_output.c_str(), n_generated, avg_momentum,
-            g_dual ? g_dual->num_nodes : 0,
-            g_dual ? g_dual->num_edges : 0,
-            iteration);
-    } else {
-        // No issues - clean pass
-        snprintf(json, sizeof(json),
-            "{\"output\": \"%s\", \"tokens\": %d, \"momentum\": %.3f, "
-            "\"graph_nodes\": %d, \"graph_edges\": %d}",
-            escaped_output.c_str(), n_generated, avg_momentum,
-            g_dual ? g_dual->num_nodes : 0,
-            g_dual ? g_dual->num_edges : 0);
-    }
+    // Build response
+    char json[8192];
+    snprintf(json, sizeof(json),
+        "{\"output\": \"%s\", \"tokens\": %d, \"momentum\": %.3f, "
+        "\"graph_nodes\": %d, \"graph_edges\": %d}",
+        escaped_output.c_str(), n_generated, avg_momentum,
+        g_dual ? g_dual->num_nodes : 0,
+        g_dual ? g_dual->num_edges : 0);
 
     return std::string(json);
 }
@@ -1142,30 +877,21 @@ static void quiet_log_callback(enum ggml_log_level level, const char* text, void
 int main(int argc, char** argv) {
     // Suppress tensor loading spam
     llama_log_set(quiet_log_callback, NULL);
-
-    // Z6 defaults now hardcoded - help message only on explicit --help
-    if (argc > 1 && (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0)) {
-        fprintf(stderr, "Z.E.T.A. Server v5.1 - Zero flags needed for Z6 defaults\n");
-        fprintf(stderr, "Usage: %s [options]\n", argv[0]);
-        fprintf(stderr, "  -m <path>               Override 14B model (default: %s)\n", Z6_MODEL_14B);
-        fprintf(stderr, "  --model-7b-coder <path> Override 7B coder (default: %s)\n", Z6_MODEL_7B);
-        fprintf(stderr, "  --embed-model <path>    Override embed model (default: %s)\n", Z6_MODEL_EMBED);
-        fprintf(stderr, "  --port <N>              Server port (default: %d)\n", Z6_DEFAULT_PORT);
-        fprintf(stderr, "  --gpu-layers <N>        GPU layers (default: %d)\n", Z6_DEFAULT_GPU_LAYERS);
-        return 0;
+    if (argc < 3) {
+        fprintf(stderr, "Usage: %s -m model_14b.gguf [options]\n", argv[0]);
+        fprintf(stderr, "  --model-3b <path>       3B Extraction model\n");
+        fprintf(stderr, "  --gpu-layers <N>        GPU layers for all models (default: 10)\n");
+        fprintf(stderr, "  --port <N>              Server port (default: 9000)\n");
+        return 1;
     }
 
     signal(SIGTERM, signal_handler);
     signal(SIGINT, signal_handler);
 
-    // Z6 defaults - no flags needed for standard startup
-    std::string model_14b_path = Z6_MODEL_14B;
-    std::string model_3b_path, model_3b_coder_path;
-    std::string model_7b_coder_path = Z6_MODEL_7B;
+    std::string model_14b_path, model_3b_path, model_3b_coder_path, model_7b_coder_path;
     std::string model_immune_path, model_tools_path, model_router_path, model_critic_path;
-    int port = Z6_DEFAULT_PORT;
-    int gpu_layers = Z6_DEFAULT_GPU_LAYERS;
-    g_embed_model_path = Z6_MODEL_EMBED;
+    int port = 9000;
+    int gpu_layers = 10;
 
     g_params.sampling.temp = 0.7f;
     g_params.sampling.top_p = 0.9f;
@@ -1194,15 +920,14 @@ int main(int argc, char** argv) {
         else if (strcmp(argv[i], "--memory-password") == 0 && i+1 < argc) zeta_set_memory_password(argv[++i]);
     }
 
-    fprintf(stderr, "Z.E.T.A. Server v5.1 (Conscious Scratch Buffer)\n");
+    fprintf(stderr, "Z.E.T.A. Server v5.0 (Parallel Dual-Process)\n");
     fprintf(stderr, "Memory:    Password-protected (use --memory-password to change)\n");
     fprintf(stderr, "Context:   14B=%d, 7B/3B=%d tokens\n", g_ctx_size_14b, g_ctx_size_3b);
     fprintf(stderr, "Streaming: %d tokens, %d nodes\n", g_stream_token_budget, g_stream_max_nodes);
     fprintf(stderr, "Code:      %d tokens, %d nodes\n", g_code_token_budget, g_code_max_nodes);
     fprintf(stderr, "14B Conscious: %s\n", model_14b_path.c_str());
-    fprintf(stderr, "7B Coder: %s\n", model_7b_coder_path.empty() ? "(not loaded)" : model_7b_coder_path.c_str());
-    fprintf(stderr, "Embed: %s\n", g_embed_model_path.empty() ? "(not loaded)" : g_embed_model_path.c_str());
-    fprintf(stderr, "Port: %d (GPU layers: %d)\n", port, gpu_layers);
+    fprintf(stderr, "3B Subconscious: %s\n", model_3b_path.empty() ? "(pattern-based)" : model_3b_path.c_str());
+    fprintf(stderr, "Port: %d\n", port);
 
     // Load 14B model
     llama_model_params mparams = llama_model_default_params();
@@ -1210,16 +935,12 @@ int main(int argc, char** argv) {
     g_model_14b = llama_model_load_from_file(model_14b_path.c_str(), mparams);
     if (!g_model_14b) { fprintf(stderr, "Failed to load 14B model\n"); return 1; }
 
-    // Load subconscious model: prefer 7B coder, fallback to 3B
-    // The subconscious handles extraction, semantic analysis, and critique
-    std::string subconscious_path = model_7b_coder_path.empty() ? model_3b_path : model_7b_coder_path;
-    if (!subconscious_path.empty()) {
-        llama_model_params mparams_sub = llama_model_default_params();
-        mparams_sub.n_gpu_layers = gpu_layers;
-        g_model_3b = llama_model_load_from_file(subconscious_path.c_str(), mparams_sub);
-        if (g_model_3b) {
-            fprintf(stderr, "Subconscious model loaded: %s\n", subconscious_path.c_str());
-        }
+    // Load 3B model if specified
+    if (!model_3b_path.empty()) {
+        llama_model_params mparams_3b = llama_model_default_params();
+        mparams_3b.n_gpu_layers = gpu_layers;
+        g_model_3b = llama_model_load_from_file(model_3b_path.c_str(), mparams_3b);
+        if (g_model_3b) fprintf(stderr, "3B Extraction model loaded\n");
     }
 
     // Load specialist models (all on GPU for speed)
@@ -1295,10 +1016,9 @@ int main(int argc, char** argv) {
     }
 
     // Init 14B context
-    // DYNAMIC BATCHING: n_batch = n_ctx allows full-context prompt decode in one pass
     llama_context_params cparams = llama_context_default_params();
     cparams.n_ctx = g_ctx_size_14b;  // Runtime: --ctx-14b (default 4K)
-    cparams.n_batch = g_ctx_size_14b;  // Dynamic: batch = context for max flexibility
+    cparams.n_batch = ZETA_BATCH_SIZE;
     cparams.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_ENABLED;  // Reduce KV cache memory
     g_ctx_14b = llama_init_from_model(g_model_14b, cparams);
     if (!g_ctx_14b) { fprintf(stderr, "Failed to create 14B context\n"); return 1; }
@@ -1321,12 +1041,10 @@ int main(int argc, char** argv) {
     }
 
     // Create 3B/7B extraction context with runtime-configurable size
-    // DYNAMIC BATCHING: n_batch = n_ctx allows any prompt up to context size
     if (g_dual && g_dual->model_3b) {
         llama_context_params dp = llama_context_default_params();
-        int ctx_7b = std::max(g_ctx_size_3b, 2048);  // At least 2K for semantic critic
-        dp.n_ctx = ctx_7b;
-        dp.n_batch = ctx_7b;  // Dynamic: batch = context for max flexibility
+        dp.n_ctx = g_ctx_size_3b;  // Runtime: --ctx-3b (default 1K)
+        dp.n_batch = ZETA_BATCH_SIZE;
         dp.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_ENABLED;  // Reduce KV cache memory
         g_dual->ctx_3b = llama_init_from_model(g_dual->model_3b, dp);
         if (g_dual->ctx_3b) {
@@ -1360,10 +1078,6 @@ int main(int argc, char** argv) {
         g_3b_worker_tid = zeta_3b_start_worker(g_dual);
         g_3b_worker_running = true;
         fprintf(stderr, "3B parallel worker started\n");
-
-        // Initialize SEMANTIC CRITIC: Give critic access to 7B for intelligent analysis
-        zeta_critic_set_semantic_fn(semantic_generate_7b);
-        fprintf(stderr, "[CRITIC] Semantic analysis enabled (7B model)\n");
     }
 
     // Initialize Graph-KV: Pre-computed KV cache for graph nodes
@@ -1531,11 +1245,9 @@ int main(int argc, char** argv) {
             if (looks_like_read) {
                 std::string file_to_read;
 
-                // Absolute path anywhere in the prompt - must look like a real file path
-                // Require at least 2 path components (e.g., /home/user or /tmp/file)
-                // and no word characters immediately before the slash (avoids "50MB/hour")
+                // Absolute path anywhere in the prompt
                 {
-                    std::regex abs_path_re("(?:^|[^a-zA-Z0-9])(/(?:home|tmp|mnt|var|etc|usr|opt)[^\\s\"']+)");
+                    std::regex abs_path_re("(/[^\\s\"']+)");
                     std::smatch m;
                     if (std::regex_search(prompt, m, abs_path_re)) {
                         file_to_read = m[1].str();

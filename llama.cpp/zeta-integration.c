@@ -369,6 +369,49 @@ void zeta_post_attention(
     ctx->has_injection = false;
 }
 
+// Wire new blocks to nearby temporal/semantic neighbors so multi-hop retrieval has edges
+static void zeta_link_new_block(zeta_context_t* ctx, int64_t new_block_id) {
+    if (!ctx || !ctx->memory || new_block_id < 0) return;
+
+    zeta_memory_ctx_t* mem = ctx->memory;
+    int new_idx = zeta_find_block_by_id(mem, new_block_id);
+    if (new_idx < 0 || new_idx >= mem->num_blocks) return;
+
+    zeta_memory_block_t* new_block = &mem->blocks[new_idx];
+    if (!new_block->summary || new_block->summary_norm < 1e-6f) return;
+
+    // Temporal neighbor (immediate prior block in archive order)
+    if (new_idx > 0) {
+        int prev_idx = new_idx - 1;
+        zeta_add_link(mem, new_block->block_id, mem->blocks[prev_idx].block_id, 0.8f);
+        zeta_add_link(mem, mem->blocks[prev_idx].block_id, new_block->block_id, 0.8f);
+    }
+
+    // Semantic neighbors: link to the most recent few blocks with sufficient similarity
+    int start = (mem->num_blocks > 8) ? mem->num_blocks - 8 : 0;
+    for (int i = start; i < mem->num_blocks; i++) {
+        if (i == new_idx) continue;
+        zeta_memory_block_t* cand = &mem->blocks[i];
+        if (!cand->summary || cand->summary_norm < 1e-6f) continue;
+
+        float dot = 0.0f;
+        for (int d = 0; d < mem->summary_dim; d++) {
+            dot += new_block->summary[d] * cand->summary[d];
+        }
+
+        float cos_sim = dot / (new_block->summary_norm * cand->summary_norm);
+        if (cos_sim <= 0.0f) continue;
+
+        float score = cos_sim * cos_sim;  // Match entanglement scoring (quadratic)
+        float threshold = mem->retrieve_threshold * 0.7f;
+        if (score >= threshold) {
+            float weight = fminf(1.0f, score);
+            zeta_add_link(mem, new_block->block_id, cand->block_id, weight);
+            zeta_add_link(mem, cand->block_id, new_block->block_id, weight);
+        }
+    }
+}
+
 void zeta_force_sublimation(
     zeta_context_t* ctx,
     const float* keys,
@@ -385,6 +428,7 @@ void zeta_force_sublimation(
     );
 
     if (block_id >= 0) {
+        zeta_link_new_block(ctx, block_id);
         #ifdef ZETA_DEBUG
         fprintf(stderr, "zeta: sublimated block %lld (tokens %d-%d)\n",
                 (long long)block_id, token_start, token_start + token_count);
@@ -603,13 +647,19 @@ int64_t zeta_archive_hidden_states(
 
     // For this POC, we store hidden states as both keys and values
     // In a full implementation, you'd project through separate K/V matrices
-    return zeta_sublimate_block(
+    int64_t block_id = zeta_sublimate_block(
         ctx->memory,
         hidden_states,  // Use as keys
         hidden_states,  // Use as values (same for POC)
         token_count,
         token_start
     );
+
+    if (block_id >= 0) {
+        zeta_link_new_block(ctx, block_id);
+    }
+
+    return block_id;
 }
 
 // ============================================================================
@@ -882,6 +932,10 @@ int zeta_auto_sublimate(
     }
 
     free(evict_indices);
+
+    if (block_id >= 0) {
+        zeta_link_new_block(ctx, block_id);
+    }
 
     return (block_id >= 0) ? tokens_to_sublimate : 0;
 }
