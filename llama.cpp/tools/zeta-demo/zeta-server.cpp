@@ -58,11 +58,14 @@ extern "C" {
 #include "zeta-streaming.h"
 #include "zeta-conflict.h"
 #include "zeta-graph-kv.h"
+//MOVED: zeta-tools.h
+}
+
+// C++ headers (cannot be in extern "C")
+#include "zeta-proactive-memory.h"
 #include "zeta-graph-manager.h"
 #include "zeta-semantic-attacks.h"
 #include "zeta-critic.h"
-//MOVED: zeta-tools.h
-}
 
 // Graph-KV: Pre-computed KV cache for graph nodes (skip prefill on retrieval)
 #include "zeta-graph-kv-integration.h"
@@ -582,22 +585,26 @@ static std::string generate(const std::string& prompt, int max_tokens) {
     stream_context[0] = '\0';
 
     if (g_dual) {
-        // Surface nodes one at a time until budget exhausted or no more quality nodes
-        int surfaced_count = 0;
-        while (surfaced_count < g_stream_max_nodes) {
-            zeta_graph_node_t* node = zeta_stream_surface_one(
-                g_dual, &g_stream_state, prompt.c_str(), 0.5f
-            );
-            if (!node) break;  // No more suitable nodes
-            surfaced_count++;
+        // PROACTIVE PREFETCH: Use momentum-driven tunneling to pre-fetch nodes
+        // This happens BEFORE 14B generation, using initial momentum estimate
+        float initial_momentum = 0.5f;  // Start with neutral momentum
+
+        int prefetched = zeta_proactive_prefetch(
+            prompt.c_str(), &g_stream_state, ZETA_PREFETCH_MAX_NODES, initial_momentum
+        );
+
+        if (prefetched > 0) {
+            // Get prefetched content for context
+            std::string prefetch_context = zeta_proactive_get_context(600);  // Max tokens
+            if (!prefetch_context.empty()) {
+                snprintf(stream_context, sizeof(stream_context),
+                         "[MEMORY]\n%s[/MEMORY]\n", prefetch_context.c_str());
+                fprintf(stderr, "[PROACTIVE] Prefetched %d nodes for 14B context\n", prefetched);
+            }
         }
 
-        if (surfaced_count > 0) {
-            zeta_stream_format(g_dual, &g_stream_state, stream_context, sizeof(stream_context));
-            fprintf(stderr, "[STREAM] %d nodes (%d tokens) surfaced for 14B\n",
-                    g_stream_state.num_active, g_stream_state.total_tokens);
-            fprintf(stderr, "[STREAM] Context: %.200s...\n", stream_context);
-        }
+        // Start parallel prefetch thread (will tunnel for more as 14B generates)
+        zeta_proactive_start_generation();
     }
 
     // Check for numeric conflicts BEFORE generation
@@ -706,9 +713,13 @@ static std::string generate(const std::string& prompt, int max_tokens) {
     int n_vocab = llama_vocab_n_tokens(g_vocab);
 
     auto* sampler = common_sampler_init(g_model_14b, g_params.sampling);
+    int kv_next_pos = n_tokens;  // Track actual KV cache position for self-eval
+    fprintf(stderr, "[GEN] Starting loop, max_tokens=%d, kv_next_pos=%d\n", max_tokens, kv_next_pos);
 
     for (int i = 0; i < max_tokens; i++) {
+        if (i == 0) fprintf(stderr, "[GEN] First iteration entering\n");
         float* logits = llama_get_logits_ith(g_ctx_14b, -1);
+        if (i == 0) fprintf(stderr, "[GEN] Got logits: %p, n_vocab=%d\n", (void*)logits, n_vocab);
 
         // Compute momentum from 14B logits
         float momentum = compute_momentum_from_logits(logits, n_vocab);
@@ -720,33 +731,55 @@ static std::string generate(const std::string& prompt, int max_tokens) {
             zeta_update_momentum(g_dual, momentum);
         }
 
+        // Update proactive prefetch with momentum (drives tunneling)
+        if (i == 0) fprintf(stderr, "[GEN] Before proactive update\n");
+        zeta_proactive_update_momentum(momentum);
+        if (i == 0) fprintf(stderr, "[GEN] Before sample\n");
+
         llama_token tok = common_sampler_sample(sampler, g_ctx_14b, -1);
+        if (i == 0) fprintf(stderr, "[GEN] Sampled token: %d\n", tok);
         common_sampler_accept(sampler, tok, true);
+        if (i == 0) fprintf(stderr, "[GEN] After accept\n");
 
         // Convert token to piece first
         char piece[64] = {0};
         llama_token_to_piece(g_vocab, tok, piece, sizeof(piece), 0, true);
-        // Skip stray leading <|im_start|>
+        if (i == 0) fprintf(stderr, "[GEN] Token piece: '%s'\n", piece);
+
+        // Skip stray leading <|im_start|> (don't add to output, but still decode for consistency)
         if (output.empty() && strcmp(piece, "<|im_start|>") == 0) {
+            // Still need to decode this token to keep KV cache consistent
+            common_batch_clear(batch);
+            common_batch_add(batch, tok, kv_next_pos, {0}, true);
+            if (llama_decode(g_ctx_14b, batch) != 0) break;
+            kv_next_pos++;
             continue;
         }
         if (strcmp(piece, "<|im_end|>") == 0) break;
         if (llama_vocab_is_eog(g_vocab, tok)) break;
 
         output += piece;
+
+        // Update proactive output buffer (enables parallel tunnel-fetch)
+        zeta_proactive_update_output(piece, strlen(piece));
+
         // Stop on chat template tokens (prevents repetition)
         if (strstr(piece, "<|im_start") || strstr(piece, "<|im_end")) break;
 
-        // Prepare next
+        // Prepare next - use kv_next_pos for consistent position tracking
         common_batch_clear(batch);
-        common_batch_add(batch, tok, n_tokens + i, {0}, true);
+        common_batch_add(batch, tok, kv_next_pos, {0}, true);
         if (llama_decode(g_ctx_14b, batch) != 0) break;
+        kv_next_pos++;
     }
 
     common_sampler_free(sampler);
     llama_batch_free(batch);
 
     avg_momentum = (n_generated > 0) ? (avg_momentum / n_generated) : 0.5f;
+
+    // Stop proactive prefetch thread (generation done)
+    zeta_proactive_stop_generation();
 
     // Track for immune system health monitoring
     immune_track_request(avg_momentum);
@@ -821,139 +854,321 @@ static std::string generate(const std::string& prompt, int max_tokens) {
         else escaped_output += *p;
     }
 
-    // === CONSCIOUS SCRATCH BUFFER: Build thought, patch issues, output final ===
-    // Like human cognition: draft internally → spot issues → edit draft → speak
-    // The person you're talking to never sees your mental drafts, only the final
+    // === CONSCIOUS SCRATCH BUFFER: Semantic self-evaluation with KV cache warm ===
+    // Like human cognition: draft internally → evaluate → refine → speak
+    // 14B stays in same context, evaluates its own output, refines if needed
+    // 14B can also ask 7B (subconscious) for more info on complex prompts
+    // User only sees final polished output
 
     std::string scratch_buffer = final_output;  // Working draft (internal)
-    zeta_critic_result_t critic_result;
-    int patch_count = 0;
-    const int MAX_PATCHES = 3;  // Limit refinement passes
-    bool was_patched = false;
+    std::string polished_output = final_output; // Will hold final answer
+    zeta_critic_result_t critic_result = {};
+    int refinement_count = 0;
+    const int MAX_REFINEMENTS = 3;  // Limit refinement passes
+    const int MAX_7B_LOOKUPS = 2;   // Max times 14B can ask 7B for help
+    bool was_refined = false;
+    int lookups_done = 0;
 
-    while (patch_count < MAX_PATCHES) {
-        // Internal review: Analyze current draft
+    // Use the actual tracked KV position from generation loop
+    int kv_pos = kv_next_pos;
+
+    // Create a fresh batch for refinement (we'll reuse sampler pattern)
+    llama_batch refine_batch = llama_batch_init(2048, 0, 1);
+
+    // === 14B -> 7B DELEGATION: Check if 14B needs subconscious help ===
+    // Detect if 14B signals it needs more information
+    auto needs_more_info = [](const std::string& text) -> std::pair<bool, std::string> {
+        // Look for explicit NEED_INFO marker
+        size_t start = text.find("<NEED_INFO>");
+        size_t end = text.find("</NEED_INFO>");
+        if (start != std::string::npos && end != std::string::npos && end > start) {
+            std::string query = text.substr(start + 11, end - start - 11);
+            return {true, query};
+        }
+
+        // Look for implicit signals
+        std::string lower = text;
+        std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+        if (lower.find("i would need to check") != std::string::npos ||
+            lower.find("i need more context") != std::string::npos ||
+            lower.find("without more information") != std::string::npos ||
+            lower.find("i don't have enough") != std::string::npos) {
+            // Extract what they need (crude but functional)
+            size_t about = lower.find("about ");
+            if (about != std::string::npos) {
+                return {true, text.substr(about + 6, 200)};
+            }
+            return {true, "provide more details about the problem"};
+        }
+
+        return {false, ""};
+    };
+
+    // If 14B needs help and 7B is available, delegate
+    auto [need_info, info_query] = needs_more_info(scratch_buffer);
+    while (need_info && lookups_done < MAX_7B_LOOKUPS && g_dual && g_dual->ctx_3b) {
+        fprintf(stderr, "[SCRATCH] 14B needs info: %s\n", info_query.substr(0, 50).c_str());
+
+        // Ask 7B subconscious for the information
+        std::string subconscious_prompt =
+            "<|im_start|>system\nProvide concise, factual information.\n<|im_end|>\n"
+            "<|im_start|>user\n" + info_query + "\n<|im_end|>\n<|im_start|>assistant\n";
+
+        std::string subconscious_response = semantic_generate_7b(subconscious_prompt.c_str(), 400);
+
+        if (subconscious_response.length() > 20) {
+            fprintf(stderr, "[SCRATCH] 7B provided: %zu chars\n", subconscious_response.length());
+
+            // Feed 7B's info back to 14B (continue in same KV)
+            std::string inject_turn =
+                "<|im_end|>\n<|im_start|>system\n"
+                "Additional context from memory:\n" + subconscious_response + "\n"
+                "<|im_end|>\n<|im_start|>user\n"
+                "Now complete your response with this information.\n"
+                "<|im_end|>\n<|im_start|>assistant\n";
+
+            // Tokenize and add to context
+            std::vector<llama_token> inject_tokens(1024);
+            int n_inject = llama_tokenize(g_vocab, inject_turn.c_str(), inject_turn.length(),
+                                          inject_tokens.data(), inject_tokens.size(), false, true);
+            if (n_inject > 0) {
+                inject_tokens.resize(n_inject);
+                common_batch_clear(refine_batch);
+                for (int j = 0; j < n_inject; j++) {
+                    common_batch_add(refine_batch, inject_tokens[j], kv_pos + j, {0}, (j == n_inject - 1));
+                }
+
+                if (llama_decode(g_ctx_14b, refine_batch) == 0) {
+                    kv_pos += n_inject;
+
+                    // 14B continues generating with new info
+                    std::string continued;
+                    auto* cont_sampler = common_sampler_init(g_model_14b, g_params.sampling);
+
+                    for (int t = 0; t < max_tokens; t++) {
+                        llama_token tok = common_sampler_sample(cont_sampler, g_ctx_14b, -1);
+                        common_sampler_accept(cont_sampler, tok, true);
+
+                        char piece[64] = {0};
+                        llama_token_to_piece(g_vocab, tok, piece, sizeof(piece), 0, true);
+
+                        if (strcmp(piece, "<|im_end|>") == 0) break;
+                        if (llama_vocab_is_eog(g_vocab, tok)) break;
+                        if (strstr(piece, "<|im_start")) break;
+                        continued += piece;
+
+                        common_batch_clear(refine_batch);
+                        common_batch_add(refine_batch, tok, kv_pos + t, {0}, true);
+                        if (llama_decode(g_ctx_14b, refine_batch) != 0) break;
+                    }
+                    kv_pos += continued.length() / 4;
+
+                    common_sampler_free(cont_sampler);
+
+                    if (continued.length() > 50) {
+                        // Replace the "need info" part with actual answer
+                        size_t marker_start = scratch_buffer.find("<NEED_INFO>");
+                        if (marker_start != std::string::npos) {
+                            size_t marker_end = scratch_buffer.find("</NEED_INFO>");
+                            if (marker_end != std::string::npos) {
+                                scratch_buffer.replace(marker_start,
+                                    marker_end + 12 - marker_start, continued);
+                            }
+                        } else {
+                            // Implicit need - append the continuation
+                            scratch_buffer += "\n\n" + continued;
+                        }
+                        polished_output = scratch_buffer;
+                        was_refined = true;
+                        fprintf(stderr, "[SCRATCH] Extended with 7B help: %zu total chars\n",
+                                scratch_buffer.length());
+                    }
+                }
+            }
+        }
+
+        lookups_done++;
+        auto [still_need, next_query] = needs_more_info(scratch_buffer);
+        need_info = still_need;
+        info_query = next_query;
+    }
+
+    while (refinement_count < MAX_REFINEMENTS) {
+        // First pass: Fast pattern check as early exit
         critic_result = zeta_critic_analyze(prompt.c_str(), scratch_buffer.c_str());
         zeta_critic_log(critic_result);
 
-        // Draft is clean - ready to speak
-        if (!critic_result.has_issues) {
-            if (patch_count > 0) {
-                fprintf(stderr, "[SCRATCH] Clean after %d patch(es) - ready to output\n", patch_count);
-            }
-            break;
-        }
+        // No pattern issues - do one semantic self-check
+        if (!critic_result.has_issues && refinement_count == 0) {
+            // Build self-evaluation prompt (continue in same KV context)
+            std::string eval_turn =
+                "<|im_end|>\n<|im_start|>user\n"
+                "SEMANTIC SELF-CRITIQUE: Analyze your response with brutal honesty.\n\n"
+                "1. CLAIM VERIFICATION: Did you make any claims? Verify each one is factually correct.\n"
+                "2. REQUIREMENT COVERAGE: Re-read the original question. Did you address EVERY part?\n"
+                "3. HALLUCINATION CHECK: Did you add anything NOT requested (extra characters, features, complexity)?\n"
+                "4. LOGIC TRACE: Trace through your code/logic step by step. Does it actually work?\n"
+                "5. EDGE CASES: What inputs would break this? Did you handle them?\n"
+                "6. CONFIDENCE CHECK: Are you certain, or did you guess? Mark any uncertainties.\n"
+                "7. COMPLEXITY TRUTH: If you claimed O(1)/O(n)/etc, prove it. Count the actual operations.\n\n"
+                "Think carefully. Be harsh. If ANYTHING is wrong or unverified, report it.\n"
+                "Reply ONLY with: PASS or ISSUES: <specific problems found>\n"
+                "<|im_end|>\n<|im_start|>assistant\n";
 
-        // Found issues - generate targeted patches, not full regen
-        fprintf(stderr, "[SCRATCH] Pass %d: %d issues found, patching...\n",
-                patch_count + 1, critic_result.issue_count);
+            // Tokenize evaluation turn
+            std::vector<llama_token> eval_tokens(512);
+            int n_eval = llama_tokenize(g_vocab, eval_turn.c_str(), eval_turn.length(),
+                                        eval_tokens.data(), eval_tokens.size(), false, true);
+            if (n_eval <= 0) break;
+            eval_tokens.resize(n_eval);
 
-        // For each issue, find the bad code and generate a replacement snippet
-        for (int i = 0; i < critic_result.issue_count; i++) {
-            std::string issue(critic_result.issues[i]);
-            std::string bad_pattern, issue_type;
-
-            // Extract what to fix
-            size_t quote1 = issue.find("'");
-            size_t quote2 = issue.find("'", quote1 + 1);
-            if (quote1 != std::string::npos && quote2 != std::string::npos) {
-                bad_pattern = issue.substr(quote1 + 1, quote2 - quote1 - 1);
-            }
-
-            if (issue.find("COMPLEXITY") != std::string::npos) issue_type = "complexity";
-            else if (issue.find("HFT") != std::string::npos) issue_type = "hft";
-            else if (issue.find("REDUNDANCY") != std::string::npos) issue_type = "redundancy";
-            else continue;  // Unknown issue type
-
-            // Find the problematic code block in scratch buffer
-            size_t bad_pos = scratch_buffer.find(bad_pattern);
-            if (bad_pos == std::string::npos) continue;
-
-            // Extract surrounding context (find the code block containing the issue)
-            size_t block_start = scratch_buffer.rfind("```", bad_pos);
-            size_t block_end = scratch_buffer.find("```", bad_pos + bad_pattern.length());
-            if (block_start == std::string::npos) block_start = bad_pos > 200 ? bad_pos - 200 : 0;
-            if (block_end == std::string::npos) block_end = std::min(bad_pos + 500, scratch_buffer.length());
-            else block_end += 3;  // Include closing ```
-
-            std::string bad_section = scratch_buffer.substr(block_start, block_end - block_start);
-
-            // Ask 7B (fast coder) to generate ONLY the replacement snippet
-            std::string patch_prompt = "<|im_start|>system\nOutput ONLY the fixed code snippet. No explanation.\n<|im_end|>\n<|im_start|>user\n";
-            if (issue_type == "complexity") {
-                patch_prompt += "Fix this O(N) operation to O(1). Replace '" + bad_pattern + "' with O(1) alternative:\n";
-            } else if (issue_type == "hft") {
-                patch_prompt += "Fix this HFT code - remove lock/mutex. Replace '" + bad_pattern + "' with lock-free:\n";
-            } else if (issue_type == "redundancy") {
-                patch_prompt += "Remove redundant/repeated content from:\n";
-            }
-            patch_prompt += bad_section + "\n<|im_end|>\n<|im_start|>assistant\n";
-
-            // Use 7B coder context (faster, code-focused) if available, else 14B
-            llama_context* patch_ctx = g_ctx_14b;  // TODO: use 7B when loaded
-
-            llama_memory_t mem = llama_get_memory(patch_ctx);
-            llama_memory_clear(mem, true);
-
-            std::vector<llama_token> patch_tokens(1024);
-            int n_patch_tokens = llama_tokenize(g_vocab, patch_prompt.c_str(),
-                                                patch_prompt.length(),
-                                                patch_tokens.data(), patch_tokens.size(), true, true);
-            if (n_patch_tokens <= 0) continue;
-            patch_tokens.resize(n_patch_tokens);
-
-            // DYNAMIC: batch sized to actual patch tokens + generation headroom
-            llama_batch patch_batch = llama_batch_init(n_patch_tokens + 300, 0, 1);
-            for (int j = 0; j < n_patch_tokens; j++) {
-                common_batch_add(patch_batch, patch_tokens[j], j, {0}, (j == n_patch_tokens - 1));
-            }
-            if (llama_decode(patch_ctx, patch_batch) != 0) {
-                llama_batch_free(patch_batch);
-                continue;
+            // Add eval tokens to batch (continuing from kv_pos)
+            common_batch_clear(refine_batch);
+            for (int j = 0; j < n_eval; j++) {
+                common_batch_add(refine_batch, eval_tokens[j], kv_pos + j, {0}, (j == n_eval - 1));
             }
 
-            // Generate short patch (max 300 tokens - just the fix)
-            std::string patch;
-            auto* patch_sampler = common_sampler_init(g_model_14b, g_params.sampling);
+            // Decode eval prompt (KV cache stays warm from original generation)
+            if (llama_decode(g_ctx_14b, refine_batch) != 0) {
+                fprintf(stderr, "[SCRATCH] Failed to decode eval prompt\n");
+                break;
+            }
+            kv_pos += n_eval;
 
-            for (int t = 0; t < 300; t++) {
-                llama_token tok = common_sampler_sample(patch_sampler, patch_ctx, -1);
-                common_sampler_accept(patch_sampler, tok, true);
+            // Generate self-evaluation (dynamic tokens based on response complexity)
+            // Longer responses need more tokens to critique properly
+            int response_tokens = scratch_buffer.length() / 4;  // Rough estimate
+            int eval_max_tokens = std::min(500, std::max(150, response_tokens / 2 + 100));
+
+            std::string self_eval;
+            auto* eval_sampler = common_sampler_init(g_model_14b, g_params.sampling);
+            fprintf(stderr, "[SCRATCH] Semantic critique: %d tokens allowed (response ~%d tokens)\n",
+                    eval_max_tokens, response_tokens);
+
+            for (int t = 0; t < eval_max_tokens; t++) {
+                llama_token tok = common_sampler_sample(eval_sampler, g_ctx_14b, -1);
+                common_sampler_accept(eval_sampler, tok, true);
 
                 char piece[64] = {0};
                 llama_token_to_piece(g_vocab, tok, piece, sizeof(piece), 0, true);
 
                 if (strcmp(piece, "<|im_end|>") == 0) break;
                 if (llama_vocab_is_eog(g_vocab, tok)) break;
-                patch += piece;
+                self_eval += piece;
 
-                common_batch_clear(patch_batch);
-                common_batch_add(patch_batch, tok, n_patch_tokens + t, {0}, true);
-                if (llama_decode(patch_ctx, patch_batch) != 0) break;
+                common_batch_clear(refine_batch);
+                common_batch_add(refine_batch, tok, kv_pos + t, {0}, true);
+                if (llama_decode(g_ctx_14b, refine_batch) != 0) break;
+            }
+            kv_pos += self_eval.length() / 4;  // Rough token estimate
+
+            common_sampler_free(eval_sampler);
+            fprintf(stderr, "[SCRATCH] Self-eval: %s\n", self_eval.substr(0, 300).c_str());
+
+            // Check if 14B found issues
+            std::string lower_eval = self_eval;
+            std::transform(lower_eval.begin(), lower_eval.end(), lower_eval.begin(), ::tolower);
+
+            if (lower_eval.find("pass") != std::string::npos &&
+                lower_eval.find("issue") == std::string::npos) {
+                fprintf(stderr, "[SCRATCH] 14B self-check: PASS\n");
+                break;  // Clean - no refinement needed
             }
 
-            common_sampler_free(patch_sampler);
-            llama_batch_free(patch_batch);
-
-            // Apply patch: replace bad_section with the fix
-            if (patch.length() > 20) {
-                scratch_buffer.replace(block_start, block_end - block_start, patch);
-                was_patched = true;
-                fprintf(stderr, "[SCRATCH] Patched %zu chars -> %zu chars\n", bad_section.length(), patch.length());
+            // 14B found issues - extract them
+            if (lower_eval.find("issue") != std::string::npos ||
+                lower_eval.find("wrong") != std::string::npos ||
+                lower_eval.find("missing") != std::string::npos ||
+                lower_eval.find("bug") != std::string::npos) {
+                fprintf(stderr, "[SCRATCH] 14B found issues, will refine\n");
+                critic_result.has_issues = true;
+                strncpy(critic_result.issues[0], self_eval.c_str(), 511);
+                strncpy(critic_result.severity[0], "WARNING", 15);
+                critic_result.issue_count = 1;
             }
         }
 
-        if (!was_patched) break;  // Couldn't patch, stop trying
-        patch_count++;
+        // No issues - we're done
+        if (!critic_result.has_issues) {
+            if (refinement_count > 0) {
+                fprintf(stderr, "[SCRATCH] Clean after %d refinement(s)\n", refinement_count);
+            }
+            break;
+        }
+
+        // Issues found - ask 14B to fix (continue in same context)
+        fprintf(stderr, "[SCRATCH] Pass %d: Issues found, refining in-context...\n",
+                refinement_count + 1);
+
+        // Build fix request (continue in same KV)
+        std::string fix_turn =
+            "<|im_end|>\n<|im_start|>user\n"
+            "Fix the issues you identified. Output ONLY the corrected complete response.\n"
+            "<|im_end|>\n<|im_start|>assistant\n";
+
+        // Tokenize fix turn
+        std::vector<llama_token> fix_tokens(256);
+        int n_fix = llama_tokenize(g_vocab, fix_turn.c_str(), fix_turn.length(),
+                                   fix_tokens.data(), fix_tokens.size(), false, true);
+        if (n_fix <= 0) break;
+        fix_tokens.resize(n_fix);
+
+        // Add to batch
+        common_batch_clear(refine_batch);
+        for (int j = 0; j < n_fix; j++) {
+            common_batch_add(refine_batch, fix_tokens[j], kv_pos + j, {0}, (j == n_fix - 1));
+        }
+
+        if (llama_decode(g_ctx_14b, refine_batch) != 0) {
+            fprintf(stderr, "[SCRATCH] Failed to decode fix prompt\n");
+            break;
+        }
+        kv_pos += n_fix;
+
+        // Generate refined response
+        std::string refined;
+        auto* fix_sampler = common_sampler_init(g_model_14b, g_params.sampling);
+
+        for (int t = 0; t < max_tokens; t++) {
+            llama_token tok = common_sampler_sample(fix_sampler, g_ctx_14b, -1);
+            common_sampler_accept(fix_sampler, tok, true);
+
+            char piece[64] = {0};
+            llama_token_to_piece(g_vocab, tok, piece, sizeof(piece), 0, true);
+
+            if (strcmp(piece, "<|im_end|>") == 0) break;
+            if (llama_vocab_is_eog(g_vocab, tok)) break;
+            if (strstr(piece, "<|im_start")) break;
+            refined += piece;
+
+            common_batch_clear(refine_batch);
+            common_batch_add(refine_batch, tok, kv_pos + t, {0}, true);
+            if (llama_decode(g_ctx_14b, refine_batch) != 0) break;
+        }
+        kv_pos += refined.length() / 4;
+
+        common_sampler_free(fix_sampler);
+
+        if (refined.length() > 50) {
+            scratch_buffer = refined;
+            polished_output = refined;
+            was_refined = true;
+            fprintf(stderr, "[SCRATCH] Refined: %zu chars\n", refined.length());
+        }
+
+        refinement_count++;
+        critic_result.has_issues = false;  // Reset for next pass
     }
 
-    // Final output is the patched scratch buffer - user never saw the drafts
-    std::string corrected_output = scratch_buffer;
-    bool made_corrections = was_patched;
-    int iteration = patch_count;
+    llama_batch_free(refine_batch);
 
-    if (was_patched && patch_count > 0) {
-        fprintf(stderr, "[SCRATCH] Final output after %d patch pass(es)\n", patch_count);
+    // Final output is the polished buffer - user never saw the drafts
+    std::string corrected_output = polished_output;
+    bool made_corrections = was_refined;
+    int iteration = refinement_count;
+
+    if (was_refined && refinement_count > 0) {
+        fprintf(stderr, "[SCRATCH] Final output after %d refinement(s)\n", refinement_count);
     }
 
     // Use corrected output for response
@@ -1338,6 +1553,14 @@ int main(int argc, char** argv) {
 
     // Initialize streaming memory state
     memset(&g_stream_state, 0, sizeof(g_stream_state));
+
+    // Initialize proactive memory prefetch (momentum-driven tunneling)
+    if (g_dual && g_dual->ctx_3b) {
+        zeta_proactive_init(g_dual, g_dual->ctx_3b,
+                            llama_model_get_vocab(g_dual->model_3b));
+        fprintf(stderr, "[INIT] Proactive memory prefetch initialized\n");
+    }
+
     // Initialize code mode context (3B Coder not loaded yet - will use 3B Instruct)
     g_code = zeta_code_init(g_dual, g_model_3b, NULL, g_model_14b,
         (g_storage_dir + "/code").c_str());
