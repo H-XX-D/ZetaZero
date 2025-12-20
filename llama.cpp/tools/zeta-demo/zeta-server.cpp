@@ -1496,6 +1496,8 @@ int main(int argc, char** argv) {
             if (zeta_init_identity_embedding()) {
                 fprintf(stderr, "[SEMANTIC-ATK] Identity embedding initialized\n");
             }
+            // Wire 4B embedding model to dual-process layer
+            zeta_embed_wire();
         } else {
             fprintf(stderr, "WARNING: Failed to load embedding model\n");
         }

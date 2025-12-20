@@ -212,4 +212,12 @@ static int zeta_embed_dim() {
     return g_embed_ctx->embed_dim;
 }
 
+// Wire up 4B embedding model with dual-process layer
+static void zeta_embed_wire() {
+    if (g_embed_ctx && g_embed_ctx->initialized) {
+        zeta_set_embed_fn(zeta_embed_text);
+        fprintf(stderr, "[EMBED] Wired to dual-process layer (dim=%d)\n", g_embed_ctx->embed_dim);
+    }
+}
+
 #endif // ZETA_EMBED_INTEGRATION_H
