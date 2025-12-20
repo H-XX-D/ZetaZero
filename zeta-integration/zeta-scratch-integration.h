@@ -609,8 +609,8 @@ static inline void zeta_scratch_register_endpoints(httplib::Server& svr) {
 
 // Call for each token in decode loop
 // Returns true if token should be output to user
-#define ZETA_SCRATCH_PROCESS_TOKEN(tok_id, tok_text, tok_len, confidence) \
-    zeta_decode_hook_process(tok_id, tok_text, tok_len, confidence)
+// TEMPORARILY DISABLED - just pass through all tokens
+#define ZETA_SCRATCH_PROCESS_TOKEN(tok_id, tok_text, tok_len, confidence) (true)
 
 // Call after generation complete
 #define ZETA_SCRATCH_END_GENERATION() \
