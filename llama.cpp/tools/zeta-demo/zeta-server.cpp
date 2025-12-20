@@ -1421,10 +1421,13 @@ int main(int argc, char** argv) {
         else if (strcmp(argv[i], "--ctx-3b") == 0 && i+1 < argc) g_ctx_size_3b = atoi(argv[++i]);
         // Memory protection password
         else if (strcmp(argv[i], "--memory-password") == 0 && i+1 < argc) zeta_set_memory_password(argv[++i]);
+        // Semantic attack override password
+        else if (strcmp(argv[i], "--semantic-password") == 0 && i+1 < argc) zeta_set_semantic_password(argv[++i]);
     }
 
     fprintf(stderr, "Z.E.T.A. Server v5.1 (Conscious Scratch Buffer)\n");
     fprintf(stderr, "Memory:    Password-protected (use --memory-password to change)\n");
+    fprintf(stderr, "Semantic:  Password-protected (use --semantic-password to change)\n");
     fprintf(stderr, "Context:   14B=%d, 7B/3B=%d tokens\n", g_ctx_size_14b, g_ctx_size_3b);
     fprintf(stderr, "Streaming: %d tokens, %d nodes\n", g_stream_token_budget, g_stream_max_nodes);
     fprintf(stderr, "Code:      %d tokens, %d nodes\n", g_code_token_budget, g_code_max_nodes);
