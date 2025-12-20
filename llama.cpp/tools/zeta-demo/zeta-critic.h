@@ -263,6 +263,58 @@ static zeta_critic_domain_t zeta_critic_detect_domain(const char* prompt) {
     return CRITIC_DOMAIN_GENERAL;
 }
 
+// Check if response uses wrong programming language
+static bool zeta_check_language_mismatch(const char* prompt, const char* response, char* issue_out) {
+    if (!prompt || !response) return false;
+
+    std::string p(prompt);
+    std::string r(response);
+    std::transform(p.begin(), p.end(), p.begin(), ::tolower);
+
+    // Detect requested language
+    struct LangPattern {
+        const char* request;     // What user asks for
+        const char* markers[4];  // Code markers that indicate this language
+        const char* wrong[4];    // Markers that indicate WRONG language
+    };
+
+    static const LangPattern langs[] = {
+        {"python", {"def ", "class ", "import ", "print("}, {"fn ", "func ", "public static", "```rust"}},
+        {"java", {"public class", "public static void", "System.out"}, {"def ", "fn ", "func ", "```python"}},
+        {"rust", {"fn ", "let mut", "impl ", "pub fn"}, {"def ", "class ", "public static", "```python"}},
+        {"javascript", {"function ", "const ", "let ", "=>"}, {"def ", "fn ", "public static", "```python"}},
+        {"go", {"func ", "package ", "import \"", "fmt."}, {"def ", "fn ", "class ", "```python"}},
+        {"c++", {"#include", "std::", "int main", "cout"}, {"def ", "fn ", "func ", "```python"}},
+        {nullptr, {}, {}}
+    };
+
+    for (int i = 0; langs[i].request; i++) {
+        if (p.find(langs[i].request) != std::string::npos) {
+            // User asked for this language - check for wrong language markers
+            for (int j = 0; j < 4 && langs[i].wrong[j]; j++) {
+                if (r.find(langs[i].wrong[j]) != std::string::npos) {
+                    // Check if correct language markers are also present
+                    bool has_correct = false;
+                    for (int k = 0; k < 4 && langs[i].markers[k]; k++) {
+                        if (r.find(langs[i].markers[k]) != std::string::npos) {
+                            has_correct = true;
+                            break;
+                        }
+                    }
+                    if (!has_correct) {
+                        snprintf(issue_out, 512,
+                            "LANGUAGE: Prompt requests %s but response uses different language (found '%s')",
+                            langs[i].request, langs[i].wrong[j]);
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+
+    return false;
+}
+
 // Check if response claims O(1) but uses O(N) operations
 static bool zeta_check_complexity_violation(const char* prompt, const char* response, char* issue_out) {
     if (!prompt || !response) return false;
@@ -423,15 +475,35 @@ static void zeta_parse_semantic_response(const std::string& response, zeta_criti
     std::string line;
 
     while (std::getline(iss, line) && result.issue_count < 4) {
-        // Look for ISSUE|severity|description format
-        if (line.find("ISSUE") == 0 || line.find("issue") == 0) {
+        // Look for ISSUE|severity|description OR severity|type|description format
+        // 7B sometimes outputs: INFO|style|message or WARNING|logic|message
+        bool is_issue_line = (line.find("ISSUE") == 0 || line.find("issue") == 0);
+        bool is_severity_line = (line.find("INFO") == 0 || line.find("WARNING") == 0 ||
+                                  line.find("CRITICAL") == 0 || line.find("ERROR") == 0);
+
+        if (is_issue_line || is_severity_line) {
             size_t first_pipe = line.find('|');
             size_t second_pipe = (first_pipe != std::string::npos) ?
                                   line.find('|', first_pipe + 1) : std::string::npos;
 
-            if (first_pipe != std::string::npos && second_pipe != std::string::npos) {
-                std::string severity = line.substr(first_pipe + 1, second_pipe - first_pipe - 1);
-                std::string description = line.substr(second_pipe + 1);
+            std::string severity;
+            std::string description;
+
+            if (is_severity_line && second_pipe != std::string::npos) {
+                // Format: SEVERITY|type|description - severity is before first pipe
+                severity = line.substr(0, first_pipe);
+                description = line.substr(second_pipe + 1);
+            } else if (first_pipe != std::string::npos && second_pipe != std::string::npos) {
+                // Format: ISSUE|severity|description
+                severity = line.substr(first_pipe + 1, second_pipe - first_pipe - 1);
+                description = line.substr(second_pipe + 1);
+            } else if (first_pipe != std::string::npos) {
+                // Format: SEVERITY|description (no type)
+                severity = line.substr(0, first_pipe);
+                description = line.substr(first_pipe + 1);
+            }
+
+            if (!description.empty()) {
 
                 // Trim whitespace
                 while (!severity.empty() && isspace(severity.front())) severity.erase(0, 1);
@@ -516,6 +588,13 @@ static zeta_critic_result_t zeta_critic_analyze(const char* prompt, const char* 
 
     // Check complexity violations
     if (zeta_check_complexity_violation(prompt, response, issue) && idx < 4) {
+        strncpy(result.issues[idx], issue, 511);
+        strncpy(result.severity[idx], "CRITICAL", 15);
+        idx++;
+    }
+
+    // Check language mismatch (e.g., asked for Python, got Rust)
+    if (zeta_check_language_mismatch(prompt, response, issue) && idx < 4) {
         strncpy(result.issues[idx], issue, 511);
         strncpy(result.severity[idx], "CRITICAL", 15);
         idx++;
