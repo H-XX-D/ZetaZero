@@ -1,67 +1,124 @@
 #!/bin/bash
+# =============================================================================
 # Z.E.T.A. Server Startup Script
-# Default model paths for z6 (RTX 5060 Ti 16GB)
+# =============================================================================
+# Reads configuration from ../zeta.conf (relative to this script)
+# =============================================================================
 
-# Model paths
-MODEL_14B="/home/xx/models/qwen2.5-14b-instruct-q4.gguf"
-MODEL_7B_CODER="/home/xx/models/qwen2.5-7b-coder-q4_k_m.gguf"
-MODEL_EMBED="/home/xx/models/qwen3-embedding-4b-q4_k_m.gguf"
+set -e
 
-# Optional specialist models
-MODEL_3B_INSTRUCT="/home/xx/models/qwen2.5-3b-instruct-q4_k_m.gguf"
-MODEL_3B_CODER="/home/xx/models/qwen2.5-3b-coder-q4_k_m.gguf"
-MODEL_CRITIC="/home/xx/models/qwen2.5-1.5b-critic-q6_k.gguf"
-MODEL_ROUTER="/home/xx/models/qwen2.5-0.5b-router-q6_k.gguf"
-MODEL_IMMUNE="/home/xx/models/qwen2.5-0.5b-immune-q6_k.gguf"
-MODEL_TOOLS="/home/xx/models/qwen2.5-0.5b-tools-q6_k.gguf"
+# Find config file
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(dirname "$SCRIPT_DIR")"
+CONFIG_FILE="${REPO_ROOT}/zeta.conf"
 
-# Storage
-STORAGE_DIR="/mnt/HoloGit/blocks"
-
-# Server settings
-PORT=8080
-GPU_LAYERS=99
-CTX_14B=4096
-CTX_3B=1024
-
-# Build directory
-BUILD_DIR="/home/xx/ZetaZero/llama.cpp/build"
-
-cd "$BUILD_DIR" || exit 1
-
-# Check if server already running
-if pgrep -x zeta-server > /dev/null; then
-    echo "Server already running. Kill it first:"
-    echo "  pkill zeta-server"
+# Load config
+if [[ -f "$CONFIG_FILE" ]]; then
+    echo "Loading config from: $CONFIG_FILE"
+    source "$CONFIG_FILE"
+else
+    echo "ERROR: Config file not found: $CONFIG_FILE"
+    echo "Create zeta.conf in repository root with your settings."
     exit 1
 fi
 
-# Start server
-echo "Starting Z.E.T.A. Server..."
-echo "  14B: $MODEL_14B"
-echo "  7B Coder: $MODEL_7B_CODER"
-echo "  Embed: $MODEL_EMBED"
-echo "  Port: $PORT"
+# Validate required settings
+if [[ -z "$MODEL_14B" ]] && [[ -z "$MODEL_7B_CODER" ]]; then
+    echo "ERROR: No models configured. Set MODEL_14B or MODEL_7B_CODER in zeta.conf"
+    exit 1
+fi
 
-nohup ./bin/zeta-server \
-    --host 0.0.0.0 \
-    --port "$PORT" \
-    -m "$MODEL_14B" \
-    --model-7b-coder "$MODEL_7B_CODER" \
-    --embed-model "$MODEL_EMBED" \
-    --gpu-layers "$GPU_LAYERS" \
-    --ctx-size "$CTX_14B" \
-    --zeta-storage "$STORAGE_DIR" \
-    > /tmp/zeta.log 2>&1 &
+if [[ -z "$ZETA_SERVER_BIN" ]]; then
+    ZETA_SERVER_BIN="${ZETA_BUILD_DIR}/bin/zeta-server"
+fi
 
-echo "Server starting... check /tmp/zeta.log"
-sleep 5
+# Check if running locally or remotely
+IS_REMOTE=false
+if [[ -n "$ZETA_SSH_USER" ]] && [[ -n "$ZETA_SSH_HOST" ]]; then
+    # Check if we're on the remote host already
+    CURRENT_HOST=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "localhost")
+    if [[ "$CURRENT_HOST" != "$ZETA_SSH_HOST" ]] && [[ "$ZETA_SSH_HOST" != "localhost" ]]; then
+        IS_REMOTE=true
+    fi
+fi
 
-# Health check
-if curl -s "http://localhost:$PORT/health" | grep -q "ok"; then
-    echo "Server is UP"
-    curl -s "http://localhost:$PORT/health" | python3 -m json.tool 2>/dev/null || cat
+start_server() {
+    echo "=============================================="
+    echo "Starting Z.E.T.A. Server"
+    echo "=============================================="
+    echo "  Host: ${ZETA_HOST}:${ZETA_PORT}"
+    echo "  14B Model: ${MODEL_14B:-'(none)'}"
+    echo "  7B Coder:  ${MODEL_7B_CODER:-'(none)'}"
+    echo "  Embed:     ${MODEL_EMBED:-'(none)'}"
+    echo "  GPU Layers: $GPU_LAYERS"
+    echo "  Context: $CTX_14B"
+    echo "=============================================="
+
+    # Check if server already running
+    if pgrep -x zeta-server > /dev/null 2>&1; then
+        echo "WARNING: Server already running. Killing it..."
+        pkill -9 zeta-server || true
+        sleep 2
+    fi
+
+    # Build command
+    CMD="$ZETA_SERVER_BIN --host 0.0.0.0 --port $ZETA_PORT"
+    
+    if [[ -n "$MODEL_14B" ]] && [[ -f "$MODEL_14B" ]]; then
+        CMD="$CMD -m $MODEL_14B"
+    fi
+    
+    if [[ -n "$MODEL_7B_CODER" ]] && [[ -f "$MODEL_7B_CODER" ]]; then
+        CMD="$CMD --model-7b-coder $MODEL_7B_CODER"
+    fi
+    
+    if [[ -n "$MODEL_EMBED" ]] && [[ -f "$MODEL_EMBED" ]]; then
+        CMD="$CMD --embed-model $MODEL_EMBED"
+    fi
+    
+    CMD="$CMD --gpu-layers $GPU_LAYERS"
+    CMD="$CMD --ctx-size $CTX_14B"
+    
+    if [[ -n "$ZETA_STORAGE" ]]; then
+        CMD="$CMD --zeta-storage $ZETA_STORAGE"
+    fi
+
+    echo "Command: $CMD"
+    echo ""
+
+    # Start server
+    nohup $CMD > "${ZETA_LOG:-/tmp/zeta.log}" 2>&1 &
+    SERVER_PID=$!
+    echo "Server PID: $SERVER_PID"
+    
+    # Wait for startup
+    echo "Waiting for server to start..."
+    for i in {1..30}; do
+        sleep 1
+        if curl -s "http://localhost:${ZETA_PORT}/health" > /dev/null 2>&1; then
+            echo "✓ Server is UP!"
+            curl -s "http://localhost:${ZETA_PORT}/health" | head -c 200
+            echo ""
+            exit 0
+        fi
+        echo -n "."
+    done
+
+    echo ""
+    echo "ERROR: Server failed to start. Check ${ZETA_LOG:-/tmp/zeta.log}"
+    tail -50 "${ZETA_LOG:-/tmp/zeta.log}"
+    exit 1
+}
+
+# Run remotely via SSH if needed
+if [[ "$IS_REMOTE" == "true" ]]; then
+    echo "Deploying to remote host: ${ZETA_SSH_USER}@${ZETA_SSH_HOST}"
+    
+    # Copy config to remote
+    scp "$CONFIG_FILE" "${ZETA_SSH_USER}@${ZETA_SSH_HOST}:~/ZetaZero/zeta.conf"
+    
+    # Run this script on remote
+    ssh "${ZETA_SSH_USER}@${ZETA_SSH_HOST}" "cd ~/ZetaZero && bash scripts/start_zeta_server.sh"
 else
-    echo "Server may still be loading. Check:"
-    echo "  tail -f /tmp/zeta.log"
+    start_server
 fi
