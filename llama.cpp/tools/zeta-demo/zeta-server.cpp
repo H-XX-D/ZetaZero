@@ -67,6 +67,10 @@ extern "C" {
 #include "zeta-semantic-attacks.h"
 #include "zeta-critic.h"
 
+// Scratch Buffer: Working memory for staged generation
+#include "../../../zeta-integration/zeta-scratch-buffer.h"
+#include "../../../zeta-integration/zeta-scratch-integration.h"
+
 // Graph-KV: Pre-computed KV cache for graph nodes (skip prefill on retrieval)
 #include "zeta-graph-kv-integration.h"
 
@@ -706,6 +710,9 @@ static std::string generate(const std::string& prompt, int max_tokens) {
     }
     fprintf(stderr, "[DECODE] Prompt decoded: %d tokens (single pass)\n", n_tokens);
 
+    // Initialize scratch buffer for this generation
+    ZETA_SCRATCH_START_GENERATION();
+
     // Generate with momentum tracking
     std::string output;
     float avg_momentum = 0.0f;
@@ -758,7 +765,14 @@ static std::string generate(const std::string& prompt, int max_tokens) {
         if (strcmp(piece, "<|im_end|>") == 0) break;
         if (llama_vocab_is_eog(g_vocab, tok)) break;
 
-        output += piece;
+        // Process token through scratch buffer (handles control tokens, hidden thinking, revision)
+        // momentum serves as confidence signal for revision decisions
+        bool should_output = ZETA_SCRATCH_PROCESS_TOKEN(tok, piece, strlen(piece), momentum);
+        
+        // Only add to output if scratch buffer says it's visible
+        if (should_output) {
+            output += piece;
+        }
 
         // Update proactive output buffer (enables parallel tunnel-fetch)
         zeta_proactive_update_output(piece, strlen(piece));
@@ -1594,6 +1608,11 @@ int main(int argc, char** argv) {
     if (zeta_gkv_integration_init(g_model_conscious, g_storage_dir.c_str(), 128)) {
         fprintf(stderr, "[GKV] Graph-KV cache enabled (skip prefill on retrieval)\n");
     }
+
+    // Initialize Scratch Buffer: Working memory for staged generation
+    ZETA_SCRATCH_INIT(g_vocab);
+    zeta_scratch_set_inject_ctx(g_dual, zeta_default_graph_query, NULL);
+    fprintf(stderr, "[SCRATCH] Scratch buffer initialized for staged generation\n");
 
     httplib::Server svr;
     g_server = &svr;
@@ -2886,6 +2905,9 @@ int main(int argc, char** argv) {
     fprintf(stderr, "  GET  /git/diff     - Diff two branches\n");
     fprintf(stderr, "  GET  /git/status   - Current branch status\n");
 
+    // Register Scratch Buffer HTTP endpoints
+    ZETA_SCRATCH_REGISTER_HTTP(svr);
+
     svr.listen("0.0.0.0", port);
 
     fprintf(stderr, "\n[SHUTDOWN] Stopping 3B worker...\n");
@@ -2900,6 +2922,9 @@ int main(int argc, char** argv) {
 
     fprintf(stderr, "[SHUTDOWN] Consolidating memory...\n");
     consolidate_memory();
+
+    fprintf(stderr, "[SHUTDOWN] Cleaning up scratch buffer...\n");
+    ZETA_SCRATCH_CLEANUP();
 
     if (g_git) zeta_git_free(g_git);
     if (g_dual) free(g_dual);
