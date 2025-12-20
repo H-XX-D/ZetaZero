@@ -667,6 +667,606 @@ static inline void zeta_scratch_debug_print(zeta_scratch_buffer_t* buf) {
     fprintf(stderr, "============================\n\n");
 }
 
+// ============================================================================
+// PART 2: Streaming Output Manager
+// ============================================================================
+
+// Callback for streaming tokens to user
+typedef void (*zeta_stream_callback_t)(const char* text, size_t len, void* user_data);
+
+typedef struct {
+    zeta_stream_callback_t on_token;     // Called for each visible token
+    zeta_stream_callback_t on_section;   // Called when section completes
+    zeta_stream_callback_t on_complete;  // Called when generation done
+    zeta_stream_callback_t on_revision;  // Called when revision happens (optional debug)
+    void* user_data;
+} zeta_scratch_stream_t;
+
+static inline void zeta_scratch_set_stream(zeta_scratch_buffer_t* buf, zeta_scratch_stream_t* stream) {
+    // Store stream callbacks - we'd need to add this field to the struct
+    // For now, this is the interface
+    (void)buf;
+    (void)stream;
+}
+
+// Stream-aware token append - calls callback if visible
+static inline bool zeta_scratch_stream_token(
+    zeta_scratch_buffer_t* buf,
+    int32_t token_id,
+    const char* text,
+    size_t len,
+    zeta_scratch_stream_t* stream
+) {
+    if (!buf) return false;
+    
+    // Append to buffer
+    bool ok = zeta_scratch_append_token(buf, token_id, text, len);
+    if (!ok) return false;
+    
+    // Stream to user if visible mode
+    if (stream && stream->on_token && buf->mode == SCRATCH_MODE_VISIBLE) {
+        stream->on_token(text, len, stream->user_data);
+    }
+    
+    return true;
+}
+
+// ============================================================================
+// PART 3: Chunked Generation for Long Output
+// ============================================================================
+
+// When buffer exceeds context, we need to "chunk" - summarize old content
+// and continue with fresh context
+
+#define ZETA_CHUNK_SUMMARY_SIZE 2048    // Summary of previous chunk
+
+typedef struct {
+    char summary[ZETA_CHUNK_SUMMARY_SIZE];
+    size_t summary_len;
+    int chunk_number;
+    size_t tokens_in_chunk;
+    size_t total_tokens;
+} zeta_chunk_state_t;
+
+typedef struct {
+    zeta_scratch_buffer_t* buffer;
+    zeta_chunk_state_t chunks[32];      // Track up to 32 chunks
+    int num_chunks;
+    int current_chunk;
+    
+    // Threshold for when to create new chunk
+    size_t chunk_threshold;             // Tokens before chunking
+    
+    // Summarizer callback (could be 3B model)
+    const char* (*summarize)(const char* content, size_t len, void* ctx);
+    void* summarize_ctx;
+} zeta_chunked_buffer_t;
+
+static inline zeta_chunked_buffer_t* zeta_chunked_create(size_t capacity) {
+    zeta_chunked_buffer_t* cb = (zeta_chunked_buffer_t*)calloc(1, sizeof(zeta_chunked_buffer_t));
+    if (!cb) return NULL;
+    
+    cb->buffer = zeta_scratch_create(capacity);
+    if (!cb->buffer) {
+        free(cb);
+        return NULL;
+    }
+    
+    cb->num_chunks = 0;
+    cb->current_chunk = 0;
+    cb->chunk_threshold = 4096;  // Default: chunk after 4K tokens
+    cb->summarize = NULL;
+    cb->summarize_ctx = NULL;
+    
+    return cb;
+}
+
+static inline void zeta_chunked_destroy(zeta_chunked_buffer_t* cb) {
+    if (!cb) return;
+    if (cb->buffer) zeta_scratch_destroy(cb->buffer);
+    free(cb);
+}
+
+// Check if we need to chunk (context getting full)
+static inline bool zeta_chunked_needs_chunk(zeta_chunked_buffer_t* cb) {
+    if (!cb || !cb->buffer) return false;
+    return cb->buffer->token_count >= cb->chunk_threshold;
+}
+
+// Create a new chunk (summarize current, start fresh)
+static inline bool zeta_chunked_create_chunk(zeta_chunked_buffer_t* cb) {
+    if (!cb || !cb->buffer) return false;
+    if (cb->num_chunks >= 32) return false;
+    
+    // Get current buffer content
+    size_t content_len = cb->buffer->length;
+    
+    // Summarize if we have a summarizer
+    zeta_chunk_state_t* chunk = &cb->chunks[cb->num_chunks];
+    chunk->chunk_number = cb->num_chunks;
+    chunk->tokens_in_chunk = cb->buffer->token_count;
+    chunk->total_tokens = cb->buffer->total_tokens_generated;
+    
+    if (cb->summarize) {
+        const char* summary = cb->summarize(cb->buffer->data, content_len, cb->summarize_ctx);
+        if (summary) {
+            size_t slen = strlen(summary);
+            if (slen >= ZETA_CHUNK_SUMMARY_SIZE) slen = ZETA_CHUNK_SUMMARY_SIZE - 1;
+            memcpy(chunk->summary, summary, slen);
+            chunk->summary[slen] = '\0';
+            chunk->summary_len = slen;
+        }
+    } else {
+        // No summarizer - just keep last N chars as "summary"
+        size_t keep = ZETA_CHUNK_SUMMARY_SIZE - 64;
+        if (content_len > keep) {
+            memcpy(chunk->summary, cb->buffer->data + content_len - keep, keep);
+            chunk->summary[keep] = '\0';
+            chunk->summary_len = keep;
+        }
+    }
+    
+    cb->num_chunks++;
+    cb->current_chunk = cb->num_chunks;
+    
+    // Reset buffer but keep stats
+    size_t total_gen = cb->buffer->total_tokens_generated;
+    zeta_scratch_reset(cb->buffer);
+    cb->buffer->total_tokens_generated = total_gen;
+    
+    // Inject summary as context
+    if (chunk->summary_len > 0) {
+        zeta_scratch_append(cb->buffer, "[Previous context summary: ", 27);
+        zeta_scratch_append(cb->buffer, chunk->summary, chunk->summary_len);
+        zeta_scratch_append(cb->buffer, "]\n\n", 3);
+    }
+    
+    return true;
+}
+
+// Get total content across all chunks (for final assembly)
+static inline size_t zeta_chunked_get_total_length(zeta_chunked_buffer_t* cb) {
+    if (!cb) return 0;
+    
+    size_t total = cb->buffer->length;
+    for (int i = 0; i < cb->num_chunks; i++) {
+        total += cb->chunks[i].tokens_in_chunk * 4;  // Estimate
+    }
+    return total;
+}
+
+// ============================================================================
+// PART 4: Revision Strategies
+// ============================================================================
+
+typedef enum {
+    REVISION_NONE,              // No revision needed
+    REVISION_MINOR,             // Small fix, revert 1 checkpoint
+    REVISION_MAJOR,             // Big change, revert multiple
+    REVISION_RESTART,           // Start over from beginning
+} zeta_revision_level_t;
+
+typedef struct {
+    float confidence_threshold;  // Below this, consider revision
+    int max_revisions;           // Max revisions before giving up
+    bool allow_restart;          // Can we restart from scratch?
+    int lookback_checkpoints;    // How many checkpoints to consider
+} zeta_revision_config_t;
+
+static inline zeta_revision_config_t zeta_revision_default_config(void) {
+    return (zeta_revision_config_t){
+        .confidence_threshold = 0.3f,
+        .max_revisions = 5,
+        .allow_restart = true,
+        .lookback_checkpoints = 3
+    };
+}
+
+// Determine revision level based on confidence score
+static inline zeta_revision_level_t zeta_revision_evaluate(
+    zeta_scratch_buffer_t* buf,
+    float confidence,
+    zeta_revision_config_t* config
+) {
+    if (!buf || !config) return REVISION_NONE;
+    
+    // Already revised too many times?
+    if (buf->revision_count >= config->max_revisions) {
+        return REVISION_NONE;  // Give up on revising
+    }
+    
+    // Confidence ok?
+    if (confidence >= config->confidence_threshold) {
+        return REVISION_NONE;
+    }
+    
+    // How bad is it?
+    if (confidence < 0.1f && config->allow_restart) {
+        return REVISION_RESTART;
+    }
+    
+    if (confidence < 0.2f && buf->num_checkpoints > 1) {
+        return REVISION_MAJOR;
+    }
+    
+    return REVISION_MINOR;
+}
+
+// Execute revision based on level
+static inline bool zeta_revision_execute(
+    zeta_scratch_buffer_t* buf,
+    zeta_revision_level_t level,
+    zeta_revision_config_t* config
+) {
+    if (!buf) return false;
+    
+    switch (level) {
+        case REVISION_NONE:
+            return true;  // Nothing to do
+            
+        case REVISION_MINOR:
+            return zeta_scratch_revert_last(buf);
+            
+        case REVISION_MAJOR: {
+            // Go back multiple checkpoints
+            int target = buf->current_checkpoint - config->lookback_checkpoints;
+            if (target < 0) target = 0;
+            return zeta_scratch_revert(buf, target);
+        }
+        
+        case REVISION_RESTART:
+            zeta_scratch_reset(buf);
+            return true;
+    }
+    
+    return false;
+}
+
+// ============================================================================
+// PART 5: Section Templates for Structured Output
+// ============================================================================
+
+typedef struct {
+    const char* name;
+    bool required;
+    bool visible;
+    int min_tokens;
+    int max_tokens;
+    const char* prompt_hint;    // Hint to model for this section
+} zeta_section_template_t;
+
+// Common templates
+static const zeta_section_template_t SECTION_THINKING = {
+    .name = "thinking",
+    .required = false,
+    .visible = false,           // Hidden from user
+    .min_tokens = 0,
+    .max_tokens = 2048,
+    .prompt_hint = "Think through the problem step by step."
+};
+
+static const zeta_section_template_t SECTION_PLANNING = {
+    .name = "planning",
+    .required = false,
+    .visible = false,
+    .min_tokens = 0,
+    .max_tokens = 1024,
+    .prompt_hint = "Outline your approach."
+};
+
+static const zeta_section_template_t SECTION_RESPONSE = {
+    .name = "response",
+    .required = true,
+    .visible = true,            // This goes to user
+    .min_tokens = 10,
+    .max_tokens = 8192,
+    .prompt_hint = NULL
+};
+
+static const zeta_section_template_t SECTION_CODE = {
+    .name = "code",
+    .required = false,
+    .visible = true,
+    .min_tokens = 0,
+    .max_tokens = 16384,
+    .prompt_hint = "Write the code implementation."
+};
+
+static const zeta_section_template_t SECTION_REVIEW = {
+    .name = "review",
+    .required = false,
+    .visible = false,
+    .min_tokens = 0,
+    .max_tokens = 1024,
+    .prompt_hint = "Review your response for errors."
+};
+
+// Template-based section creation
+static inline int zeta_scratch_begin_template_section(
+    zeta_scratch_buffer_t* buf,
+    const zeta_section_template_t* tmpl
+) {
+    if (!buf || !tmpl) return -1;
+    return zeta_scratch_begin_section(buf, tmpl->name, tmpl->visible);
+}
+
+// ============================================================================
+// PART 6: Generation Loop Integration
+// ============================================================================
+
+// Forward declaration - would be implemented with llama.cpp types
+struct llama_context;
+struct llama_model;
+
+typedef struct {
+    zeta_scratch_buffer_t* scratch;
+    zeta_chunked_buffer_t* chunked;     // Optional chunked mode
+    zeta_scratch_stream_t* stream;
+    zeta_revision_config_t revision_cfg;
+    
+    // Generation state
+    bool is_generating;
+    bool use_chunking;
+    int current_section_template;
+    
+    // Token tracking
+    int32_t last_token;
+    float last_confidence;
+    
+    // GitGraph integration (would link to actual GitGraph)
+    void* gitgraph_ctx;
+    
+} zeta_generation_ctx_t;
+
+static inline zeta_generation_ctx_t* zeta_generation_create(bool use_chunking) {
+    zeta_generation_ctx_t* ctx = (zeta_generation_ctx_t*)calloc(1, sizeof(zeta_generation_ctx_t));
+    if (!ctx) return NULL;
+    
+    if (use_chunking) {
+        ctx->chunked = zeta_chunked_create(0);
+        ctx->scratch = ctx->chunked ? ctx->chunked->buffer : NULL;
+    } else {
+        ctx->scratch = zeta_scratch_create(0);
+    }
+    
+    if (!ctx->scratch) {
+        free(ctx);
+        return NULL;
+    }
+    
+    ctx->revision_cfg = zeta_revision_default_config();
+    ctx->use_chunking = use_chunking;
+    ctx->is_generating = false;
+    
+    return ctx;
+}
+
+static inline void zeta_generation_destroy(zeta_generation_ctx_t* ctx) {
+    if (!ctx) return;
+    
+    if (ctx->use_chunking && ctx->chunked) {
+        zeta_chunked_destroy(ctx->chunked);
+    } else if (ctx->scratch) {
+        zeta_scratch_destroy(ctx->scratch);
+    }
+    
+    free(ctx);
+}
+
+// Main token processing function - called for each generated token
+typedef enum {
+    TOKEN_RESULT_CONTINUE,      // Keep generating
+    TOKEN_RESULT_REVISE,        // Trigger revision
+    TOKEN_RESULT_CHUNK,         // Create new chunk
+    TOKEN_RESULT_DONE,          // Generation complete
+    TOKEN_RESULT_ERROR,         // Something went wrong
+} zeta_token_result_t;
+
+static inline zeta_token_result_t zeta_generation_process_token(
+    zeta_generation_ctx_t* ctx,
+    int32_t token_id,
+    const char* token_text,
+    size_t token_len,
+    float confidence         // Model's confidence in this token
+) {
+    if (!ctx || !ctx->scratch) return TOKEN_RESULT_ERROR;
+    
+    ctx->last_token = token_id;
+    ctx->last_confidence = confidence;
+    
+    // Check for control tokens
+    if (zeta_scratch_is_control_token(token_id)) {
+        zeta_scratch_handle_token(ctx->scratch, token_id);
+        return TOKEN_RESULT_CONTINUE;
+    }
+    
+    // Check for EOS
+    // (Would check against actual EOS token ID)
+    
+    // Append token
+    if (ctx->stream) {
+        zeta_scratch_stream_token(ctx->scratch, token_id, token_text, token_len, ctx->stream);
+    } else {
+        zeta_scratch_append_token(ctx->scratch, token_id, token_text, token_len);
+    }
+    
+    // Check if revision needed
+    zeta_revision_level_t rev_level = zeta_revision_evaluate(
+        ctx->scratch, confidence, &ctx->revision_cfg
+    );
+    
+    if (rev_level != REVISION_NONE) {
+        zeta_revision_execute(ctx->scratch, rev_level, &ctx->revision_cfg);
+        return TOKEN_RESULT_REVISE;
+    }
+    
+    // Check if chunking needed
+    if (ctx->use_chunking && ctx->chunked) {
+        if (zeta_chunked_needs_chunk(ctx->chunked)) {
+            zeta_chunked_create_chunk(ctx->chunked);
+            return TOKEN_RESULT_CHUNK;
+        }
+    }
+    
+    return TOKEN_RESULT_CONTINUE;
+}
+
+// Start generation with sections
+static inline void zeta_generation_start(
+    zeta_generation_ctx_t* ctx,
+    const zeta_section_template_t* sections[],
+    int num_sections
+) {
+    if (!ctx || !ctx->scratch) return;
+    
+    ctx->is_generating = true;
+    ctx->scratch->state = SCRATCH_STATE_GENERATING;
+    
+    // Start first section if provided
+    if (sections && num_sections > 0) {
+        zeta_scratch_begin_template_section(ctx->scratch, sections[0]);
+        ctx->current_section_template = 0;
+    }
+}
+
+// End generation and get final output
+static inline size_t zeta_generation_finish(
+    zeta_generation_ctx_t* ctx,
+    char* output,
+    size_t output_size
+) {
+    if (!ctx || !ctx->scratch) return 0;
+    
+    ctx->is_generating = false;
+    
+    // Close any open section
+    if (ctx->scratch->current_section >= 0) {
+        zeta_scratch_end_section(ctx->scratch);
+    }
+    
+    // Flush to output
+    return zeta_scratch_flush(ctx->scratch, output, output_size);
+}
+
+// ============================================================================
+// PART 7: Parallel Buffer (for speculative generation)
+// ============================================================================
+
+// Run two generation paths in parallel, pick better one
+typedef struct {
+    zeta_scratch_buffer_t* primary;
+    zeta_scratch_buffer_t* speculative;
+    bool spec_active;
+    float spec_threshold;       // Confidence below this triggers speculation
+    int spec_tokens;            // How many tokens to speculate
+} zeta_parallel_buffer_t;
+
+static inline zeta_parallel_buffer_t* zeta_parallel_create(void) {
+    zeta_parallel_buffer_t* pb = (zeta_parallel_buffer_t*)calloc(1, sizeof(zeta_parallel_buffer_t));
+    if (!pb) return NULL;
+    
+    pb->primary = zeta_scratch_create(0);
+    pb->speculative = zeta_scratch_create(ZETA_SCRATCH_DEFAULT_CAPACITY / 4);  // Smaller
+    
+    if (!pb->primary || !pb->speculative) {
+        if (pb->primary) zeta_scratch_destroy(pb->primary);
+        if (pb->speculative) zeta_scratch_destroy(pb->speculative);
+        free(pb);
+        return NULL;
+    }
+    
+    pb->spec_active = false;
+    pb->spec_threshold = 0.5f;
+    pb->spec_tokens = 32;
+    
+    return pb;
+}
+
+static inline void zeta_parallel_destroy(zeta_parallel_buffer_t* pb) {
+    if (!pb) return;
+    if (pb->primary) zeta_scratch_destroy(pb->primary);
+    if (pb->speculative) zeta_scratch_destroy(pb->speculative);
+    free(pb);
+}
+
+// Start speculative path
+static inline void zeta_parallel_start_speculation(zeta_parallel_buffer_t* pb) {
+    if (!pb) return;
+    
+    // Copy current primary state to speculative
+    if (pb->primary->length > 0) {
+        zeta_scratch_reset(pb->speculative);
+        zeta_scratch_append(pb->speculative, pb->primary->data, pb->primary->length);
+    }
+    
+    pb->spec_active = true;
+}
+
+// Accept speculative path (it was better)
+static inline void zeta_parallel_accept_speculation(zeta_parallel_buffer_t* pb) {
+    if (!pb || !pb->spec_active) return;
+    
+    // Swap buffers
+    zeta_scratch_buffer_t* tmp = pb->primary;
+    pb->primary = pb->speculative;
+    pb->speculative = tmp;
+    
+    pb->spec_active = false;
+}
+
+// Reject speculative path (primary was better)
+static inline void zeta_parallel_reject_speculation(zeta_parallel_buffer_t* pb) {
+    if (!pb) return;
+    
+    zeta_scratch_reset(pb->speculative);
+    pb->spec_active = false;
+}
+
+// ============================================================================
+// PART 8: JSON Serialization for Persistence
+// ============================================================================
+
+// Serialize buffer state to JSON (for saving/restoring sessions)
+static inline size_t zeta_scratch_to_json(zeta_scratch_buffer_t* buf, char* json, size_t json_size) {
+    if (!buf || !json || json_size < 256) return 0;
+    
+    zeta_scratch_stats_t stats = zeta_scratch_get_stats(buf);
+    
+    int written = snprintf(json, json_size,
+        "{"
+        "\"length\":%zu,"
+        "\"capacity\":%zu,"
+        "\"tokens_generated\":%zu,"
+        "\"tokens_revised\":%zu,"
+        "\"tokens_flushed\":%zu,"
+        "\"revision_count\":%d,"
+        "\"checkpoints\":%d,"
+        "\"sections\":%d,"
+        "\"revision_ratio\":%.4f,"
+        "\"duration\":%lld,"
+        "\"mode\":\"%s\","
+        "\"state\":\"%s\""
+        "}",
+        buf->length,
+        buf->capacity,
+        stats.total_generated,
+        stats.total_revised,
+        stats.total_flushed,
+        stats.revision_count,
+        stats.checkpoint_count,
+        stats.section_count,
+        stats.revision_ratio,
+        (long long)stats.duration_sec,
+        buf->mode == SCRATCH_MODE_VISIBLE ? "visible" : 
+        buf->mode == SCRATCH_MODE_HIDDEN ? "hidden" : "section",
+        buf->state == SCRATCH_STATE_IDLE ? "idle" :
+        buf->state == SCRATCH_STATE_GENERATING ? "generating" :
+        buf->state == SCRATCH_STATE_REVISING ? "revising" : "flushing"
+    );
+    
+    return (size_t)written;
+}
+
 #ifdef __cplusplus
 }
 #endif
