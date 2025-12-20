@@ -80,6 +80,10 @@ extern "C" {
 #include "zeta-semantic-attacks.h"
 #include "zeta-critic.h"
 
+// Scratch Buffer: Working memory for staged generation
+#include "../../../zeta-integration/zeta-scratch-buffer.h"
+#include "../../../zeta-integration/zeta-scratch-integration.h"
+
 // Graph-KV: Pre-computed KV cache for graph nodes (skip prefill on retrieval)
 #include "zeta-graph-kv-integration.h"
 
@@ -1020,6 +1024,9 @@ static std::string generate(const std::string& prompt, int max_tokens) {
     }
     fprintf(stderr, "[DECODE] Prompt decoded: %d tokens (single pass)\n", n_tokens);
 
+    // Initialize scratch buffer for this generation
+    ZETA_SCRATCH_START_GENERATION();
+
     // Generate with momentum tracking
     std::string output;
     float avg_momentum = 0.0f;
@@ -1069,21 +1076,37 @@ static std::string generate(const std::string& prompt, int max_tokens) {
             kv_next_pos++;
             continue;
         }
-        if (strcmp(piece, "<|im_end|>") == 0) break;
-        if (llama_vocab_is_eog(g_vocab, tok)) break;
+        if (strcmp(piece, "<|im_end|>") == 0) { fprintf(stderr, "[GEN] Breaking on im_end\n"); break; }
+        if (llama_vocab_is_eog(g_vocab, tok)) { fprintf(stderr, "[GEN] Breaking on EOG\n"); break; }
 
-        output += piece;
+        // Process token through scratch buffer (handles control tokens, hidden thinking, revision)
+        // momentum serves as confidence signal for revision decisions
+        fprintf(stderr, "[GEN] Before scratch process\n");
+        bool should_output = ZETA_SCRATCH_PROCESS_TOKEN(tok, piece, strlen(piece), momentum);
+        fprintf(stderr, "[GEN] Scratch returned: %s\n", should_output ? "output" : "skip");
+
+        // Only add to output if scratch buffer says it's visible
+        if (should_output) {
+            output += piece;
+            fprintf(stderr, "[GEN] Added to output (len=%zu)\n", output.length());
+        }
 
         // Update proactive output buffer (enables parallel tunnel-fetch)
+        fprintf(stderr, "[GEN] Before proactive_update_output\n");
         zeta_proactive_update_output(piece, strlen(piece));
+        fprintf(stderr, "[GEN] After proactive_update_output\n");
 
         // Stop on chat template tokens (prevents repetition)
-        if (strstr(piece, "<|im_start") || strstr(piece, "<|im_end")) break;
+        if (strstr(piece, "<|im_start") || strstr(piece, "<|im_end")) { fprintf(stderr, "[GEN] Breaking on chat token\n"); break; }
 
         // Prepare next - use kv_next_pos for consistent position tracking
+        fprintf(stderr, "[GEN] Before batch_clear\n");
         common_batch_clear(batch);
+        fprintf(stderr, "[GEN] Before batch_add (tok=%d, pos=%d)\n", tok, kv_next_pos);
         common_batch_add(batch, tok, kv_next_pos, {0}, true);
-        if (llama_decode(g_ctx_conscious, batch) != 0) break;
+        fprintf(stderr, "[GEN] Before decode\n");
+        if (llama_decode(g_ctx_conscious, batch) != 0) { fprintf(stderr, "[GEN] Decode failed!\n"); break; }
+        fprintf(stderr, "[GEN] After decode, incrementing pos\n");
         kv_next_pos++;
     }
 
@@ -1747,10 +1770,13 @@ int main(int argc, char** argv) {
         else if (strcmp(argv[i], "--ctx-3b") == 0 && i+1 < argc) g_ctx_size_3b = atoi(argv[++i]);
         // Memory protection password
         else if (strcmp(argv[i], "--memory-password") == 0 && i+1 < argc) zeta_set_memory_password(argv[++i]);
+        // Semantic attack override password
+        else if (strcmp(argv[i], "--semantic-password") == 0 && i+1 < argc) zeta_set_semantic_password(argv[++i]);
     }
 
     fprintf(stderr, "Z.E.T.A. Server v5.1 (Conscious Scratch Buffer)\n");
     fprintf(stderr, "Memory:    Password-protected (use --memory-password to change)\n");
+    fprintf(stderr, "Semantic:  Password-protected (use --semantic-password to change)\n");
     fprintf(stderr, "Context:   14B=%d, 7B/3B=%d tokens\n", g_ctx_size_14b, g_ctx_size_3b);
     fprintf(stderr, "Streaming: %d tokens, %d nodes\n", g_stream_token_budget, g_stream_max_nodes);
     fprintf(stderr, "Code:      %d tokens, %d nodes\n", g_code_token_budget, g_code_max_nodes);
@@ -1945,6 +1971,11 @@ int main(int argc, char** argv) {
     if (zeta_gkv_integration_init(g_model_conscious, g_storage_dir.c_str(), 128)) {
         fprintf(stderr, "[GKV] Graph-KV cache enabled (skip prefill on retrieval)\n");
     }
+
+    // Initialize Scratch Buffer: Working memory for staged generation
+    ZETA_SCRATCH_INIT(g_vocab);
+    zeta_scratch_set_inject_ctx(g_dual, zeta_default_graph_query, NULL);
+    fprintf(stderr, "[SCRATCH] Scratch buffer initialized for staged generation\n");
 
     httplib::Server svr;
     g_server = &svr;
@@ -3211,6 +3242,9 @@ int main(int argc, char** argv) {
     fprintf(stderr, "  GET  /git/diff     - Diff two branches\n");
     fprintf(stderr, "  GET  /git/status   - Current branch status\n");
 
+    // Register Scratch Buffer HTTP endpoints
+    ZETA_SCRATCH_REGISTER_HTTP(svr);
+
     svr.listen("0.0.0.0", port);
 
     fprintf(stderr, "\n[SHUTDOWN] Stopping 3B worker...\n");
@@ -3225,6 +3259,9 @@ int main(int argc, char** argv) {
 
     fprintf(stderr, "[SHUTDOWN] Consolidating memory...\n");
     consolidate_memory();
+
+    fprintf(stderr, "[SHUTDOWN] Cleaning up scratch buffer...\n");
+    ZETA_SCRATCH_CLEANUP();
 
     if (g_git) zeta_git_free(g_git);
     if (g_dual) free(g_dual);
