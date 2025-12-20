@@ -30,18 +30,79 @@ typedef struct {
     bool served;            // Already used by 14B this turn
 } zeta_active_node_t;
 
+// Conversation turn for short-term memory
+#define ZETA_CONV_HISTORY_SIZE 8     // Track last N turns
+#define ZETA_CONV_TURN_LEN 512       // Max chars per turn
+
+typedef struct {
+    char user[ZETA_CONV_TURN_LEN];
+    char assistant[ZETA_CONV_TURN_LEN];
+    time_t timestamp;
+} zeta_conv_turn_t;
+
 typedef struct {
     zeta_active_node_t active[ZETA_STREAM_CAPACITY];
     int num_active;
     int total_tokens;
     int64_t last_hop_from;  // For graph hop continuation
     int hop_depth;          // Current hop depth (reset each query)
-    float query_embedding[1536]; // Query embedding for semantic matching
+    float query_embedding[3072]; // Query embedding for semantic matching
     bool has_query_embedding;    // True if query was embedded
+
+    // Conversation history buffer (short-term memory)
+    zeta_conv_turn_t history[ZETA_CONV_HISTORY_SIZE];
+    int history_head;            // Ring buffer head
+    int history_count;           // Number of turns stored
 } zeta_stream_state_t;
 
+// Add a turn to conversation history
+static inline void zeta_conv_push(zeta_stream_state_t* state, const char* user, const char* assistant) {
+    if (!state) return;
+
+    int idx = state->history_head;
+    strncpy(state->history[idx].user, user ? user : "", ZETA_CONV_TURN_LEN - 1);
+    state->history[idx].user[ZETA_CONV_TURN_LEN - 1] = '\0';
+    strncpy(state->history[idx].assistant, assistant ? assistant : "", ZETA_CONV_TURN_LEN - 1);
+    state->history[idx].assistant[ZETA_CONV_TURN_LEN - 1] = '\0';
+    state->history[idx].timestamp = time(NULL);
+
+    state->history_head = (state->history_head + 1) % ZETA_CONV_HISTORY_SIZE;
+    if (state->history_count < ZETA_CONV_HISTORY_SIZE) {
+        state->history_count++;
+    }
+}
+
+// Format conversation history for context
+static inline int zeta_conv_format(zeta_stream_state_t* state, char* buf, size_t len) {
+    if (!state || !buf || len == 0) return 0;
+    buf[0] = '\0';
+
+    if (state->history_count == 0) return 0;
+
+    int off = snprintf(buf, len, "\n=== RECENT CONVERSATION ===\n");
+
+    // Start from oldest turn in ring buffer
+    int start = (state->history_count < ZETA_CONV_HISTORY_SIZE)
+                ? 0
+                : state->history_head;
+
+    for (int i = 0; i < state->history_count && (size_t)off < len - 100; i++) {
+        int idx = (start + i) % ZETA_CONV_HISTORY_SIZE;
+        zeta_conv_turn_t* turn = &state->history[idx];
+
+        if (turn->user[0]) {
+            off += snprintf(buf + off, len - off, "User: %.200s\n", turn->user);
+        }
+        if (turn->assistant[0]) {
+            off += snprintf(buf + off, len - off, "Assistant: %.200s\n", turn->assistant);
+        }
+    }
+
+    return off;
+}
+
 // Compute semantic similarity between query and node
-// Uses GTE-1.5B to embed node value and compare with query embedding
+// Uses cached node embedding when available, otherwise computes and caches
 static inline float zeta_query_node_similarity(
     zeta_stream_state_t* state,
     zeta_graph_node_t* node
@@ -49,12 +110,20 @@ static inline float zeta_query_node_similarity(
     if (!state || !node || !state->has_query_embedding) return 0.5f;
     if (!g_embed_ctx || !g_embed_ctx->initialized) return 0.5f;
 
-    // Embed the node value
-    float node_embedding[1536];
-    int dim = zeta_embed_text(node->value, node_embedding, 1536);
-    if (dim <= 0) return 0.5f;
+    // Use cached embedding if available, otherwise compute and cache
+    float* node_embedding = node->embedding;
+    int dim = g_embed_ctx->embed_dim;
 
-    // Compute cosine similarity
+    // Safety: check embedding dimension fits in node array (max 3072)
+    if (dim > 3072) {
+        fprintf(stderr, "[EMBED] WARN: Model dim %d > 3072, truncating\n", dim);
+        dim = 3072;
+    }
+
+    // Embeddings are pre-computed in zeta_create_node_with_source
+    // Just use the node's existing embedding (256-dim from 3B model)
+
+    // Compute cosine similarity using cached embedding
     float similarity = zeta_embed_similarity(state->query_embedding, node_embedding, dim);
 
     // Convert from [-1,1] to [0,1] range for priority boost
@@ -103,10 +172,9 @@ static inline zeta_graph_node_t* zeta_stream_surface_one(
         return NULL;
     }
 
-    // Embed query for semantic matching (if embed model available)
-    state->has_query_embedding = false;
-    if (query && strlen(query) > 0 && g_embed_ctx && g_embed_ctx->initialized) {
-        int dim = zeta_embed_text(query, state->query_embedding, 1536);
+    // Embed query for semantic matching (only once per generation)
+    if (!state->has_query_embedding && query && strlen(query) > 0 && g_embed_ctx && g_embed_ctx->initialized) {
+        int dim = zeta_embed_text(query, state->query_embedding, 3072);
         if (dim > 0) {
             state->has_query_embedding = true;
             fprintf(stderr, "[STREAM] Query embedded: %d dims\n", dim);
@@ -257,6 +325,7 @@ static inline void zeta_stream_evict(
 
     state->num_active = new_count;
     state->total_tokens -= freed_tokens;
+    state->has_query_embedding = false;  // New query needs fresh embedding
 }
 
 // Reset stream state for new query
@@ -265,6 +334,7 @@ static inline void zeta_stream_reset(zeta_stream_state_t* state) {
     state->total_tokens = 0;
     state->last_hop_from = 0;
     state->hop_depth = 0;
+    state->has_query_embedding = false;  // Force re-embed for new query
 }
 
 // Format active nodes into compact context

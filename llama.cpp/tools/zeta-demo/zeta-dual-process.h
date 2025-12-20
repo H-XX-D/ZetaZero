@@ -84,6 +84,7 @@ typedef struct {
     int access_count;
     int current_tier;          // VRAM/RAM/NVME
     bool is_active;
+    bool is_pinned;            // Pinned nodes cannot decay (core identity)
     zeta_source_t source;      // USER=ground truth, MODEL=inferred
     int64_t session_id;        // Session isolation
     char concept_key[64];      // For version chains (e.g., "validation_location")
@@ -217,8 +218,28 @@ static inline void zeta_3b_embed(
 }
 
 // Create a new graph node
-// Forward declaration
+// Forward declarations
 static inline int64_t zeta_create_edge(zeta_dual_ctx_t* ctx, int64_t source_id, int64_t target_id, zeta_edge_type_t type, float weight);
+static inline float zeta_cosine_sim_early(const float* a, const float* b, int dim);
+
+// Early cosine similarity for deduplication (before main definition)
+static inline float zeta_cosine_sim_early(const float* a, const float* b, int dim) {
+    float dot = 0, norm_a = 0, norm_b = 0;
+    for (int i = 0; i < dim; i++) {
+        dot += a[i] * b[i];
+        norm_a += a[i] * a[i];
+        norm_b += b[i] * b[i];
+    }
+    return dot / (sqrtf(norm_a) * sqrtf(norm_b) + 1e-8f);
+}
+
+// Check if label is generic (needs semantic deduplication)
+static inline bool zeta_is_generic_label(const char* label) {
+    return strcmp(label, "raw_memory") == 0 ||
+           strcmp(label, "memory") == 0 ||
+           strcmp(label, "fact") == 0 ||
+           strcmp(label, "statement") == 0;
+}
 
 // Git-style versioned node creation
 // If same label exists with DIFFERENT value: create new version + SUPERSEDES edge
@@ -233,40 +254,73 @@ static inline int64_t zeta_create_node_with_source(
 ) {
     if (!ctx || ctx->num_nodes >= ZETA_MAX_GRAPH_NODES) return -1;
     if (!label || !value || strlen(value) == 0) return -1;
-    
-    // Check for existing node with same label
+
+    // Pre-compute embedding for the new value (needed for semantic dedup)
+    float new_embedding[256];
+    zeta_3b_embed(ctx, value, new_embedding, 256);
+
+    // Check for existing node - use SEMANTIC similarity for generic labels
     int64_t existing_id = -1;
     int existing_idx = -1;
+    float best_similarity = 0.0f;
+    bool is_generic = zeta_is_generic_label(label);
+
     for (int i = 0; i < ctx->num_nodes; i++) {
-        if (ctx->nodes[i].is_active && 
-            strcmp(ctx->nodes[i].label, label) == 0) {
-            existing_id = ctx->nodes[i].node_id;
-            existing_idx = i;
-            break;
+        if (!ctx->nodes[i].is_active) continue;
+
+        // Exact label match (always check)
+        if (strcmp(ctx->nodes[i].label, label) == 0) {
+            // For non-generic labels, label match is enough
+            if (!is_generic) {
+                existing_id = ctx->nodes[i].node_id;
+                existing_idx = i;
+                break;
+            }
+            // For generic labels, check value similarity too
+            float sim = zeta_cosine_sim_early(new_embedding, ctx->nodes[i].embedding, 256);
+            if (sim > best_similarity && sim > 0.80f) {
+                best_similarity = sim;
+                existing_id = ctx->nodes[i].node_id;
+                existing_idx = i;
+            }
+        }
+        // For generic labels, also check semantic similarity across ALL nodes
+        else if (is_generic) {
+            float sim = zeta_cosine_sim_early(new_embedding, ctx->nodes[i].embedding, 256);
+            if (sim > best_similarity && sim > 0.85f) {
+                best_similarity = sim;
+                existing_id = ctx->nodes[i].node_id;
+                existing_idx = i;
+                fprintf(stderr, "[3B] Semantic match: %.2f sim with node %d '%s'\n",
+                        sim, i, ctx->nodes[i].label);
+            }
         }
     }
-    
+
     if (existing_idx >= 0) {
-        // Node with same label exists
+        // Node with same/similar content exists
         if (strcmp(ctx->nodes[existing_idx].value, value) == 0) {
             // SAME VALUE: just update access time (no new version)
             ctx->nodes[existing_idx].last_accessed = (int64_t)time(NULL);
             ctx->nodes[existing_idx].access_count++;
+            fprintf(stderr, "[3B] Dedup: surfacing existing node %lld '%s'\n",
+                    existing_id, ctx->nodes[existing_idx].label);
             return existing_id;
         }
-        
-        // DIFFERENT VALUE: Check source trust hierarchy
+
+        // DIFFERENT VALUE but semantically similar - Check source trust hierarchy
         zeta_source_t existing_source = ctx->nodes[existing_idx].source;
-        
+
         // SOURCE_MODEL cannot override SOURCE_USER (USER is ground truth)
         if (existing_source == SOURCE_USER && source == SOURCE_MODEL) {
-            fprintf(stderr, "[3B] Blocked: MODEL cannot override USER fact '%s'\n", label);
+            fprintf(stderr, "[3B] Blocked: MODEL cannot override USER fact '%s'\n",
+                    ctx->nodes[existing_idx].label);
             return existing_id;  // Keep existing USER fact
         }
-        
+
         // Create new version (git-style)
         if (ctx->num_nodes >= ZETA_MAX_GRAPH_NODES) return -1;
-        
+
         zeta_graph_node_t* new_node = &ctx->nodes[ctx->num_nodes];
         new_node->node_id = ctx->next_node_id++;
         new_node->type = type;
@@ -280,16 +334,17 @@ static inline int64_t zeta_create_node_with_source(
         new_node->current_tier = ZETA_TIER_RAM;
         new_node->is_active = true;
         new_node->source = source;
-        
-        zeta_3b_embed(ctx, value, new_node->embedding, 256);
+
+        memcpy(new_node->embedding, new_embedding, sizeof(new_embedding));
         ctx->num_nodes++;
-        
+
         // Create SUPERSEDES edge: old -> new (new version supersedes old)
         zeta_create_edge(ctx, existing_id, new_node->node_id, EDGE_SUPERSEDES, 1.0f);
-        
-        fprintf(stderr, "[3B] Version update: %s = '%s' -> '%s' (v%d)\n", 
-                label, ctx->nodes[existing_idx].value, value, ctx->num_nodes);
-        
+
+        fprintf(stderr, "[3B] Version update: %s = '%s' -> '%s' (sim=%.2f, v%d)\n",
+                ctx->nodes[existing_idx].label, ctx->nodes[existing_idx].value,
+                value, best_similarity, ctx->num_nodes);
+
         return new_node->node_id;
     }
     
@@ -308,7 +363,7 @@ static inline int64_t zeta_create_node_with_source(
     node->is_active = true;
     node->source = source;
     
-    zeta_3b_embed(ctx, value, node->embedding, 256);
+    memcpy(node->embedding, new_embedding, sizeof(new_embedding));  // Use pre-computed embedding
     // Pre-tokenize for direct injection
     if (g_zeta_vocab) { node->has_tokens = zeta_tokenize_value(value, node->tokens, &node->num_tokens, 128); if (node->has_tokens) fprintf(stderr, "[TOK] %d tokens: %.40s...\n", node->num_tokens, value); }
     ctx->num_nodes++;
@@ -339,6 +394,106 @@ static inline int64_t zeta_create_edge(
     
     ctx->num_edges++;
     return edge->edge_id;
+}
+
+// ============================================================================
+// Edge Deduplication and Pruning
+// ============================================================================
+
+// Find existing edge between source and target with same type
+static inline int zeta_find_edge(
+    zeta_dual_ctx_t* ctx,
+    int64_t source_id,
+    int64_t target_id,
+    zeta_edge_type_t type
+) {
+    if (!ctx) return -1;
+    for (int i = 0; i < ctx->num_edges; i++) {
+        if (ctx->edges[i].source_id == source_id &&
+            ctx->edges[i].target_id == target_id &&
+            ctx->edges[i].type == type) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+// Create edge only if it doesn't already exist, otherwise update weight
+static inline int64_t zeta_create_edge_dedup(
+    zeta_dual_ctx_t* ctx,
+    int64_t source_id,
+    int64_t target_id,
+    zeta_edge_type_t type,
+    float weight
+) {
+    if (!ctx) return -1;
+
+    // Check for existing edge
+    int existing = zeta_find_edge(ctx, source_id, target_id, type);
+    if (existing >= 0) {
+        // Reinforce existing edge (weighted average, cap at 1.0)
+        float new_weight = ctx->edges[existing].weight * 0.7f + weight * 0.3f;
+        if (new_weight > 1.0f) new_weight = 1.0f;
+        ctx->edges[existing].weight = new_weight;
+        ctx->edges[existing].version++;
+        return ctx->edges[existing].edge_id;
+    }
+
+    // Create new edge
+    return zeta_create_edge(ctx, source_id, target_id, type, weight);
+}
+
+// Prune low-weight edges (weight < threshold)
+static inline int zeta_prune_edges(
+    zeta_dual_ctx_t* ctx,
+    float weight_threshold,
+    int max_prune
+) {
+    if (!ctx || ctx->num_edges == 0) return 0;
+
+    int pruned = 0;
+    int i = 0;
+
+    while (i < ctx->num_edges && pruned < max_prune) {
+        // Don't prune SUPERSEDES edges (versioning)
+        if (ctx->edges[i].type == EDGE_SUPERSEDES) {
+            i++;
+            continue;
+        }
+
+        if (ctx->edges[i].weight < weight_threshold) {
+            // Remove by shifting remaining edges
+            for (int j = i; j < ctx->num_edges - 1; j++) {
+                ctx->edges[j] = ctx->edges[j + 1];
+            }
+            ctx->num_edges--;
+            pruned++;
+            // Don't increment i - check the shifted element
+        } else {
+            i++;
+        }
+    }
+
+    if (pruned > 0) {
+        fprintf(stderr, "[GRAPH:PRUNE] Removed %d low-weight edges (threshold=%.2f)\n",
+                pruned, weight_threshold);
+    }
+
+    return pruned;
+}
+
+// Apply weight decay to all edges (for aging)
+static inline void zeta_decay_edges(
+    zeta_dual_ctx_t* ctx,
+    float decay_factor
+) {
+    if (!ctx) return;
+    for (int i = 0; i < ctx->num_edges; i++) {
+        // Don't decay SUPERSEDES edges
+        if (ctx->edges[i].type != EDGE_SUPERSEDES) {
+            ctx->edges[i].weight *= decay_factor;
+        }
+    }
 }
 
 // Version a fact (supersede old with new)

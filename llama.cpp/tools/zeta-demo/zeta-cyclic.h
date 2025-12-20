@@ -124,23 +124,36 @@ static inline int zeta_process_output_cyclic(
     int n_query_refs = original_query ? 
         zeta_find_entity_refs(ctx, original_query, query_refs, 32) : 0;
     
-    // Create RELATED edges between query and output entities
-    for (int i = 0; i < n_query_refs; i++) {
-        for (int j = 0; j < n_output_refs; j++) {
+    // Create RELATED edges between query and output entities (with deduplication)
+    // Limit to top 5 refs each to prevent O(n*m) explosion
+    int max_refs = 5;
+    int created_edges = 0;
+    for (int i = 0; i < n_query_refs && i < max_refs; i++) {
+        for (int j = 0; j < n_output_refs && j < max_refs; j++) {
             if (query_refs[i] != output_refs[j]) {
                 float weight = 0.5f + (momentum * 0.5f);
-                zeta_create_edge(ctx, query_refs[i], output_refs[j], 
-                                EDGE_RELATED, weight);
-                operations++;
-                
-                zeta_graph_node_t* n1 = zeta_find_node_by_id(ctx, query_refs[i]);
-                zeta_graph_node_t* n2 = zeta_find_node_by_id(ctx, output_refs[j]);
-                if (n1 && n2) {
-                    fprintf(stderr, "[3B:CYCLIC] Edge: %s <-> %s (w=%.2f)\n",
-                            n1->value, n2->value, weight);
+                // Use dedup version - reinforces existing edges instead of duplicating
+                int64_t eid = zeta_create_edge_dedup(ctx, query_refs[i], output_refs[j],
+                                                     EDGE_RELATED, weight);
+                if (eid > 0) {
+                    created_edges++;
+                    operations++;
+
+                    zeta_graph_node_t* n1 = zeta_find_node_by_id(ctx, query_refs[i]);
+                    zeta_graph_node_t* n2 = zeta_find_node_by_id(ctx, output_refs[j]);
+                    if (n1 && n2) {
+                        fprintf(stderr, "[3B:CYCLIC] Edge: %s <-> %s (w=%.2f)\n",
+                                n1->value, n2->value, weight);
+                    }
                 }
             }
         }
+    }
+
+    // Log edge creation rate
+    if (created_edges > 0) {
+        fprintf(stderr, "[3B:CYCLIC] Created/reinforced %d edges (capped at %dx%d)\n",
+                created_edges, max_refs, max_refs);
     }
     
     // Affirmation/negation detection for salience adjustment
