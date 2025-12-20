@@ -126,12 +126,11 @@ static inline bool zeta_scratch_detect_control_sequence(
 // PART 2: GitGraph Injection Integration
 // ============================================================================
 
-// Forward declaration - actual graph query function
-struct zeta_dual_ctx_t;
-typedef const char* (*zeta_graph_query_fn)(struct zeta_dual_ctx_t* ctx, const char* query, void* user_data);
+// Forward declaration - use void* to avoid C/C++ struct compatibility issues
+typedef const char* (*zeta_graph_query_fn)(void* ctx, const char* query, void* user_data);
 
 typedef struct {
-    struct zeta_dual_ctx_t* graph_ctx;
+    void* graph_ctx;
     zeta_graph_query_fn query_fn;
     void* user_data;
     
@@ -144,7 +143,7 @@ static zeta_inject_ctx_t g_inject_ctx = {0};
 
 // Set up injection context
 static inline void zeta_scratch_set_inject_ctx(
-    struct zeta_dual_ctx_t* graph_ctx,
+    void* graph_ctx,
     zeta_graph_query_fn query_fn,
     void* user_data
 ) {
@@ -175,7 +174,7 @@ static inline const char* zeta_scratch_resolve_inject(
 
 // Default graph query implementation (uses existing surfacing)
 static inline const char* zeta_default_graph_query(
-    struct zeta_dual_ctx_t* ctx,
+    void* ctx,
     const char* query,
     void* user_data
 ) {
