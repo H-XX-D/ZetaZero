@@ -26,15 +26,54 @@ import random
 import signal
 import os
 import sys
+import re
 from datetime import datetime
 from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass
 from enum import Enum
+from pathlib import Path
 
-# Configuration
-BASE_URL = "http://localhost:8080"
-PASSWORD = "zeta1234"
-TIMEOUT = 120
+# =============================================================================
+# Configuration - reads from zeta.conf
+# =============================================================================
+def load_config():
+    """Load config from zeta.conf in repository root"""
+    script_dir = Path(__file__).parent
+    repo_root = script_dir.parent
+    config_file = repo_root / "zeta.conf"
+    
+    config = {
+        "ZETA_URL": "http://localhost:8080",
+        "ZETA_HOST": "localhost",
+        "ZETA_PORT": "8080",
+        "ZETA_PASSWORD": "zeta1234",
+        "ZETA_TIMEOUT": "180",
+        "ZETA_SERVER_BIN": "",
+        "ZETA_BUILD_DIR": "",
+    }
+    
+    if config_file.exists():
+        with open(config_file, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#') and '=' in line:
+                    # Handle shell variable expansion like ${VAR}
+                    key, value = line.split('=', 1)
+                    value = value.strip('"').strip("'")
+                    # Simple variable expansion
+                    for k, v in config.items():
+                        value = value.replace(f'${{{k}}}', v)
+                    config[key] = value
+    else:
+        print(f"Warning: Config file not found: {config_file}")
+        print("Using defaults. Create zeta.conf for custom settings.")
+    
+    return config
+
+CONFIG = load_config()
+BASE_URL = CONFIG.get("ZETA_URL", "http://localhost:8080")
+PASSWORD = CONFIG.get("ZETA_PASSWORD", "zeta1234")
+TIMEOUT = int(CONFIG.get("ZETA_TIMEOUT", "180"))
 REPORT_FILE = f"zeta_ultimate_test_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
 
 class TestCategory(Enum):
@@ -167,11 +206,16 @@ class ZetaUltimateTest:
     def restart_server(self) -> bool:
         """Restart the Z.E.T.A. server"""
         self.log("Restarting server...", "STRESS")
-        # Look for zeta-server in common locations
-        server_paths = [
+        # Look for zeta-server - prefer config, then common locations
+        server_paths = []
+        if CONFIG.get("ZETA_SERVER_BIN"):
+            server_paths.append(CONFIG["ZETA_SERVER_BIN"])
+        if CONFIG.get("ZETA_BUILD_DIR"):
+            server_paths.append(f"{CONFIG['ZETA_BUILD_DIR']}/bin/zeta-server")
+        server_paths.extend([
             "./llama.cpp/build/bin/zeta-server",
-            "/Users/hendrixx./ZetaZero/llama.cpp/build/bin/zeta-server"
-        ]
+            str(Path(__file__).parent.parent / "llama.cpp/build/bin/zeta-server")
+        ])
         for path in server_paths:
             if os.path.exists(path):
                 try:
@@ -1717,7 +1761,7 @@ Fill in after reviewing:
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="Z.E.T.A. Ultimate Test Suite")
-    parser.add_argument("--url", default="http://localhost:8080", help="Server URL")
+    parser.add_argument("--url", default=BASE_URL, help=f"Server URL (default from zeta.conf: {BASE_URL})")
     parser.add_argument("--phase", type=int, help="Run specific phase (1-11)")
     parser.add_argument("--phases", help="Run specific phases (e.g., '1,2,3' or '1-5')")
     parser.add_argument("--list", action="store_true", help="List all phases")
