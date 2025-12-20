@@ -328,10 +328,13 @@ static inline bool zeta_decode_hook_process(
     }
     
     // Regular token - append to buffer
-    zeta_scratch_append_token(g_decode_hook.scratch, token_id, token_text, token_len);
+    if (token_text && token_len > 0) {
+        zeta_scratch_append_token(g_decode_hook.scratch, token_id, token_text, token_len);
+    }
     
-    // Check revision threshold
-    if (g_decode_hook.enable_revision && confidence < g_decode_hook.revision_threshold) {
+    // Check revision threshold (only if gen_ctx exists)
+    if (g_decode_hook.enable_revision && g_decode_hook.gen_ctx && 
+        confidence < g_decode_hook.revision_threshold) {
         zeta_revision_level_t level = zeta_revision_evaluate(
             g_decode_hook.scratch, confidence, &g_decode_hook.gen_ctx->revision_cfg
         );
