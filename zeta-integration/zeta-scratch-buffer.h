@@ -273,9 +273,10 @@ static inline bool zeta_scratch_append(zeta_scratch_buffer_t* buf, const char* t
 // Append a single token (ID + text)
 static inline bool zeta_scratch_append_token(zeta_scratch_buffer_t* buf, int32_t token_id, const char* text, size_t len) {
     if (!buf) return false;
+    if (!text || len == 0) return true;  // Nothing to append, but not an error
     
-    // Store token ID
-    if (buf->token_count < buf->token_capacity) {
+    // Store token ID (if array exists)
+    if (buf->tokens && buf->token_count < buf->token_capacity) {
         buf->tokens[buf->token_count++] = token_id;
     }
     

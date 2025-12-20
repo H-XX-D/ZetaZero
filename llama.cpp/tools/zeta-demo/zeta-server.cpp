@@ -768,7 +768,7 @@ static std::string generate(const std::string& prompt, int max_tokens) {
         // Process token through scratch buffer (handles control tokens, hidden thinking, revision)
         // momentum serves as confidence signal for revision decisions
         bool should_output = ZETA_SCRATCH_PROCESS_TOKEN(tok, piece, strlen(piece), momentum);
-        
+
         // Only add to output if scratch buffer says it's visible
         if (should_output) {
             output += piece;
