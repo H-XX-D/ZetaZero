@@ -2462,28 +2462,9 @@ int main(int argc, char** argv) {
             return;
         }
 
-        // Switch to code mode - swap 3B Instruct for 3B Coder
-        zeta_switch_to_code_mode(g_code);
-        if (g_ctx_conscious) { llama_free(g_ctx_conscious); g_ctx_conscious = nullptr; }
-        if (g_code->models.active_conscious) {
-            llama_context_params cp = llama_context_default_params();
-            cp.n_ctx = g_ctx_size_14b; cp.n_batch = ZETA_BATCH_SIZE;
-            g_ctx_conscious = llama_init_from_model(g_code->models.active_conscious, cp);
-            g_model_conscious = g_code->models.active_conscious; // Update model pointer for sampler
-            g_vocab = llama_model_get_vocab(g_model_conscious); // Update vocab for tokenizer
-        }
-        // Sync dual-process context with new 3B model (7B coder in code mode)
-        if (g_dual) {
-            if (g_dual->ctx_subconscious) { llama_free(g_dual->ctx_subconscious); g_dual->ctx_subconscious = nullptr; }
-            g_dual->model_subconscious = g_code->models.model_subconscious_coder;
-            if (g_dual->model_subconscious) {
-                llama_context_params dp = llama_context_default_params();
-                dp.n_ctx = g_ctx_size_3b; dp.n_batch = ZETA_BATCH_SIZE;
-                g_dual->ctx_subconscious = llama_init_from_model(g_dual->model_subconscious, dp);
-                fprintf(stderr, "[MODE] Synced dual-process to 7B Coder\n");
-            }
-        }
-        fprintf(stderr, "[MODE] Switched to CODE mode\n");
+        // Model swapping disabled - use single subconscious model
+        // (Dynamic model swap adds latency without significant benefit)
+        fprintf(stderr, "[MODE] Project opened (model swap disabled)\n");
 
         char json[2048];
         snprintf(json, sizeof(json),
@@ -2500,28 +2481,8 @@ int main(int argc, char** argv) {
             return;
         }
 
-        // Switch back to chat mode - swap 3B Coder for 3B Instruct
-        zeta_switch_to_chat_mode(g_code);
-        if (g_ctx_conscious) { llama_free(g_ctx_conscious); g_ctx_conscious = nullptr; }
-        if (g_code->models.active_conscious) {
-            llama_context_params cp = llama_context_default_params();
-            cp.n_ctx = g_ctx_size_14b; cp.n_batch = ZETA_BATCH_SIZE;
-            g_ctx_conscious = llama_init_from_model(g_code->models.active_conscious, cp);
-            g_model_conscious = g_code->models.active_conscious; // Update model pointer for sampler
-            g_vocab = llama_model_get_vocab(g_model_conscious); // Update vocab for tokenizer
-        }
-        // Sync dual-process context with new 3B model (3B Instruct in chat mode)
-        if (g_dual) {
-            if (g_dual->ctx_subconscious) { llama_free(g_dual->ctx_subconscious); g_dual->ctx_subconscious = nullptr; }
-            g_dual->model_subconscious = g_code->models.model_subconscious_instruct;
-            if (g_dual->model_subconscious) {
-                llama_context_params dp = llama_context_default_params();
-                dp.n_ctx = g_ctx_size_3b; dp.n_batch = ZETA_BATCH_SIZE;
-                g_dual->ctx_subconscious = llama_init_from_model(g_dual->model_subconscious, dp);
-                fprintf(stderr, "[MODE] Synced dual-process to 3B Instruct\n");
-            }
-        }
-        fprintf(stderr, "[MODE] Switched to CHAT mode\n");
+        // Model swapping disabled - use single subconscious model
+        fprintf(stderr, "[MODE] Project closed (model swap disabled)\n");
         zeta_project_close(g_code);
         res.set_content("{\"status\": \"ok\", \"mode\": \"chat\"}", "application/json");
     });

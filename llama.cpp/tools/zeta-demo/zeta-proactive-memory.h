@@ -338,10 +338,13 @@ static inline int zeta_proactive_prefetch(
 // ============================================================================
 
 // Update output buffer (called as 14B generates)
+// Uses try_lock to avoid blocking generation if prefetch worker holds mutex
 static inline void zeta_proactive_update_output(const char* new_text, int len) {
     if (!g_proactive || !g_proactive->prefetch_enabled) return;
 
-    std::lock_guard<std::mutex> lock(g_proactive->output_mutex);
+    // Non-blocking lock - skip update if mutex is held by prefetch worker
+    std::unique_lock<std::mutex> lock(g_proactive->output_mutex, std::try_to_lock);
+    if (!lock.owns_lock()) return;  // Prefetch worker has mutex, skip this update
 
     // Append to buffer (keep last 4K chars)
     int to_copy = len;
