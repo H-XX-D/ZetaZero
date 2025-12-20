@@ -174,7 +174,7 @@ static inline zeta_write_result_t zeta_smart_create_node(
 
     // 2. DEDUP CHECK: See if node already exists
     float embed[256];
-    zeta_3b_embed(ctx, value, embed, 256);
+    zeta_subconscious_embed(ctx, value, embed, 256);
     zeta_graph_node_t* existing = zeta_find_duplicate_node(ctx, label, embed);
 
     if (existing) {

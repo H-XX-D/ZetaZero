@@ -7,7 +7,7 @@
 #include "zeta-dual-process.h"
 #include <pthread.h>
 // Forward declaration for extern function
-int zeta_3b_extract_facts(zeta_dual_ctx_t* ctx, const char* text);
+int zeta_subconscious_extract_facts(zeta_dual_ctx_t* ctx, const char* text);
 #include <unistd.h>
 
 #ifdef __cplusplus
@@ -186,7 +186,7 @@ static inline int zeta_process_output_cyclic(
 #ifdef __cplusplus
 }
 #endif
-static inline void* zeta_3b_worker(void* arg) {
+static inline void* zeta_subconscious_worker(void* arg) {
     zeta_dual_ctx_t* ctx = (zeta_dual_ctx_t*)arg;
     
     fprintf(stderr, "[3B] Parallel worker started\n");
@@ -231,7 +231,7 @@ static inline void* zeta_3b_worker(void* arg) {
             
             int facts = 0;
             if (!is_question) {
-                facts = zeta_3b_extract_facts(ctx, entry.text);
+                facts = zeta_subconscious_extract_facts(ctx, entry.text);
             } else {
                 fprintf(stderr, "[3B:WORKER] Skipping extraction for question\n");
             }
@@ -248,14 +248,14 @@ static inline void* zeta_3b_worker(void* arg) {
     return NULL;
 }
 
-static inline pthread_t zeta_3b_start_worker(zeta_dual_ctx_t* ctx) {
+static inline pthread_t zeta_subconscious_start_worker(zeta_dual_ctx_t* ctx) {
     zeta_cyclic_init();
     pthread_t tid;
-    pthread_create(&tid, NULL, zeta_3b_worker, ctx);
+    pthread_create(&tid, NULL, zeta_subconscious_worker, ctx);
     return tid;
 }
 
-static inline void zeta_3b_stop_worker(pthread_t tid) {
+static inline void zeta_subconscious_stop_worker(pthread_t tid) {
     pthread_mutex_lock(&g_cyclic.lock);
     g_cyclic.running = false;
     pthread_cond_signal(&g_cyclic.cond);

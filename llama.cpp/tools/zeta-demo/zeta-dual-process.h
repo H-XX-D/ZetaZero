@@ -117,9 +117,9 @@ typedef struct {
 
 // Dual-process state
 typedef struct {
-    // 3B model (subconscious)
-    llama_model* model_3b;
-    llama_context* ctx_3b;
+    // Subconscious model (7B memory/extraction)
+    llama_model* model_subconscious;
+    llama_context* ctx_subconscious;
     
     // Memory graph
     zeta_graph_node_t nodes[ZETA_MAX_GRAPH_NODES];
@@ -158,36 +158,36 @@ static inline int64_t zeta_create_edge(zeta_dual_ctx_t*, int64_t, int64_t, zeta_
 
 // Initialize dual-process context
 static inline zeta_dual_ctx_t* zeta_dual_init(
-    llama_model* model_3b,
+    llama_model* model_subconscious,
     const char* storage_dir
 ) {
     zeta_dual_ctx_t* ctx = (zeta_dual_ctx_t*)calloc(1, sizeof(zeta_dual_ctx_t));
     if (!ctx) return NULL;
     
-    ctx->model_3b = model_3b;
+    ctx->model_subconscious = model_subconscious;
     ctx->next_node_id = 1;
     ctx->next_edge_id = 1;
     strncpy(ctx->storage_dir, storage_dir, sizeof(ctx->storage_dir) - 1);
     
     // Create 3B context for semantic operations
-    if (model_3b) {
+    if (model_subconscious) {
         llama_context_params cparams = llama_context_default_params();
         cparams.n_ctx = 8192;  // Larger context for smarter 3B semantic understanding
         cparams.n_batch = 2048;  // Larger batch for better throughput
-        ctx->ctx_3b = llama_init_from_model(model_3b, cparams);
+        ctx->ctx_subconscious = llama_init_from_model(model_subconscious, cparams);
     }
     
     return ctx;
 }
 
 // Compute semantic embedding using 3B
-static inline void zeta_3b_embed(
+static inline void zeta_subconscious_embed(
     zeta_dual_ctx_t* ctx,
     const char* text,
     float* embedding,
     int embed_dim
 ) {
-    if (!ctx || !ctx->ctx_3b || !text || !embedding) {
+    if (!ctx || !ctx->ctx_subconscious || !text || !embedding) {
         // Fallback to hash embedding if 3B not available
         memset(embedding, 0, embed_dim * sizeof(float));
         size_t len = strlen(text);
@@ -257,7 +257,7 @@ static inline int64_t zeta_create_node_with_source(
 
     // Pre-compute embedding for the new value (needed for semantic dedup)
     float new_embedding[256];
-    zeta_3b_embed(ctx, value, new_embedding, 256);
+    zeta_subconscious_embed(ctx, value, new_embedding, 256);
 
     // Check for existing node - use SEMANTIC similarity for generic labels
     int64_t existing_id = -1;
@@ -778,7 +778,7 @@ static inline void zeta_surface_context(
     
     // Compute query embedding
     float query_embed[256];
-    zeta_3b_embed(ctx, query, query_embed, 256);
+    zeta_subconscious_embed(ctx, query, query_embed, 256);
     
     // Tunnel to relevant nodes
     out->num_nodes = zeta_tunnel(ctx, query_embed, out->nodes, 
@@ -850,7 +850,7 @@ static inline void zeta_surface_context(
 // ============================================================================
 
 // Extract facts using 3B semantic analysis  
-static inline int zeta_3b_extract_facts(
+static inline int zeta_subconscious_extract_facts(
     zeta_dual_ctx_t* ctx,
     const char* text
 ) {
@@ -954,7 +954,7 @@ static inline int zeta_3b_extract_facts(
                      strstr(text, "function ") != NULL);
     
     // USE 3B MODEL FOR SEMANTIC EXTRACTION
-    if (ctx->ctx_3b && ctx->model_3b) {
+    if (ctx->ctx_subconscious && ctx->model_subconscious) {
         char prompt[4096];
         if (has_code) {
             // CODE EXTRACTION MODE - extract specs, not code
@@ -1002,14 +1002,14 @@ static inline int zeta_3b_extract_facts(
                 "<|im_start|>assistant\n",
                 text);
         }
-        const llama_vocab* vocab = llama_model_get_vocab(ctx->model_3b);
+        const llama_vocab* vocab = llama_model_get_vocab(ctx->model_subconscious);
         std::vector<llama_token> tokens(2048);
         int n_tokens = llama_tokenize(vocab, prompt, strlen(prompt),
                                        tokens.data(), tokens.size(), true, true);
         
         if (n_tokens > 0 && n_tokens < 1024) {
             tokens.resize(n_tokens);
-            llama_memory_clear(llama_get_memory(ctx->ctx_3b), true);
+            llama_memory_clear(llama_get_memory(ctx->ctx_subconscious), true);
             
             llama_batch batch = llama_batch_init(n_tokens, 0, 1);
             for (int i = 0; i < n_tokens; i++) {
@@ -1017,13 +1017,13 @@ static inline int zeta_3b_extract_facts(
             }
             batch.logits[batch.n_tokens - 1] = true;
             
-            if (llama_decode(ctx->ctx_3b, batch) == 0) {
+            if (llama_decode(ctx->ctx_subconscious, batch) == 0) {
                 std::string output;
                 int n_cur = n_tokens;
                 int n_vocab = llama_vocab_n_tokens(vocab);
                 
                 for (int g = 0; g < 100 && output.size() < 400; g++) {
-                    float* logits = llama_get_logits_ith(ctx->ctx_3b, -1);
+                    float* logits = llama_get_logits_ith(ctx->ctx_subconscious, -1);
                     llama_token best = 0;
                     float best_logit = logits[0];
                     for (int v = 1; v < n_vocab; v++) {
@@ -1040,7 +1040,7 @@ static inline int zeta_3b_extract_facts(
                     llama_batch_free(batch);
                     batch = llama_batch_init(1, 0, 1);
                     common_batch_add(batch, best, n_cur++, {0}, true);
-                    if (llama_decode(ctx->ctx_3b, batch) != 0) break;
+                    if (llama_decode(ctx->ctx_subconscious, batch) != 0) break;
                 }
                 
                 fprintf(stderr, "[3B-SEMANTIC] Output: %s\n", output.c_str());

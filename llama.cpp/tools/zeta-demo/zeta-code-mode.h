@@ -96,19 +96,19 @@ typedef struct {
 
 // Model context with dynamic swapping
 typedef struct {
-    llama_model* model_3b_instruct;
-    llama_model* model_3b_coder;
-    llama_model* model_14b_instruct;
-    llama_model* model_7b_coder;
-    llama_model* active_main;
-    llama_model* active_3b;
-    llama_context* ctx_3b;
-    
+    llama_model* model_subconscious_instruct;
+    llama_model* model_subconscious_coder;
+    llama_model* model_conscious;
+    llama_model* model_coder;
+    llama_model* active_conscious;
+    llama_model* active_subconscious;
+    llama_context* ctx_subconscious;
+
     // Paths for dynamic loading
-    char path_3b_instruct[512];
-    char path_3b_coder[512];
-    char path_14b_instruct[512];
-    char path_7b_coder[512];
+    char path_subconscious_instruct[512];
+    char path_subconscious_coder[512];
+    char path_conscious[512];
+    char path_coder[512];
     char path_embed_chat[512];
     char path_embed_code[512];
     
@@ -139,19 +139,19 @@ static inline void zeta_hash_project_id(const char* path, char* out_id, size_t o
 // Initialize with model paths for dynamic loading
 static inline zeta_code_ctx_t* zeta_code_init(
     zeta_dual_ctx_t* base_ctx,
-    llama_model* model_3b_instruct,
-    llama_model* model_3b_coder,
+    llama_model* model_subconscious_instruct,
+    llama_model* model_subconscious_coder,
     llama_model* model_14b,
     const char* code_storage_dir
 ) {
     zeta_code_ctx_t* ctx = (zeta_code_ctx_t*)calloc(1, sizeof(zeta_code_ctx_t));
     if (!ctx) return NULL;
     ctx->base_ctx = base_ctx;
-    ctx->models.model_3b_instruct = model_3b_instruct;
-    ctx->models.model_3b_coder = model_3b_coder;
-    ctx->models.model_14b_instruct = model_14b;
-    ctx->models.active_main = model_14b;
-    ctx->models.active_3b = model_3b_instruct;
+    ctx->models.model_subconscious_instruct = model_subconscious_instruct;
+    ctx->models.model_subconscious_coder = model_subconscious_coder;
+    ctx->models.model_conscious = model_14b;
+    ctx->models.active_conscious = model_14b;
+    ctx->models.active_subconscious = model_subconscious_instruct;
     ctx->models.in_code_mode = false;
     strncpy(ctx->code_storage_dir, code_storage_dir, sizeof(ctx->code_storage_dir) - 1);
     return ctx;
@@ -159,10 +159,10 @@ static inline zeta_code_ctx_t* zeta_code_init(
 
 // Set model paths for dynamic swapping
 static inline void zeta_set_model_paths(zeta_code_ctx_t* ctx, const char* i3b, const char* c3b, const char* i14b, const char* c7b, const char* e_chat, const char* e_code) {
-    if (i3b) strncpy(ctx->models.path_3b_instruct, i3b, 511);
-    if (c3b) strncpy(ctx->models.path_3b_coder, c3b, 511);
-    if (i14b) strncpy(ctx->models.path_14b_instruct, i14b, 511);
-    if (c7b) strncpy(ctx->models.path_7b_coder, c7b, 511);
+    if (i3b) strncpy(ctx->models.path_subconscious_instruct, i3b, 511);
+    if (c3b) strncpy(ctx->models.path_subconscious_coder, c3b, 511);
+    if (i14b) strncpy(ctx->models.path_conscious, i14b, 511);
+    if (c7b) strncpy(ctx->models.path_coder, c7b, 511);
     if (e_chat) strncpy(ctx->models.path_embed_chat, e_chat, 511);
     if (e_code) strncpy(ctx->models.path_embed_code, e_code, 511);
 }
@@ -173,49 +173,49 @@ static inline void zeta_switch_to_code_mode(zeta_code_ctx_t* ctx) {
     
 
     // Swap main: 14B -> 7B
-    if (ctx->models.model_14b_instruct) { llama_model_free(ctx->models.model_14b_instruct); ctx->models.model_14b_instruct = NULL; }
-    if (!ctx->models.model_7b_coder && ctx->models.path_7b_coder[0]) {
+    if (ctx->models.model_conscious) { llama_model_free(ctx->models.model_conscious); ctx->models.model_conscious = NULL; }
+    if (!ctx->models.model_coder && ctx->models.path_coder[0]) {
         llama_model_params mp = llama_model_default_params(); mp.n_gpu_layers = 99;
-        ctx->models.model_7b_coder = llama_model_load_from_file(ctx->models.path_7b_coder, mp);
+        ctx->models.model_coder = llama_model_load_from_file(ctx->models.path_coder, mp);
     }
-    ctx->models.active_main = ctx->models.model_7b_coder;
+    ctx->models.active_conscious = ctx->models.model_coder;
 
     // Swap embed: 1.5B -> 4B
     if (ctx->models.path_embed_code[0]) { zeta_embed_free(); zeta_embed_init(ctx->models.path_embed_code); }
 
     // Free 3B context first
-    if (ctx->models.ctx_3b) {
-        llama_free(ctx->models.ctx_3b);
-        ctx->models.ctx_3b = NULL;
+    if (ctx->models.ctx_subconscious) {
+        llama_free(ctx->models.ctx_subconscious);
+        ctx->models.ctx_subconscious = NULL;
     }
     
     // Unload 3B Instruct to free VRAM
-    if (ctx->models.model_3b_instruct) {
+    if (ctx->models.model_subconscious_instruct) {
         fprintf(stderr, "[MODE] Unloading 3B Instruct...\n");
-        llama_model_free(ctx->models.model_3b_instruct);
-        ctx->models.model_3b_instruct = NULL;
+        llama_model_free(ctx->models.model_subconscious_instruct);
+        ctx->models.model_subconscious_instruct = NULL;
     }
     
     // Load 3B Coder if path set and not already loaded
-    if (!ctx->models.model_3b_coder && ctx->models.path_3b_coder[0]) {
-        fprintf(stderr, "[MODE] Loading 7B Coder (extract)...\n", ctx->models.path_3b_coder);
+    if (!ctx->models.model_subconscious_coder && ctx->models.path_subconscious_coder[0]) {
+        fprintf(stderr, "[MODE] Loading 7B Coder (extract)...\n", ctx->models.path_subconscious_coder);
         llama_model_params mparams = llama_model_default_params();
         mparams.n_gpu_layers = 99;
-        ctx->models.model_3b_coder = llama_model_load_from_file(ctx->models.path_7b_coder, mparams);
-        if (ctx->models.model_3b_coder) {
+        ctx->models.model_subconscious_coder = llama_model_load_from_file(ctx->models.path_coder, mparams);
+        if (ctx->models.model_subconscious_coder) {
             fprintf(stderr, "[MODE] 7B Coder (extract) loaded\n");
         }
     }
     
-    ctx->models.active_3b = ctx->models.model_3b_coder;
+    ctx->models.active_subconscious = ctx->models.model_subconscious_coder;
     ctx->models.in_code_mode = true;
     
     // Create context for coder
-    if (ctx->models.model_3b_coder) {
+    if (ctx->models.model_subconscious_coder) {
         llama_context_params cparams = llama_context_default_params();
         cparams.n_ctx = 512;
         cparams.n_batch = 512;
-        ctx->models.ctx_3b = llama_init_from_model(ctx->models.model_3b_coder, cparams);
+        ctx->models.ctx_subconscious = llama_init_from_model(ctx->models.model_subconscious_coder, cparams);
     }
 }
 
@@ -225,49 +225,49 @@ static inline void zeta_switch_to_chat_mode(zeta_code_ctx_t* ctx) {
     
 
     // Swap main: 7B -> 14B
-    if (ctx->models.model_7b_coder) { llama_model_free(ctx->models.model_7b_coder); ctx->models.model_7b_coder = NULL; }
-    if (!ctx->models.model_14b_instruct && ctx->models.path_14b_instruct[0]) {
+    if (ctx->models.model_coder) { llama_model_free(ctx->models.model_coder); ctx->models.model_coder = NULL; }
+    if (!ctx->models.model_conscious && ctx->models.path_conscious[0]) {
         llama_model_params mp = llama_model_default_params(); mp.n_gpu_layers = 99;
-        ctx->models.model_14b_instruct = llama_model_load_from_file(ctx->models.path_14b_instruct, mp);
+        ctx->models.model_conscious = llama_model_load_from_file(ctx->models.path_conscious, mp);
     }
-    ctx->models.active_main = ctx->models.model_14b_instruct;
+    ctx->models.active_conscious = ctx->models.model_conscious;
 
     // Swap embed: 4B -> 1.5B
     if (ctx->models.path_embed_chat[0]) { zeta_embed_free(); zeta_embed_init(ctx->models.path_embed_chat); }
 
     // Free 3B context first
-    if (ctx->models.ctx_3b) {
-        llama_free(ctx->models.ctx_3b);
-        ctx->models.ctx_3b = NULL;
+    if (ctx->models.ctx_subconscious) {
+        llama_free(ctx->models.ctx_subconscious);
+        ctx->models.ctx_subconscious = NULL;
     }
     
     // Unload 3B Coder to free VRAM
-    if (ctx->models.model_3b_coder) {
+    if (ctx->models.model_subconscious_coder) {
         fprintf(stderr, "[MODE] Unloading 3B Coder...\n");
-        llama_model_free(ctx->models.model_3b_coder);
-        ctx->models.model_3b_coder = NULL;
+        llama_model_free(ctx->models.model_subconscious_coder);
+        ctx->models.model_subconscious_coder = NULL;
     }
     
     // Load 3B Instruct if path set and not already loaded
-    if (!ctx->models.model_3b_instruct && ctx->models.path_3b_instruct[0]) {
-        fprintf(stderr, "[MODE] Loading 3B Instruct from %s...\n", ctx->models.path_3b_instruct);
+    if (!ctx->models.model_subconscious_instruct && ctx->models.path_subconscious_instruct[0]) {
+        fprintf(stderr, "[MODE] Loading 3B Instruct from %s...\n", ctx->models.path_subconscious_instruct);
         llama_model_params mparams = llama_model_default_params();
         mparams.n_gpu_layers = 99;
-        ctx->models.model_3b_instruct = llama_model_load_from_file(ctx->models.path_3b_instruct, mparams);
-        if (ctx->models.model_3b_instruct) {
+        ctx->models.model_subconscious_instruct = llama_model_load_from_file(ctx->models.path_subconscious_instruct, mparams);
+        if (ctx->models.model_subconscious_instruct) {
             fprintf(stderr, "[MODE] 3B Instruct loaded\n");
         }
     }
     
-    ctx->models.active_3b = ctx->models.model_3b_instruct;
+    ctx->models.active_subconscious = ctx->models.model_subconscious_instruct;
     ctx->models.in_code_mode = false;
     
     // Create context for instruct
-    if (ctx->models.model_3b_instruct) {
+    if (ctx->models.model_subconscious_instruct) {
         llama_context_params cparams = llama_context_default_params();
         cparams.n_ctx = 256;
         cparams.n_batch = 128;
-        ctx->models.ctx_3b = llama_init_from_model(ctx->models.model_3b_instruct, cparams);
+        ctx->models.ctx_subconscious = llama_init_from_model(ctx->models.model_subconscious_instruct, cparams);
     }
 }
 
@@ -516,7 +516,7 @@ static inline int zeta_parse_code_json(zeta_code_ctx_t* ctx, const char* json) {
 // Full 3B Coder extraction with inference
 static inline int zeta_code_extract_entities(zeta_code_ctx_t* ctx, const char* input) {
     if (!ctx || !ctx->active_project || !input) return 0;
-    if (!ctx->models.in_code_mode || !ctx->models.model_3b_coder) {
+    if (!ctx->models.in_code_mode || !ctx->models.model_subconscious_coder) {
         fprintf(stderr, "[CODE] Not in code mode or no coder model\n");
         return 0;
     }
@@ -524,16 +524,16 @@ static inline int zeta_code_extract_entities(zeta_code_ctx_t* ctx, const char* i
     fprintf(stderr, "[CODE] Extracting from %zu bytes\n", strlen(input));
 
     // Get vocab
-    const llama_vocab* vocab = llama_model_get_vocab(ctx->models.model_3b_coder);
+    const llama_vocab* vocab = llama_model_get_vocab(ctx->models.model_subconscious_coder);
     if (!vocab) return 0;
 
     // Create context if needed
-    if (!ctx->models.ctx_3b) {
+    if (!ctx->models.ctx_subconscious) {
         llama_context_params cparams = llama_context_default_params();
         cparams.n_ctx = 256;
         cparams.n_batch = 128;
-        ctx->models.ctx_3b = llama_init_from_model(ctx->models.model_3b_coder, cparams);
-        if (!ctx->models.ctx_3b) return 0;
+        ctx->models.ctx_subconscious = llama_init_from_model(ctx->models.model_subconscious_coder, cparams);
+        if (!ctx->models.ctx_subconscious) return 0;
     }
 
     // Build prompt
@@ -550,7 +550,7 @@ static inline int zeta_code_extract_entities(zeta_code_ctx_t* ctx, const char* i
     tokens.resize(n_tokens);
 
     // Clear memory
-    llama_memory_clear(llama_get_memory(ctx->models.ctx_3b), true);
+    llama_memory_clear(llama_get_memory(ctx->models.ctx_subconscious), true);
 
     // Decode prompt
     llama_batch batch = llama_batch_init(n_tokens, 0, 1);
@@ -559,7 +559,7 @@ static inline int zeta_code_extract_entities(zeta_code_ctx_t* ctx, const char* i
     }
     batch.logits[batch.n_tokens - 1] = true;
 
-    if (llama_decode(ctx->models.ctx_3b, batch) != 0) {
+    if (llama_decode(ctx->models.ctx_subconscious, batch) != 0) {
         llama_batch_free(batch);
         return 0;
     }
@@ -570,7 +570,7 @@ static inline int zeta_code_extract_entities(zeta_code_ctx_t* ctx, const char* i
     int n_vocab = llama_vocab_n_tokens(vocab);
 
     for (int i = 0; i < 512; i++) {
-        float* logits = llama_get_logits_ith(ctx->models.ctx_3b, -1);
+        float* logits = llama_get_logits_ith(ctx->models.ctx_subconscious, -1);
 
         // Greedy sampling
         llama_token best = 0;
@@ -593,7 +593,7 @@ static inline int zeta_code_extract_entities(zeta_code_ctx_t* ctx, const char* i
         llama_batch_free(batch);
         batch = llama_batch_init(1, 0, 1);
         common_batch_add(batch, best, n_cur++, {0}, true);
-        if (llama_decode(ctx->models.ctx_3b, batch) != 0) break;
+        if (llama_decode(ctx->models.ctx_subconscious, batch) != 0) break;
     }
 
     llama_batch_free(batch);
@@ -605,7 +605,7 @@ static inline int zeta_code_extract_entities(zeta_code_ctx_t* ctx, const char* i
 
 static inline void zeta_code_free(zeta_code_ctx_t* ctx) {
     if (!ctx) return;
-    if (ctx->models.ctx_3b) llama_free(ctx->models.ctx_3b);
+    if (ctx->models.ctx_subconscious) llama_free(ctx->models.ctx_subconscious);
     free(ctx);
 }
 
