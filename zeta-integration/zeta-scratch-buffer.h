@@ -898,7 +898,7 @@ static inline bool zeta_revision_execute(
     zeta_revision_level_t level,
     zeta_revision_config_t* config
 ) {
-    if (!buf) return false;
+    if (!buf || !config) return false;
     
     switch (level) {
         case REVISION_NONE:
