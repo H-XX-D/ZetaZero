@@ -79,12 +79,12 @@ extern "C" {
 // GitGraph context (git-style branching for knowledge graph)
 static zeta_git_ctx_t* g_git = nullptr;
 
-// 14B Conscious model
-static llama_model* g_model_14b = nullptr;
-static llama_context* g_ctx_14b = nullptr;
+// Conscious model (14B reasoning)
+static llama_model* g_model_conscious = nullptr;
+static llama_context* g_ctx_conscious = nullptr;
 
-// 3B Subconscious model (Extraction)
-static llama_model* g_model_3b = nullptr;
+// Subconscious model (7B memory/extraction)
+static llama_model* g_model_subconscious = nullptr;
 
 // Specialist models (GPU-accelerated cognitive subsystems)
 static llama_model* g_model_immune = nullptr;   // 0.5B Health monitor
@@ -100,7 +100,7 @@ static llama_context* g_ctx_critic = nullptr;
 static zeta_context_t* g_zeta = nullptr;
 static zeta_dual_ctx_t* g_dual = nullptr;
 static zeta_code_ctx_t* g_code = nullptr;  // Code mode context
-static llama_model* g_model_3b_coder = nullptr;  // 3B Coder model
+static llama_model* g_model_coder = nullptr;  // Coder model
 
 static const llama_vocab* g_vocab = nullptr;
 static common_params g_params;
@@ -110,8 +110,8 @@ static std::string g_storage_dir = "/mnt/HoloGit/blocks";
 static int g_n_embd = 0;
 
 // 3B worker thread
-static pthread_t g_3b_worker_tid;
-static bool g_3b_worker_running = false;
+static pthread_t g_subconscious_worker_tid;
+static bool g_subconscious_worker_running = false;
 
 // Streaming memory state - reactive context management
 static zeta_stream_state_t g_stream_state;
@@ -361,13 +361,13 @@ static std::string run_specialist(llama_model* model, llama_context* ctx,
 // SEMANTIC CRITIC: Use 7B for intelligent response analysis
 // =============================================================================
 static std::string semantic_generate_7b(const char* prompt, int max_tokens) {
-    // Use the 7B coder model via g_dual->ctx_3b if available
-    if (!g_dual || !g_dual->model_3b || !g_dual->ctx_3b) {
+    // Use the 7B coder model via g_dual->ctx_subconscious if available
+    if (!g_dual || !g_dual->model_subconscious || !g_dual->ctx_subconscious) {
         fprintf(stderr, "[SEMANTIC] 7B model not available for critic\n");
         return "";
     }
 
-    const llama_vocab* vocab = llama_model_get_vocab(g_dual->model_3b);
+    const llama_vocab* vocab = llama_model_get_vocab(g_dual->model_subconscious);
     if (!vocab) return "";
 
     // Tokenize the prompt
@@ -381,7 +381,7 @@ static std::string semantic_generate_7b(const char* prompt, int max_tokens) {
     tokens.resize(n_tokens);
 
     // Clear KV cache
-    llama_memory_clear(llama_get_memory(g_dual->ctx_3b), true);
+    llama_memory_clear(llama_get_memory(g_dual->ctx_subconscious), true);
 
     // Decode prompt
     llama_batch batch = llama_batch_init(n_tokens, 0, 1);
@@ -390,7 +390,7 @@ static std::string semantic_generate_7b(const char* prompt, int max_tokens) {
     }
     batch.logits[batch.n_tokens - 1] = true;
 
-    if (llama_decode(g_dual->ctx_3b, batch) != 0) {
+    if (llama_decode(g_dual->ctx_subconscious, batch) != 0) {
         llama_batch_free(batch);
         return "";
     }
@@ -401,7 +401,7 @@ static std::string semantic_generate_7b(const char* prompt, int max_tokens) {
     int n_cur = n_tokens;
 
     for (int i = 0; i < max_tokens && output.size() < 600; i++) {
-        float* logits = llama_get_logits_ith(g_dual->ctx_3b, -1);
+        float* logits = llama_get_logits_ith(g_dual->ctx_subconscious, -1);
 
         // Greedy sampling
         llama_token best = 0;
@@ -423,7 +423,7 @@ static std::string semantic_generate_7b(const char* prompt, int max_tokens) {
         llama_batch_free(batch);
         batch = llama_batch_init(1, 0, 1);
         common_batch_add(batch, best, n_cur++, {0}, true);
-        if (llama_decode(g_dual->ctx_3b, batch) != 0) break;
+        if (llama_decode(g_dual->ctx_subconscious, batch) != 0) break;
     }
 
     llama_batch_free(batch);
@@ -681,7 +681,7 @@ static std::string generate(const std::string& prompt, int max_tokens) {
     tokens.resize(n_tokens);
 
     // Clear KV cache
-    llama_memory_t mem = llama_get_memory(g_ctx_14b);
+    llama_memory_t mem = llama_get_memory(g_ctx_conscious);
     llama_memory_clear(mem, true);
 
     // Safety: truncate if prompt too long for context
@@ -699,7 +699,7 @@ static std::string generate(const std::string& prompt, int max_tokens) {
         common_batch_add(batch, tokens[i], i, {0}, is_last);
     }
 
-    if (llama_decode(g_ctx_14b, batch) != 0) {
+    if (llama_decode(g_ctx_conscious, batch) != 0) {
         llama_batch_free(batch);
         fprintf(stderr, "[ERROR] Decode failed for %d tokens\n", n_tokens);
         return "{\"error\": \"decode failed\"}";
@@ -712,13 +712,13 @@ static std::string generate(const std::string& prompt, int max_tokens) {
     int n_generated = 0;
     int n_vocab = llama_vocab_n_tokens(g_vocab);
 
-    auto* sampler = common_sampler_init(g_model_14b, g_params.sampling);
+    auto* sampler = common_sampler_init(g_model_conscious, g_params.sampling);
     int kv_next_pos = n_tokens;  // Track actual KV cache position for self-eval
     fprintf(stderr, "[GEN] Starting loop, max_tokens=%d, kv_next_pos=%d\n", max_tokens, kv_next_pos);
 
     for (int i = 0; i < max_tokens; i++) {
         if (i == 0) fprintf(stderr, "[GEN] First iteration entering\n");
-        float* logits = llama_get_logits_ith(g_ctx_14b, -1);
+        float* logits = llama_get_logits_ith(g_ctx_conscious, -1);
         if (i == 0) fprintf(stderr, "[GEN] Got logits: %p, n_vocab=%d\n", (void*)logits, n_vocab);
 
         // Compute momentum from 14B logits
@@ -736,7 +736,7 @@ static std::string generate(const std::string& prompt, int max_tokens) {
         zeta_proactive_update_momentum(momentum);
         if (i == 0) fprintf(stderr, "[GEN] Before sample\n");
 
-        llama_token tok = common_sampler_sample(sampler, g_ctx_14b, -1);
+        llama_token tok = common_sampler_sample(sampler, g_ctx_conscious, -1);
         if (i == 0) fprintf(stderr, "[GEN] Sampled token: %d\n", tok);
         common_sampler_accept(sampler, tok, true);
         if (i == 0) fprintf(stderr, "[GEN] After accept\n");
@@ -751,7 +751,7 @@ static std::string generate(const std::string& prompt, int max_tokens) {
             // Still need to decode this token to keep KV cache consistent
             common_batch_clear(batch);
             common_batch_add(batch, tok, kv_next_pos, {0}, true);
-            if (llama_decode(g_ctx_14b, batch) != 0) break;
+            if (llama_decode(g_ctx_conscious, batch) != 0) break;
             kv_next_pos++;
             continue;
         }
@@ -769,7 +769,7 @@ static std::string generate(const std::string& prompt, int max_tokens) {
         // Prepare next - use kv_next_pos for consistent position tracking
         common_batch_clear(batch);
         common_batch_add(batch, tok, kv_next_pos, {0}, true);
-        if (llama_decode(g_ctx_14b, batch) != 0) break;
+        if (llama_decode(g_ctx_conscious, batch) != 0) break;
         kv_next_pos++;
     }
 
@@ -906,7 +906,7 @@ static std::string generate(const std::string& prompt, int max_tokens) {
 
     // If 14B needs help and 7B is available, delegate
     auto [need_info, info_query] = needs_more_info(scratch_buffer);
-    while (need_info && lookups_done < MAX_7B_LOOKUPS && g_dual && g_dual->ctx_3b) {
+    while (need_info && lookups_done < MAX_7B_LOOKUPS && g_dual && g_dual->ctx_subconscious) {
         fprintf(stderr, "[SCRATCH] 14B needs info: %s\n", info_query.substr(0, 50).c_str());
 
         // Ask 7B subconscious for the information
@@ -938,15 +938,15 @@ static std::string generate(const std::string& prompt, int max_tokens) {
                     common_batch_add(refine_batch, inject_tokens[j], kv_pos + j, {0}, (j == n_inject - 1));
                 }
 
-                if (llama_decode(g_ctx_14b, refine_batch) == 0) {
+                if (llama_decode(g_ctx_conscious, refine_batch) == 0) {
                     kv_pos += n_inject;
 
                     // 14B continues generating with new info
                     std::string continued;
-                    auto* cont_sampler = common_sampler_init(g_model_14b, g_params.sampling);
+                    auto* cont_sampler = common_sampler_init(g_model_conscious, g_params.sampling);
 
                     for (int t = 0; t < max_tokens; t++) {
-                        llama_token tok = common_sampler_sample(cont_sampler, g_ctx_14b, -1);
+                        llama_token tok = common_sampler_sample(cont_sampler, g_ctx_conscious, -1);
                         common_sampler_accept(cont_sampler, tok, true);
 
                         char piece[64] = {0};
@@ -959,7 +959,7 @@ static std::string generate(const std::string& prompt, int max_tokens) {
 
                         common_batch_clear(refine_batch);
                         common_batch_add(refine_batch, tok, kv_pos + t, {0}, true);
-                        if (llama_decode(g_ctx_14b, refine_batch) != 0) break;
+                        if (llama_decode(g_ctx_conscious, refine_batch) != 0) break;
                     }
                     kv_pos += continued.length() / 4;
 
@@ -1029,7 +1029,7 @@ static std::string generate(const std::string& prompt, int max_tokens) {
             }
 
             // Decode eval prompt (KV cache stays warm from original generation)
-            if (llama_decode(g_ctx_14b, refine_batch) != 0) {
+            if (llama_decode(g_ctx_conscious, refine_batch) != 0) {
                 fprintf(stderr, "[SCRATCH] Failed to decode eval prompt\n");
                 break;
             }
@@ -1041,12 +1041,12 @@ static std::string generate(const std::string& prompt, int max_tokens) {
             int eval_max_tokens = std::min(500, std::max(150, response_tokens / 2 + 100));
 
             std::string self_eval;
-            auto* eval_sampler = common_sampler_init(g_model_14b, g_params.sampling);
+            auto* eval_sampler = common_sampler_init(g_model_conscious, g_params.sampling);
             fprintf(stderr, "[SCRATCH] Semantic critique: %d tokens allowed (response ~%d tokens)\n",
                     eval_max_tokens, response_tokens);
 
             for (int t = 0; t < eval_max_tokens; t++) {
-                llama_token tok = common_sampler_sample(eval_sampler, g_ctx_14b, -1);
+                llama_token tok = common_sampler_sample(eval_sampler, g_ctx_conscious, -1);
                 common_sampler_accept(eval_sampler, tok, true);
 
                 char piece[64] = {0};
@@ -1058,7 +1058,7 @@ static std::string generate(const std::string& prompt, int max_tokens) {
 
                 common_batch_clear(refine_batch);
                 common_batch_add(refine_batch, tok, kv_pos + t, {0}, true);
-                if (llama_decode(g_ctx_14b, refine_batch) != 0) break;
+                if (llama_decode(g_ctx_conscious, refine_batch) != 0) break;
             }
             kv_pos += self_eval.length() / 4;  // Rough token estimate
 
@@ -1119,7 +1119,7 @@ static std::string generate(const std::string& prompt, int max_tokens) {
             common_batch_add(refine_batch, fix_tokens[j], kv_pos + j, {0}, (j == n_fix - 1));
         }
 
-        if (llama_decode(g_ctx_14b, refine_batch) != 0) {
+        if (llama_decode(g_ctx_conscious, refine_batch) != 0) {
             fprintf(stderr, "[SCRATCH] Failed to decode fix prompt\n");
             break;
         }
@@ -1127,10 +1127,10 @@ static std::string generate(const std::string& prompt, int max_tokens) {
 
         // Generate refined response
         std::string refined;
-        auto* fix_sampler = common_sampler_init(g_model_14b, g_params.sampling);
+        auto* fix_sampler = common_sampler_init(g_model_conscious, g_params.sampling);
 
         for (int t = 0; t < max_tokens; t++) {
-            llama_token tok = common_sampler_sample(fix_sampler, g_ctx_14b, -1);
+            llama_token tok = common_sampler_sample(fix_sampler, g_ctx_conscious, -1);
             common_sampler_accept(fix_sampler, tok, true);
 
             char piece[64] = {0};
@@ -1143,7 +1143,7 @@ static std::string generate(const std::string& prompt, int max_tokens) {
 
             common_batch_clear(refine_batch);
             common_batch_add(refine_batch, tok, kv_pos + t, {0}, true);
-            if (llama_decode(g_ctx_14b, refine_batch) != 0) break;
+            if (llama_decode(g_ctx_conscious, refine_batch) != 0) break;
         }
         kv_pos += refined.length() / 4;
 
@@ -1374,8 +1374,8 @@ int main(int argc, char** argv) {
     signal(SIGINT, signal_handler);
 
     // Z6 defaults - no flags needed for standard startup
-    std::string model_14b_path = Z6_MODEL_14B;
-    std::string model_3b_path, model_3b_coder_path;
+    std::string model_conscious_path = Z6_MODEL_14B;
+    std::string model_subconscious_path, model_3b_coder_path;
     std::string model_7b_coder_path = Z6_MODEL_7B;
     std::string model_immune_path, model_tools_path, model_router_path, model_critic_path;
     int port = Z6_DEFAULT_PORT;
@@ -1389,8 +1389,8 @@ int main(int argc, char** argv) {
     g_params.sampling.penalty_last_n = 64;
 
     for (int i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "-m") == 0 && i+1 < argc) model_14b_path = argv[++i];
-        else if (strcmp(argv[i], "--model-3b") == 0 && i+1 < argc) model_3b_path = argv[++i];
+        if (strcmp(argv[i], "-m") == 0 && i+1 < argc) model_conscious_path = argv[++i];
+        else if (strcmp(argv[i], "--model-3b") == 0 && i+1 < argc) model_subconscious_path = argv[++i];
         else if (strcmp(argv[i], "--model-3b-coder") == 0 && i+1 < argc) model_3b_coder_path = argv[++i];
         else if (strcmp(argv[i], "--model-7b-coder") == 0 && i+1 < argc) model_7b_coder_path = argv[++i];
         else if (strcmp(argv[i], "--port") == 0 && i+1 < argc) port = atoi(argv[++i]);
@@ -1414,7 +1414,7 @@ int main(int argc, char** argv) {
     fprintf(stderr, "Context:   14B=%d, 7B/3B=%d tokens\n", g_ctx_size_14b, g_ctx_size_3b);
     fprintf(stderr, "Streaming: %d tokens, %d nodes\n", g_stream_token_budget, g_stream_max_nodes);
     fprintf(stderr, "Code:      %d tokens, %d nodes\n", g_code_token_budget, g_code_max_nodes);
-    fprintf(stderr, "14B Conscious: %s\n", model_14b_path.c_str());
+    fprintf(stderr, "14B Conscious: %s\n", model_conscious_path.c_str());
     fprintf(stderr, "7B Coder: %s\n", model_7b_coder_path.empty() ? "(not loaded)" : model_7b_coder_path.c_str());
     fprintf(stderr, "Embed: %s\n", g_embed_model_path.empty() ? "(not loaded)" : g_embed_model_path.c_str());
     fprintf(stderr, "Port: %d (GPU layers: %d)\n", port, gpu_layers);
@@ -1422,17 +1422,17 @@ int main(int argc, char** argv) {
     // Load 14B model
     llama_model_params mparams = llama_model_default_params();
     mparams.n_gpu_layers = gpu_layers;
-    g_model_14b = llama_model_load_from_file(model_14b_path.c_str(), mparams);
-    if (!g_model_14b) { fprintf(stderr, "Failed to load 14B model\n"); return 1; }
+    g_model_conscious = llama_model_load_from_file(model_conscious_path.c_str(), mparams);
+    if (!g_model_conscious) { fprintf(stderr, "Failed to load 14B model\n"); return 1; }
 
     // Load subconscious model: prefer 7B coder, fallback to 3B
     // The subconscious handles extraction, semantic analysis, and critique
-    std::string subconscious_path = model_7b_coder_path.empty() ? model_3b_path : model_7b_coder_path;
+    std::string subconscious_path = model_7b_coder_path.empty() ? model_subconscious_path : model_7b_coder_path;
     if (!subconscious_path.empty()) {
         llama_model_params mparams_sub = llama_model_default_params();
         mparams_sub.n_gpu_layers = gpu_layers;
-        g_model_3b = llama_model_load_from_file(subconscious_path.c_str(), mparams_sub);
-        if (g_model_3b) {
+        g_model_subconscious = llama_model_load_from_file(subconscious_path.c_str(), mparams_sub);
+        if (g_model_subconscious) {
             fprintf(stderr, "Subconscious model loaded: %s\n", subconscious_path.c_str());
         }
     }
@@ -1505,8 +1505,8 @@ int main(int argc, char** argv) {
     if (false && !model_3b_coder_path.empty()) { // Disabled - dynamic loading
         llama_model_params mparams_coder = llama_model_default_params();
         mparams_coder.n_gpu_layers = gpu_layers;
-        g_model_3b_coder = llama_model_load_from_file(model_3b_coder_path.c_str(), mparams_coder);
-        if (g_model_3b_coder) fprintf(stderr, "3B Coder model loaded (for code mode)\n");
+        g_model_coder = llama_model_load_from_file(model_3b_coder_path.c_str(), mparams_coder);
+        if (g_model_coder) fprintf(stderr, "3B Coder model loaded (for code mode)\n");
     }
 
     // Init 14B context
@@ -1515,19 +1515,19 @@ int main(int argc, char** argv) {
     cparams.n_ctx = g_ctx_size_14b;  // Runtime: --ctx-14b (default 4K)
     cparams.n_batch = g_ctx_size_14b;  // Dynamic: batch = context for max flexibility
     cparams.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_ENABLED;  // Reduce KV cache memory
-    g_ctx_14b = llama_init_from_model(g_model_14b, cparams);
-    if (!g_ctx_14b) { fprintf(stderr, "Failed to create 14B context\n"); return 1; }
+    g_ctx_conscious = llama_init_from_model(g_model_conscious, cparams);
+    if (!g_ctx_conscious) { fprintf(stderr, "Failed to create 14B context\n"); return 1; }
 
-    g_vocab = llama_model_get_vocab(g_model_14b);
+    g_vocab = llama_model_get_vocab(g_model_conscious);
     zeta_set_vocab(g_vocab);  // Enable tokenization at storage
-    g_n_embd = llama_model_n_embd(g_model_14b);
+    g_n_embd = llama_model_n_embd(g_model_conscious);
 
     // Init ZETA memory
     // Relaxed retrieval threshold to improve recall/paraphrase tolerance
-    g_zeta = zeta_context_init(g_ctx_14b, g_storage_dir.c_str(), nullptr, 0.1f, 0.15f, 0.20f, 0.2f);
+    g_zeta = zeta_context_init(g_ctx_conscious, g_storage_dir.c_str(), nullptr, 0.1f, 0.15f, 0.20f, 0.2f);
 
     // Init dual-process engine
-    g_dual = zeta_dual_init(g_model_3b ? g_model_3b : g_model_14b, g_storage_dir.c_str());
+    g_dual = zeta_dual_init(g_model_subconscious ? g_model_subconscious : g_model_conscious, g_storage_dir.c_str());
 
     // Init GitGraph (git-style branching for knowledge graph)
     if (g_dual) {
@@ -1537,14 +1537,14 @@ int main(int argc, char** argv) {
 
     // Create 3B/7B extraction context with runtime-configurable size
     // DYNAMIC BATCHING: n_batch = n_ctx allows any prompt up to context size
-    if (g_dual && g_dual->model_3b) {
+    if (g_dual && g_dual->model_subconscious) {
         llama_context_params dp = llama_context_default_params();
         int ctx_7b = std::max(g_ctx_size_3b, 2048);  // At least 2K for semantic critic
         dp.n_ctx = ctx_7b;
         dp.n_batch = ctx_7b;  // Dynamic: batch = context for max flexibility
         dp.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_ENABLED;  // Reduce KV cache memory
-        g_dual->ctx_3b = llama_init_from_model(g_dual->model_3b, dp);
-        if (g_dual->ctx_3b) {
+        g_dual->ctx_subconscious = llama_init_from_model(g_dual->model_subconscious, dp);
+        if (g_dual->ctx_subconscious) {
             fprintf(stderr, "Extraction context: %d tokens\n", g_ctx_size_3b);
         } else {
             fprintf(stderr, "WARNING: Failed to create extraction context\n");
@@ -1555,18 +1555,18 @@ int main(int argc, char** argv) {
     memset(&g_stream_state, 0, sizeof(g_stream_state));
 
     // Initialize proactive memory prefetch (momentum-driven tunneling)
-    if (g_dual && g_dual->ctx_3b) {
-        zeta_proactive_init(g_dual, g_dual->ctx_3b,
-                            llama_model_get_vocab(g_dual->model_3b));
+    if (g_dual && g_dual->ctx_subconscious) {
+        zeta_proactive_init(g_dual, g_dual->ctx_subconscious,
+                            llama_model_get_vocab(g_dual->model_subconscious));
         fprintf(stderr, "[INIT] Proactive memory prefetch initialized\n");
     }
 
     // Initialize code mode context (3B Coder not loaded yet - will use 3B Instruct)
-    g_code = zeta_code_init(g_dual, g_model_3b, NULL, g_model_14b,
+    g_code = zeta_code_init(g_dual, g_model_subconscious, NULL, g_model_conscious,
         (g_storage_dir + "/code").c_str());
     if (g_code) fprintf(stderr, "[INIT] Code mode context initialized\n");
     // Set model paths for dynamic swapping
-    if (g_code) zeta_set_model_paths(g_code, model_3b_path.c_str(), model_3b_coder_path.c_str(), model_14b_path.c_str(), model_7b_coder_path.c_str(), g_embed_model_path.c_str(), g_embed_model_code_path.c_str());
+    if (g_code) zeta_set_model_paths(g_code, model_subconscious_path.c_str(), model_3b_coder_path.c_str(), model_conscious_path.c_str(), model_7b_coder_path.c_str(), g_embed_model_path.c_str(), g_embed_model_code_path.c_str());
     if (g_dual) {
         load_graph();  // Restore previous graph
 
@@ -1580,8 +1580,8 @@ int main(int argc, char** argv) {
                 g_dual->num_nodes, g_dual->num_edges);
 
         // START 3B PARALLEL WORKER
-        g_3b_worker_tid = zeta_3b_start_worker(g_dual);
-        g_3b_worker_running = true;
+        g_subconscious_worker_tid = zeta_subconscious_start_worker(g_dual);
+        g_subconscious_worker_running = true;
         fprintf(stderr, "3B parallel worker started\n");
 
         // Initialize SEMANTIC CRITIC: Give critic access to 7B for intelligent analysis
@@ -1591,7 +1591,7 @@ int main(int argc, char** argv) {
 
     // Initialize Graph-KV: Pre-computed KV cache for graph nodes
     // Skips prefill on retrieval by loading cached transformer states
-    if (zeta_gkv_integration_init(g_model_14b, g_storage_dir.c_str(), 128)) {
+    if (zeta_gkv_integration_init(g_model_conscious, g_storage_dir.c_str(), 128)) {
         fprintf(stderr, "[GKV] Graph-KV cache enabled (skip prefill on retrieval)\n");
     }
 
@@ -1889,7 +1889,7 @@ int main(int argc, char** argv) {
             "{\"status\": \"ok\", \"version\": \"5.1\", "
             "\"parallel_3b\": %s, \"graph_nodes\": %d, \"graph_edges\": %d, "
             "\"specialists\": {\"immune\": %s, \"tools\": %s, \"router\": %s, \"critic\": %s}}",
-            g_3b_worker_running ? "true" : "false",
+            g_subconscious_worker_running ? "true" : "false",
             g_dual ? g_dual->num_nodes : 0,
             g_dual ? g_dual->num_edges : 0,
             g_model_immune ? "true" : "false",
@@ -1905,7 +1905,7 @@ int main(int argc, char** argv) {
 
     svr.Post("/tokenize", [](const httplib::Request& req, httplib::Response& res) {
         res.set_header("Access-Control-Allow-Origin", "*");
-        if (!g_model_14b || !g_vocab) {
+        if (!g_model_conscious || !g_vocab) {
             res.set_content("{\"error\": \"Model not loaded\"}", "application/json");
             return;
         }
@@ -1949,7 +1949,7 @@ int main(int argc, char** argv) {
 
     svr.Post("/detokenize", [](const httplib::Request& req, httplib::Response& res) {
         res.set_header("Access-Control-Allow-Origin", "*");
-        if (!g_model_14b || !g_vocab) {
+        if (!g_model_conscious || !g_vocab) {
             res.set_content("{\"error\": \"Model not loaded\"}", "application/json");
             return;
         }
@@ -2062,7 +2062,7 @@ int main(int argc, char** argv) {
         if (g_dual) {
             const int EMBED_DIM = 256;
             float emb[EMBED_DIM];
-            zeta_3b_embed(g_dual, content.c_str(), emb, EMBED_DIM);
+            zeta_subconscious_embed(g_dual, content.c_str(), emb, EMBED_DIM);
 
             std::string json = "{\"embedding\": [";
             for (int i = 0; i < EMBED_DIM; i++) {
@@ -2125,7 +2125,7 @@ int main(int argc, char** argv) {
         if (g_dual) {
             const int EMBED_DIM = 256;
             float emb[EMBED_DIM];
-            zeta_3b_embed(g_dual, input.c_str(), emb, EMBED_DIM);
+            zeta_subconscious_embed(g_dual, input.c_str(), emb, EMBED_DIM);
 
             std::string json = "{\"object\": \"list\", \"data\": [{\"object\": \"embedding\", \"index\": 0, \"embedding\": [";
             for (int i = 0; i < EMBED_DIM; i++) {
@@ -2180,7 +2180,7 @@ int main(int argc, char** argv) {
         const int EMBED_DIM = 256;
         if (g_dual) {
             float q_emb[EMBED_DIM];
-            zeta_3b_embed(g_dual, query.c_str(), q_emb, EMBED_DIM);
+            zeta_subconscious_embed(g_dual, query.c_str(), q_emb, EMBED_DIM);
 
             // Find similar nodes
             std::string json = "{\"query\": \"" + query + "\", \"results\": [";
@@ -2354,8 +2354,8 @@ int main(int argc, char** argv) {
 
     // Cache clear endpoint
     svr.Get("/cache/clear", [](const httplib::Request&, httplib::Response& res) {
-        if (g_ctx_14b) {
-            auto mem = llama_get_memory(g_ctx_14b);
+        if (g_ctx_conscious) {
+            auto mem = llama_get_memory(g_ctx_conscious);
             if (mem) llama_memory_clear(mem, true);
         }
         // Decay based on salience and age - remove lowest 10%
@@ -2378,17 +2378,17 @@ int main(int argc, char** argv) {
 
     // Unload 3B to free VRAM
     svr.Get("/system/unload-3b", [](const httplib::Request&, httplib::Response& res) {
-        if (g_code && g_code->models.ctx_3b) {
-            llama_free(g_code->models.ctx_3b);
-            g_code->models.ctx_3b = NULL;
+        if (g_code && g_code->models.ctx_subconscious) {
+            llama_free(g_code->models.ctx_subconscious);
+            g_code->models.ctx_subconscious = NULL;
         }
-        if (g_code && g_code->models.model_3b_instruct) {
-            llama_model_free(g_code->models.model_3b_instruct);
-            g_code->models.model_3b_instruct = NULL;
+        if (g_code && g_code->models.model_subconscious_instruct) {
+            llama_model_free(g_code->models.model_subconscious_instruct);
+            g_code->models.model_subconscious_instruct = NULL;
         }
-        if (g_code && g_code->models.model_3b_coder) {
-            llama_model_free(g_code->models.model_3b_coder);
-            g_code->models.model_3b_coder = NULL;
+        if (g_code && g_code->models.model_subconscious_coder) {
+            llama_model_free(g_code->models.model_subconscious_coder);
+            g_code->models.model_subconscious_coder = NULL;
         }
         res.set_content("{\"status\": \"ok\", \"freed\": \"3b_models\"}", "application/json");
     });
@@ -2464,22 +2464,22 @@ int main(int argc, char** argv) {
 
         // Switch to code mode - swap 3B Instruct for 3B Coder
         zeta_switch_to_code_mode(g_code);
-        if (g_ctx_14b) { llama_free(g_ctx_14b); g_ctx_14b = nullptr; }
-        if (g_code->models.active_main) {
+        if (g_ctx_conscious) { llama_free(g_ctx_conscious); g_ctx_conscious = nullptr; }
+        if (g_code->models.active_conscious) {
             llama_context_params cp = llama_context_default_params();
             cp.n_ctx = g_ctx_size_14b; cp.n_batch = ZETA_BATCH_SIZE;
-            g_ctx_14b = llama_init_from_model(g_code->models.active_main, cp);
-            g_model_14b = g_code->models.active_main; // Update model pointer for sampler
-            g_vocab = llama_model_get_vocab(g_model_14b); // Update vocab for tokenizer
+            g_ctx_conscious = llama_init_from_model(g_code->models.active_conscious, cp);
+            g_model_conscious = g_code->models.active_conscious; // Update model pointer for sampler
+            g_vocab = llama_model_get_vocab(g_model_conscious); // Update vocab for tokenizer
         }
         // Sync dual-process context with new 3B model (7B coder in code mode)
         if (g_dual) {
-            if (g_dual->ctx_3b) { llama_free(g_dual->ctx_3b); g_dual->ctx_3b = nullptr; }
-            g_dual->model_3b = g_code->models.model_3b_coder;
-            if (g_dual->model_3b) {
+            if (g_dual->ctx_subconscious) { llama_free(g_dual->ctx_subconscious); g_dual->ctx_subconscious = nullptr; }
+            g_dual->model_subconscious = g_code->models.model_subconscious_coder;
+            if (g_dual->model_subconscious) {
                 llama_context_params dp = llama_context_default_params();
                 dp.n_ctx = g_ctx_size_3b; dp.n_batch = ZETA_BATCH_SIZE;
-                g_dual->ctx_3b = llama_init_from_model(g_dual->model_3b, dp);
+                g_dual->ctx_subconscious = llama_init_from_model(g_dual->model_subconscious, dp);
                 fprintf(stderr, "[MODE] Synced dual-process to 7B Coder\n");
             }
         }
@@ -2502,22 +2502,22 @@ int main(int argc, char** argv) {
 
         // Switch back to chat mode - swap 3B Coder for 3B Instruct
         zeta_switch_to_chat_mode(g_code);
-        if (g_ctx_14b) { llama_free(g_ctx_14b); g_ctx_14b = nullptr; }
-        if (g_code->models.active_main) {
+        if (g_ctx_conscious) { llama_free(g_ctx_conscious); g_ctx_conscious = nullptr; }
+        if (g_code->models.active_conscious) {
             llama_context_params cp = llama_context_default_params();
             cp.n_ctx = g_ctx_size_14b; cp.n_batch = ZETA_BATCH_SIZE;
-            g_ctx_14b = llama_init_from_model(g_code->models.active_main, cp);
-            g_model_14b = g_code->models.active_main; // Update model pointer for sampler
-            g_vocab = llama_model_get_vocab(g_model_14b); // Update vocab for tokenizer
+            g_ctx_conscious = llama_init_from_model(g_code->models.active_conscious, cp);
+            g_model_conscious = g_code->models.active_conscious; // Update model pointer for sampler
+            g_vocab = llama_model_get_vocab(g_model_conscious); // Update vocab for tokenizer
         }
         // Sync dual-process context with new 3B model (3B Instruct in chat mode)
         if (g_dual) {
-            if (g_dual->ctx_3b) { llama_free(g_dual->ctx_3b); g_dual->ctx_3b = nullptr; }
-            g_dual->model_3b = g_code->models.model_3b_instruct;
-            if (g_dual->model_3b) {
+            if (g_dual->ctx_subconscious) { llama_free(g_dual->ctx_subconscious); g_dual->ctx_subconscious = nullptr; }
+            g_dual->model_subconscious = g_code->models.model_subconscious_instruct;
+            if (g_dual->model_subconscious) {
                 llama_context_params dp = llama_context_default_params();
                 dp.n_ctx = g_ctx_size_3b; dp.n_batch = ZETA_BATCH_SIZE;
-                g_dual->ctx_3b = llama_init_from_model(g_dual->model_3b, dp);
+                g_dual->ctx_subconscious = llama_init_from_model(g_dual->model_subconscious, dp);
                 fprintf(stderr, "[MODE] Synced dual-process to 3B Instruct\n");
             }
         }
@@ -2889,9 +2889,9 @@ int main(int argc, char** argv) {
     svr.listen("0.0.0.0", port);
 
     fprintf(stderr, "\n[SHUTDOWN] Stopping 3B worker...\n");
-    if (g_3b_worker_running) {
-        zeta_3b_stop_worker(g_3b_worker_tid);
-        g_3b_worker_running = false;
+    if (g_subconscious_worker_running) {
+        zeta_subconscious_stop_worker(g_subconscious_worker_tid);
+        g_subconscious_worker_running = false;
     }
 
     fprintf(stderr, "[SHUTDOWN] Flushing Graph-KV cache...\n");
@@ -2904,10 +2904,10 @@ int main(int argc, char** argv) {
     if (g_git) zeta_git_free(g_git);
     if (g_dual) free(g_dual);
     if (g_zeta) zeta_context_free(g_zeta);
-    llama_free(g_ctx_14b);
-    llama_model_free(g_model_14b);
-    if (g_model_3b) llama_model_free(g_model_3b);
-    if (g_model_3b_coder) llama_model_free(g_model_3b_coder);
+    llama_free(g_ctx_conscious);
+    llama_model_free(g_model_conscious);
+    if (g_model_subconscious) llama_model_free(g_model_subconscious);
+    if (g_model_coder) llama_model_free(g_model_coder);
     // Free specialist models
     if (g_ctx_immune) llama_free(g_ctx_immune);
     if (g_model_immune) llama_model_free(g_model_immune);

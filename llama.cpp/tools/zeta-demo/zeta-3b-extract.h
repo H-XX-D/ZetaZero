@@ -38,11 +38,11 @@ typedef struct {
     llama_context* ctx;
     const llama_vocab* vocab;
     bool initialized;
-} zeta_3b_extractor_t;
+} zeta_subconscious_extractor_t;
 
 // Initialize 3B extractor
-static inline zeta_3b_extractor_t* zeta_3b_extractor_init(llama_model* model_3b) {
-    zeta_3b_extractor_t* ext = (zeta_3b_extractor_t*)calloc(1, sizeof(zeta_3b_extractor_t));
+static inline zeta_subconscious_extractor_t* zeta_subconscious_extractor_init(llama_model* model_3b) {
+    zeta_subconscious_extractor_t* ext = (zeta_subconscious_extractor_t*)calloc(1, sizeof(zeta_subconscious_extractor_t));
     if (!ext) return NULL;
     
     if (model_3b) {
@@ -132,8 +132,8 @@ static inline int zeta_parse_extraction_output(
 }
 
 // Run 3B extraction (with model inference)
-static inline int zeta_3b_extract_with_model(
-    zeta_3b_extractor_t* ext,
+static inline int zeta_subconscious_extract_with_model(
+    zeta_subconscious_extractor_t* ext,
     const char* input,
     zeta_extraction_result_t* result
 ) {
@@ -304,8 +304,8 @@ static inline int zeta_extract_robust_patterns(
 }
 
 // Main extraction function - uses 3B if available, falls back to patterns
-static inline int zeta_3b_extract(
-    zeta_3b_extractor_t* ext,
+static inline int zeta_subconscious_extract(
+    zeta_subconscious_extractor_t* ext,
     const char* input,
     zeta_extraction_result_t* result
 ) {
@@ -313,7 +313,7 @@ static inline int zeta_3b_extract(
     
     // Try 3B model extraction first
     if (ext && ext->initialized) {
-        int n = zeta_3b_extract_with_model(ext, input, result);
+        int n = zeta_subconscious_extract_with_model(ext, input, result);
         if (n > 0) {
             fprintf(stderr, "[3B] Model extracted %d facts\n", n);
             return n;
@@ -329,7 +329,7 @@ static inline int zeta_3b_extract(
 }
 
 // Free extractor
-static inline void zeta_3b_extractor_free(zeta_3b_extractor_t* ext) {
+static inline void zeta_subconscious_extractor_free(zeta_subconscious_extractor_t* ext) {
     if (ext) {
         if (ext->ctx) llama_free(ext->ctx);
         free(ext);
