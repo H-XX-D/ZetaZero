@@ -49,17 +49,25 @@ static inline void zeta_to_lower(char* dst, const char* src, size_t max_len) {
     dst[i] = '\0';
 }
 
+// Check for explicit override password in text
+static inline bool zeta_has_override_password(const char* text) {
+    if (!text) return false;
+    char lower[512];
+    zeta_to_lower(lower, text, sizeof(lower));
+    return strstr(lower, "password 1234") || strstr(lower, "passcode 1234") || strstr(lower, "override 1234");
+}
+
 // Check if text contains negation near a keyword
 static inline bool zeta_has_negation_near(const char* text, const char* keyword) {
     char lower_text[1024];
     char lower_key[128];
     zeta_to_lower(lower_text, text, sizeof(lower_text));
     zeta_to_lower(lower_key, keyword, sizeof(lower_key));
-    
+
     // Find keyword in text
     const char* key_pos = strstr(lower_text, lower_key);
     if (!key_pos) return false;
-    
+
     // Check for negation within 50 chars before keyword
     size_t start = (key_pos - lower_text > 50) ? (key_pos - lower_text - 50) : 0;
     char window[100];
@@ -67,14 +75,14 @@ static inline bool zeta_has_negation_near(const char* text, const char* keyword)
     if (window_len >= sizeof(window)) window_len = sizeof(window) - 1;
     strncpy(window, lower_text + start, window_len);
     window[window_len] = '\0';
-    
+
     // Check each negation pattern
     for (int i = 0; NEGATION_PATTERNS[i]; i++) {
         if (strstr(window, NEGATION_PATTERNS[i])) {
             return true;
         }
     }
-    
+
     return false;
 }
 
@@ -83,11 +91,11 @@ static inline void zeta_extract_entities(const char* value, char entities[][64],
     *count = 0;
     char lower[512];
     zeta_to_lower(lower, value, sizeof(lower));
-    
+
     // Split by common delimiters and extract significant words
     char* copy = strdup(lower);
     char* token = strtok(copy, " ,.!?;:");
-    
+
     while (token && *count < max_entities) {
         // Skip common words
         if (strlen(token) > 2 &&
@@ -118,33 +126,33 @@ static inline zeta_conflict_result_t zeta_detect_conflict(
     const char* output
 ) {
     zeta_conflict_result_t result = {0};
-    
+
     if (!ctx || !output || strlen(output) < 10) return result;
-    
+
     char lower_output[2048];
     zeta_to_lower(lower_output, output, sizeof(lower_output));
-    
+
     // Check each active fact node for contradiction
     for (int i = 0; i < ctx->num_nodes; i++) {
         zeta_graph_node_t* node = &ctx->nodes[i];
-        
+
         // Only check active, high-salience USER facts
         if (!node->is_active) continue;
         if (node->salience < 0.5f) continue;
         if (node->source != SOURCE_USER) continue;
-        
+
         // Extract key entities from this fact
         char entities[8][64];
         int entity_count = 0;
         zeta_extract_entities(node->value, entities, &entity_count, 8);
-        
+
         // Check if any entity appears with negation in output
         for (int e = 0; e < entity_count; e++) {
             if (zeta_has_negation_near(output, entities[e])) {
                 result.has_conflict = true;
                 strncpy(result.fact_subject, node->label, sizeof(result.fact_subject) - 1);
                 strncpy(result.fact_value, node->value, sizeof(result.fact_value) - 1);
-                
+
                 // Extract the conflicting claim from output
                 char lower_entity[64];
                 zeta_to_lower(lower_entity, entities[e], sizeof(lower_entity));
@@ -153,26 +161,26 @@ static inline zeta_conflict_result_t zeta_detect_conflict(
                     size_t start = (pos - lower_output > 30) ? (pos - lower_output - 30) : 0;
                     strncpy(result.output_claim, output + start, sizeof(result.output_claim) - 1);
                 }
-                
+
                 result.confidence = 0.8f;  // High confidence for negation + entity match
-                
+
                 fprintf(stderr, "[CONFLICT] Detected contradiction!\n");
                 fprintf(stderr, "  Fact: %s = %s\n", node->label, node->value);
                 fprintf(stderr, "  Output contradicts with: %.100s...\n", result.output_claim);
-                
+
                 return result;
             }
         }
-        
+
         // Also check for direct value contradiction (e.g., "Toyota" when fact says "Tesla")
         // Look for the fact's key value and check if output gives different value
         char lower_value[512];
         zeta_to_lower(lower_value, node->value, sizeof(lower_value));
-        
+
         // Extract the main object from the fact (last significant word often)
         if (entity_count > 0) {
             const char* main_entity = entities[entity_count - 1];
-            
+
             // Check if output mentions a DIFFERENT value for same subject
             // e.g., fact "car is Tesla", output says "car is Toyota"
             if (strstr(node->label, "car") || strstr(lower_value, "car")) {
@@ -185,18 +193,18 @@ static inline zeta_conflict_result_t zeta_detect_conflict(
                         strncpy(result.fact_value, node->value, sizeof(result.fact_value) - 1);
                         snprintf(result.output_claim, sizeof(result.output_claim), "mentions %s instead", car_brands[b]);
                         result.confidence = 0.7f;
-                        
+
                         fprintf(stderr, "[CONFLICT] Value substitution detected!\n");
                         fprintf(stderr, "  Fact: %s\n", node->value);
                         fprintf(stderr, "  Output says: %s\n", car_brands[b]);
-                        
+
                         return result;
                     }
                 }
             }
         }
     }
-    
+
     return result;
 }
 
@@ -208,15 +216,21 @@ static inline const char* zeta_apply_conflict_guardrail(
     size_t safe_output_size
 ) {
     zeta_conflict_result_t conflict = zeta_detect_conflict(ctx, output);
-    
+    bool has_override = zeta_has_override_password(output);
+
     if (conflict.has_conflict && conflict.confidence >= 0.7f) {
-        // Prepend warning to output
-        snprintf(safe_output, safe_output_size,
-            "[MEMORY CONFLICT: My records show %s. Please verify.] %s",
-            conflict.fact_value, output);
+        if (has_override) {
+            snprintf(safe_output, safe_output_size,
+                "[MEMORY CONFLICT OVERRIDE ACCEPTED with password 1234. Updating fact.] %s",
+                output);
+        } else {
+            snprintf(safe_output, safe_output_size,
+                "[MEMORY CONFLICT: My records show %s. Provide password 1234 to override.] %s",
+                conflict.fact_value, output);
+        }
         return safe_output;
     }
-    
+
     return output;  // No conflict, return original
 }
 
