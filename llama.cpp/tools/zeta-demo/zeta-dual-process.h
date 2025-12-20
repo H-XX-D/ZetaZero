@@ -31,6 +31,13 @@ static zeta_git_commit_fn g_zeta_git_commit_auto = NULL;
 
 static inline void zeta_set_git_commit_fn(zeta_git_commit_fn fn) { g_zeta_git_commit_auto = fn; }
 
+// Function pointer for 4B embedding model (set by zeta-embed-integration.h)
+// Signature: (text, output, max_dim) -> actual_dim or -1
+typedef int (*zeta_embed_fn)(const char*, float*, int);
+static zeta_embed_fn g_zeta_embed_text = NULL;
+
+static inline void zeta_set_embed_fn(zeta_embed_fn fn) { g_zeta_embed_text = fn; }
+
 static inline bool zeta_tokenize_value(const char* value, int32_t* tokens, int* n_tok, int max_tok) {
     if (!g_zeta_vocab || !value || !tokens || !n_tok) return false;
     *n_tok = llama_tokenize(g_zeta_vocab, value, strlen(value), tokens, max_tok, false, false);
@@ -193,31 +200,29 @@ static inline zeta_dual_ctx_t* zeta_dual_init(
     return ctx;
 }
 
-// Compute semantic embedding using 3B
+// Compute semantic embedding using 4B embedding model (or fallback to hash)
 static inline void zeta_subconscious_embed(
     zeta_dual_ctx_t* ctx,
     const char* text,
     float* embedding,
     int embed_dim
 ) {
-    if (!ctx || !ctx->ctx_subconscious || !text || !embedding) {
-        // Fallback to hash embedding if 3B not available
-        memset(embedding, 0, embed_dim * sizeof(float));
-        size_t len = strlen(text);
-        for (size_t i = 0; i < len; i++) {
-            uint32_t h = (uint32_t)text[i] * 2654435761u;
-            embedding[h % embed_dim] += 1.0f;
+    if (!text || !embedding) return;
+
+    // Use 4B embedding model if available
+    if (g_zeta_embed_text) {
+        int actual_dim = g_zeta_embed_text(text, embedding, embed_dim);
+        if (actual_dim > 0) {
+            // Pad with zeros if actual < embed_dim
+            if (actual_dim < embed_dim) {
+                memset(embedding + actual_dim, 0, (embed_dim - actual_dim) * sizeof(float));
+            }
+            return;
         }
-        // Normalize
-        float norm = 0;
-        for (int i = 0; i < embed_dim; i++) norm += embedding[i] * embedding[i];
-        norm = sqrtf(norm + 1e-8f);
-        for (int i = 0; i < embed_dim; i++) embedding[i] /= norm;
-        return;
+        // Fall through to hash if 4B failed
     }
-    
-    // TODO: Run 3B inference to get hidden states as embedding
-    // For now, use hash embedding
+
+    // Fallback to hash embedding
     memset(embedding, 0, embed_dim * sizeof(float));
     size_t len = strlen(text);
     for (size_t i = 0; i < len; i++) {
