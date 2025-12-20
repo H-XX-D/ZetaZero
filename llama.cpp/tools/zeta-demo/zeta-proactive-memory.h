@@ -94,7 +94,7 @@ static inline void zeta_proactive_init(
     g_proactive->queue_size = 0;
     g_proactive->output_len = 0;
     g_proactive->generation_active = false;
-    g_proactive->prefetch_enabled = true;
+    g_proactive->prefetch_enabled = false;  // DISABLED for debugging
     g_proactive->total_prefetched = 0;
     g_proactive->total_injected = 0;
     g_proactive->tunnel_jumps = 0;
