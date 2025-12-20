@@ -100,22 +100,65 @@ static int zeta_embed_text(const char* text, float* output, int max_dim) {
         return -1;
     }
 
+    // Skip empty text - return zero embedding instead of crashing
+    size_t text_len = strlen(text);
+    if (text_len == 0) {
+        fprintf(stderr, "[EMBED] WARNING: Empty text, returning zero embedding\n");
+        memset(output, 0, g_embed_ctx->embed_dim * sizeof(float));
+        return g_embed_ctx->embed_dim;
+    }
+
     // Tokenize the input
     const llama_vocab* vocab = llama_model_get_vocab(g_embed_ctx->model);
-    int max_tokens = 256;
+    if (!vocab) {
+        fprintf(stderr, "[EMBED] ERROR: No vocab in embedding model\n");
+        memset(output, 0, g_embed_ctx->embed_dim * sizeof(float));
+        return g_embed_ctx->embed_dim;
+    }
+    
+    int max_tokens = 512;  // Increased for longer text
     std::vector<llama_token> tokens(max_tokens);
 
-    int n_tokens = llama_tokenize(vocab, text, strlen(text),
+    // Try tokenization without special tokens first (some embedding models don't need BOS)
+    int n_tokens = llama_tokenize(vocab, text, text_len,
+                                   tokens.data(), max_tokens,
+                                   false,   // add_special - try without BOS first
+                                   false);  // parse_special
+
+    // If that failed, try with special tokens
+    if (n_tokens <= 0) {
+        n_tokens = llama_tokenize(vocab, text, text_len,
                                    tokens.data(), max_tokens,
                                    true,   // add_special (BOS)
                                    true);  // parse_special
+    }
 
     if (n_tokens <= 0) {
-        fprintf(stderr, "[EMBED] ERROR: Tokenization failed\n");
-        return -1;
+        // Final fallback: tokenize with minimal options
+        fprintf(stderr, "[EMBED] WARNING: Tokenization failed, trying fallback for text (len=%zu)\n", text_len);
+        
+        // Try tokenizing just the first 100 chars to see if it's a length issue
+        size_t try_len = text_len > 100 ? 100 : text_len;
+        n_tokens = llama_tokenize(vocab, text, try_len,
+                                   tokens.data(), max_tokens,
+                                   false, false);
+        
+        if (n_tokens <= 0) {
+            fprintf(stderr, "[EMBED] ERROR: All tokenization attempts failed\n");
+            memset(output, 0, g_embed_ctx->embed_dim * sizeof(float));
+            return g_embed_ctx->embed_dim;
+        }
     }
 
     tokens.resize(n_tokens);
+    
+    // Ensure we don't exceed context size
+    int ctx_size = llama_n_ctx(g_embed_ctx->ctx);
+    if (n_tokens > ctx_size) {
+        fprintf(stderr, "[EMBED] WARNING: Truncating %d tokens to context size %d\n", n_tokens, ctx_size);
+        n_tokens = ctx_size;
+        tokens.resize(n_tokens);
+    }
 
     // Clear memory/KV cache for new embedding
     llama_memory_clear(llama_get_memory(g_embed_ctx->ctx), true);
@@ -133,10 +176,13 @@ static int zeta_embed_text(const char* text, float* output, int max_dim) {
     batch.n_tokens = n_tokens;
 
     // Run inference
-    if (llama_decode(g_embed_ctx->ctx, batch) != 0) {
-        fprintf(stderr, "[EMBED] ERROR: Decode failed\n");
+    int decode_result = llama_decode(g_embed_ctx->ctx, batch);
+    if (decode_result != 0) {
+        fprintf(stderr, "[EMBED] ERROR: Decode failed with code %d (n_tokens=%d)\n", decode_result, n_tokens);
         llama_batch_free(batch);
-        return -1;
+        // Return zero embedding instead of -1 to prevent crashes
+        memset(output, 0, g_embed_ctx->embed_dim * sizeof(float));
+        return g_embed_ctx->embed_dim;
     }
 
     // Get embeddings - use sequence embeddings if available, else last token
@@ -147,9 +193,11 @@ static int zeta_embed_text(const char* text, float* output, int max_dim) {
     }
 
     if (!embeddings) {
-        fprintf(stderr, "[EMBED] ERROR: No embeddings returned\n");
+        fprintf(stderr, "[EMBED] ERROR: No embeddings returned (model may not support embeddings)\n");
         llama_batch_free(batch);
-        return -1;
+        // Return zero embedding instead of -1 to prevent crashes
+        memset(output, 0, g_embed_ctx->embed_dim * sizeof(float));
+        return g_embed_ctx->embed_dim;
     }
 
     // Copy to output (truncate or pad to max_dim if needed)

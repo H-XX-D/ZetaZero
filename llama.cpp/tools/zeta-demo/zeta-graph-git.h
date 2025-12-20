@@ -280,11 +280,11 @@ static inline zeta_merge_result_t zeta_git_merge(
 
     if (merge_id < 0) return MERGE_ERROR;
 
-    // Link to both heads (multi-parent merge)
+    // Link to both heads (multi-parent merge) - both are SUPERSEDES (version chain)
     zeta_create_edge(ctx->graph, merge_id, target->head_node_id,
                     EDGE_SUPERSEDES, 1.0f);
     zeta_create_edge(ctx->graph, merge_id, source->head_node_id,
-                    EDGE_RELATED, 1.0f);
+                    EDGE_SUPERSEDES, 0.9f);  // Slightly lower weight for source parent
 
     // Update target branch
     target->head_node_id = merge_id;
@@ -982,6 +982,68 @@ static inline int64_t zeta_git_bisect_bad(zeta_git_ctx_t* ctx) {
     fprintf(stderr, "[GIT-GRAPH] Bisect step %d: %d remaining, testing %lld\n",
             g_bisect.step, g_bisect.num_candidates, (long long)g_bisect.current);
     return -1;
+}
+
+// =============================================================================
+// EDGE COMMITS (Track edges in git history)
+// =============================================================================
+
+// Commit an edge to the current branch (makes it tracked/permanent)
+static inline int64_t zeta_git_commit_edge(
+    zeta_git_ctx_t* ctx,
+    int64_t source_id,
+    int64_t target_id,
+    zeta_edge_type_t type,
+    float weight
+) {
+    if (!ctx || !ctx->graph) return -1;
+
+    // Check for existing edge (dedup)
+    for (int i = 0; i < ctx->graph->num_edges; i++) {
+        zeta_graph_edge_t* e = &ctx->graph->edges[i];
+        if (e->source_id == source_id && e->target_id == target_id && e->type == type) {
+            // Reinforce existing edge
+            e->weight = (e->weight + weight) / 2.0f;
+            if (e->weight > 1.0f) e->weight = 1.0f;
+            return e->edge_id;
+        }
+    }
+
+    // Create new edge (no per-source limit for committed edges)
+    if (ctx->graph->num_edges >= ZETA_MAX_EDGES) return -1;
+
+    zeta_graph_edge_t* edge = &ctx->graph->edges[ctx->graph->num_edges];
+    edge->edge_id = ctx->graph->next_edge_id++;
+    edge->source_id = source_id;
+    edge->target_id = target_id;
+    edge->type = type;
+    edge->weight = weight;
+    edge->created_at = (int64_t)time(NULL);
+    edge->version = 1;
+
+    ctx->graph->num_edges++;
+
+    fprintf(stderr, "[GIT-EDGE] Committed edge %lld: %lld --%d--> %lld (w=%.2f)\n",
+            (long long)edge->edge_id, (long long)source_id, type,
+            (long long)target_id, weight);
+
+    return edge->edge_id;
+}
+
+// Wrapper for function pointer (void* ctx for cross-header compatibility)
+static inline int64_t zeta_git_commit_edge_wrapper(
+    void* ctx, int64_t source_id, int64_t target_id, int type, float weight
+) {
+    return zeta_git_commit_edge((zeta_git_ctx_t*)ctx, source_id, target_id,
+                                 (zeta_edge_type_t)type, weight);
+}
+
+// Wire edge commits to dual-process layer
+static inline void zeta_git_wire_edge_commit(zeta_git_ctx_t* ctx) {
+    if (ctx) {
+        zeta_set_git_edge_fn(zeta_git_commit_edge_wrapper);
+        fprintf(stderr, "[GIT-GRAPH] Wired edge commits to dual-process\n");
+    }
 }
 
 // =============================================================================

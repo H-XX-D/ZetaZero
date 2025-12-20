@@ -17,11 +17,14 @@
 #define ZETA_EDGE_HARD_CAP      12000   // Force eviction
 #define ZETA_EDGE_TARGET        6000    // Target after cleanup
 
-// Decay parameters (more aggressive than before)
-#define ZETA_DECAY_FACTOR       0.92f   // Was 0.98 - now 8% decay per cycle
-#define ZETA_DECAY_INTERVAL     10      // Was 25 - now every 10 requests
-#define ZETA_PRUNE_THRESHOLD    0.25f   // Was 0.15 - now prune below 25%
-#define ZETA_PRUNE_MAX          500     // Was 100 - now prune up to 500
+// Decay DISABLED - smarter edge creation instead
+#define ZETA_DECAY_FACTOR       1.0f    // No decay - edges are permanent
+#define ZETA_DECAY_INTERVAL     9999    // Never trigger decay
+#define ZETA_PRUNE_THRESHOLD    0.0f    // Never prune by weight
+#define ZETA_PRUNE_MAX          0       // Never prune
+
+// Edge limits per node (prevent explosion at creation time)
+#define ZETA_MAX_EDGES_PER_NODE 8       // Max outgoing edges per node
 
 // Edge types that are protected from pruning
 #define ZETA_PROTECTED_EDGE_TYPES (EDGE_SUPERSEDES | EDGE_IDENTITY)

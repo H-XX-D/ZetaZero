@@ -61,7 +61,7 @@ static zeta_config_t g_config = {
     .port = 8080,
     .gpu_layers = 999,
     .ctx_14b = 4096,
-    .ctx_7b = 8192,
+    .ctx_7b = 2048,    // Reduced from 8192 to fit extraction context in VRAM
     .ctx_embed = 512,
     .batch_size = 2048,
     .storage_dir = "/mnt/HoloGit/blocks",
@@ -168,7 +168,10 @@ static inline bool zeta_load_config() {
     if (config.count("ZETA_PORT")) g_config.port = atoi(config["ZETA_PORT"].c_str());
     if (config.count("GPU_LAYERS")) g_config.gpu_layers = atoi(config["GPU_LAYERS"].c_str());
     if (config.count("CTX_14B")) g_config.ctx_14b = atoi(config["CTX_14B"].c_str());
-    if (config.count("CTX_7B")) g_config.ctx_7b = atoi(config["CTX_7B"].c_str());
+    if (config.count("CTX_7B")) {
+        g_config.ctx_7b = atoi(config["CTX_7B"].c_str());
+        fprintf(stderr, "[CONFIG] CTX_7B parsed as: %d\n", g_config.ctx_7b);
+    }
     if (config.count("CTX_EMBED")) g_config.ctx_embed = atoi(config["CTX_EMBED"].c_str());
     if (config.count("BATCH_SIZE")) g_config.batch_size = atoi(config["BATCH_SIZE"].c_str());
 

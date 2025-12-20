@@ -256,16 +256,12 @@ int zeta_causal_extract_edges(
                 int64_t obj_id = zeta_create_node(ctx, NODE_ENTITY, obj_label, object, 0.9f);
                 zeta_create_edge(ctx, subj_id, obj_id, edge_type, confidence);
 
-                // ALSO store full sentence as NODE_FACT for surfacing
-                // This gives 14B the complete relational context
+                // Store full sentence as NODE_FACT for surfacing (no extra edges needed)
+                // The CAUSES/PREVENTS edge already links subject->object
                 char relation_label[64];
                 snprintf(relation_label, sizeof(relation_label), "%s_relation",
                          (causal_type == 1) ? "causes" : "prevents");
-                int64_t sentence_id = zeta_create_node(ctx, NODE_FACT, relation_label, sentence, 0.95f);
-
-                // Link sentence to both subject and object (with dedup to prevent explosion)
-                zeta_create_edge_dedup(ctx, sentence_id, subj_id, EDGE_RELATED, 0.9f);
-                zeta_create_edge_dedup(ctx, sentence_id, obj_id, EDGE_RELATED, 0.9f);
+                zeta_create_node(ctx, NODE_FACT, relation_label, sentence, 0.95f);
 
                 edges_created++;
                 fprintf(stderr, "[CAUSAL-EMB] Edge: %s --%s--> %s (conf=%.2f)\n",
