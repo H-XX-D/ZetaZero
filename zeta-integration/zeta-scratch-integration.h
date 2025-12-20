@@ -271,7 +271,11 @@ static inline bool zeta_decode_hook_process(
     size_t token_len,
     float confidence
 ) {
-    if (!g_decode_hook.scratch) return true;  // No scratch buffer, pass through
+    // Safety check - if scratch buffer not initialized, just pass through
+    if (!g_decode_hook.scratch || !g_decode_hook.gen_ctx) return true;
+    
+    // Safety check for text pointer
+    if (!token_text || token_len == 0) return true;
     
     g_decode_hook.tokens_processed++;
     
