@@ -762,28 +762,37 @@ static std::string generate(const std::string& prompt, int max_tokens) {
             kv_next_pos++;
             continue;
         }
-        if (strcmp(piece, "<|im_end|>") == 0) break;
-        if (llama_vocab_is_eog(g_vocab, tok)) break;
+        if (strcmp(piece, "<|im_end|>") == 0) { fprintf(stderr, "[GEN] Breaking on im_end\n"); break; }
+        if (llama_vocab_is_eog(g_vocab, tok)) { fprintf(stderr, "[GEN] Breaking on EOG\n"); break; }
 
         // Process token through scratch buffer (handles control tokens, hidden thinking, revision)
         // momentum serves as confidence signal for revision decisions
+        fprintf(stderr, "[GEN] Before scratch process\n");
         bool should_output = ZETA_SCRATCH_PROCESS_TOKEN(tok, piece, strlen(piece), momentum);
+        fprintf(stderr, "[GEN] Scratch returned: %s\n", should_output ? "output" : "skip");
 
         // Only add to output if scratch buffer says it's visible
         if (should_output) {
             output += piece;
+            fprintf(stderr, "[GEN] Added to output (len=%zu)\n", output.length());
         }
 
         // Update proactive output buffer (enables parallel tunnel-fetch)
+        fprintf(stderr, "[GEN] Before proactive_update_output\n");
         zeta_proactive_update_output(piece, strlen(piece));
+        fprintf(stderr, "[GEN] After proactive_update_output\n");
 
         // Stop on chat template tokens (prevents repetition)
-        if (strstr(piece, "<|im_start") || strstr(piece, "<|im_end")) break;
+        if (strstr(piece, "<|im_start") || strstr(piece, "<|im_end")) { fprintf(stderr, "[GEN] Breaking on chat token\n"); break; }
 
         // Prepare next - use kv_next_pos for consistent position tracking
+        fprintf(stderr, "[GEN] Before batch_clear\n");
         common_batch_clear(batch);
+        fprintf(stderr, "[GEN] Before batch_add (tok=%d, pos=%d)\n", tok, kv_next_pos);
         common_batch_add(batch, tok, kv_next_pos, {0}, true);
-        if (llama_decode(g_ctx_conscious, batch) != 0) break;
+        fprintf(stderr, "[GEN] Before decode\n");
+        if (llama_decode(g_ctx_conscious, batch) != 0) { fprintf(stderr, "[GEN] Decode failed!\n"); break; }
+        fprintf(stderr, "[GEN] After decode, incrementing pos\n");
         kv_next_pos++;
     }
 
