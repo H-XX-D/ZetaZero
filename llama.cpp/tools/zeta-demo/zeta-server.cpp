@@ -1533,6 +1533,9 @@ int main(int argc, char** argv) {
     if (g_dual) {
         g_git = zeta_git_init(g_dual);
         fprintf(stderr, "[GITGRAPH] Initialized on branch '%s'\n", zeta_git_current_branch(g_git));
+
+        // Wire automatic domain-based branching for fact extraction
+        zeta_git_wire_auto_commit(g_git);
     }
 
     // Create 3B/7B extraction context with runtime-configurable size

@@ -427,6 +427,34 @@ static inline int64_t zeta_git_commit_auto(
     return node_id;
 }
 
+// Wrapper for function pointer (matches zeta_git_commit_fn signature)
+static inline int64_t zeta_git_commit_auto_wrapper(
+    void* ctx,
+    int type,
+    const char* label,
+    const char* value,
+    float salience,
+    int source
+) {
+    return zeta_git_commit_auto(
+        (zeta_git_ctx_t*)ctx,
+        (zeta_node_type_t)type,
+        label,
+        value,
+        salience,
+        (zeta_source_t)source
+    );
+}
+
+// Wire up automatic GitGraph integration with dual-process layer
+static inline void zeta_git_wire_auto_commit(zeta_git_ctx_t* ctx) {
+    if (ctx) {
+        zeta_set_git_ctx(ctx);
+        zeta_set_git_commit_fn(zeta_git_commit_auto_wrapper);
+        fprintf(stderr, "[GIT-GRAPH] Auto-commit wired: facts will auto-branch by domain\n");
+    }
+}
+
 // =============================================================================
 // TAGS (Immutable named references)
 // =============================================================================

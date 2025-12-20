@@ -399,6 +399,7 @@ static void zeta_proactive_prefetch_worker() {
 
         // High momentum = tunnel to related distant nodes
         zeta_dual_ctx_t* ctx = g_proactive->dual_ctx;
+        if (!ctx || !ctx->nodes || ctx->num_nodes <= 0) continue;
 
         // Setup graph for tunneling
         int dim = g_proactive->has_query_embedding ? 256 : 0;
@@ -433,6 +434,8 @@ static void zeta_proactive_prefetch_worker() {
         float best = 0.0f;
         for (int i = 0; i < ctx->num_nodes; i++) {
             if (!ctx->nodes[i].is_active) continue;
+            // Safety check for embedding
+            if (!ctx->nodes[i].embedding) continue;
             float sim = zeta_embed_similarity(output_embedding, ctx->nodes[i].embedding, out_dim);
             if (sim > best) {
                 best = sim;
@@ -464,10 +467,14 @@ static void zeta_proactive_prefetch_worker() {
             // Find and add node
             for (int j = 0; j < ctx->num_nodes; j++) {
                 if (ctx->nodes[j].node_id == result->node_id) {
+                    // Safety: check value exists
+                    if (!ctx->nodes[j].value || !ctx->nodes[j].label) break;
+                    
                     zeta_prefetch_node_t* pn = &g_proactive->queue[g_proactive->queue_size];
                     pn->node_id = result->node_id;
                     pn->relevance = result->relevance;
                     strncpy(pn->content, ctx->nodes[j].value, sizeof(pn->content) - 1);
+                    pn->content[sizeof(pn->content) - 1] = '\0';
                     pn->tokens = (strlen(pn->content) + 3) / 4;
                     pn->injected = false;
 
