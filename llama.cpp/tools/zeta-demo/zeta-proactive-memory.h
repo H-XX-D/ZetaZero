@@ -469,7 +469,7 @@ static void zeta_proactive_prefetch_worker() {
                 if (ctx->nodes[j].node_id == result->node_id) {
                     // Safety: check value exists
                     if (!ctx->nodes[j].value || !ctx->nodes[j].label) break;
-                    
+
                     zeta_prefetch_node_t* pn = &g_proactive->queue[g_proactive->queue_size];
                     pn->node_id = result->node_id;
                     pn->relevance = result->relevance;
