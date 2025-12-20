@@ -664,19 +664,19 @@ The following scripts are provided to simplify deployment:
 ```
 ZetaZero/
 ├── llama.cpp/                 # Modified llama.cpp with Z.E.T.A.
-│   ├── zeta-*.c/h            # Core Z.E.T.A. implementation
-│   ├── zeta-kernels.metal    # Metal GPU kernels
-│   ├── build/bin/            # Compiled binaries
-│   └── benchmarks/           # Benchmark suite
-├── Benchmarks/cuda/          # CUDA-specific benchmarks
-├── Docs/                     # Technical documentation
+│   └── tools/zeta-demo/      # Core Z.E.T.A. implementation
+│       ├── zeta-server.cpp   # Main server
+│       ├── zeta-*.h          # Header files (streaming, memory, etc.)
+│       └── zeta-kernels.metal # Metal GPU kernels
+├── docs/                      # Technical documentation
 │   ├── Papers/               # Academic papers
 │   ├── Reports/              # Technical reports
 │   └── Plans/                # Development roadmap
-├── scripts/                  # Automation scripts
-├── ui/                       # Web UI (in development)
-├── vscode/                   # VS Code extension
-└── ZetaLm/                   # Legacy ZetaLm components
+├── scripts/                   # Automation & testing scripts
+├── ui/                        # Web UI (in development)
+├── zeta-integration/          # Integration headers
+├── archive_20251219/          # Archived previous versions
+└── zeta.conf                  # Central configuration file
 ```
 
 ---
