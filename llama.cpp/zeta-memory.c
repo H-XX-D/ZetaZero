@@ -461,7 +461,7 @@ float zeta_entanglement_score(
     const float* summary,
     int dim
 ) {
-    // Sharpened cosine similarity: ReLU(cos(q, s))^3
+    // Sharpened cosine similarity: ReLU(cos(q, s))^2 (smoother than cubic)
     float dot = dot_product(query, summary, dim);
     float norm_q = vector_norm(query, dim);
 
@@ -474,8 +474,8 @@ float zeta_entanglement_score(
     // ReLU: clamp negatives to zero
     if (cos_sim < 0.0f) cos_sim = 0.0f;
 
-    // Cubic sharpening
-    return cos_sim * cos_sim * cos_sim;
+    // Quadratic sharpening to reduce over-penalizing paraphrases
+    return cos_sim * cos_sim;
 }
 
 int zeta_find_relevant_blocks(
@@ -528,8 +528,8 @@ int zeta_find_relevant_blocks(
         // ReLU clamp
         if (cos_sim < 0.0f) cos_sim = 0.0f;
 
-        // Cubic sharpening
-        float raw_score = cos_sim * cos_sim * cos_sim;
+        // Quadratic sharpening (softer than cubic)
+        float raw_score = cos_sim * cos_sim;
 
         // Apply temporal decay to score
         float score = raw_score * ctx->blocks[i].zeta_potential;
