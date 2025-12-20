@@ -90,7 +90,7 @@ typedef struct {
     int num_tokens;            // Number of tokens
     bool has_tokens;           // True if tokenized
 
-    float embedding[256];      // Semantic embedding
+    float embedding[2048];     // Semantic embedding (supports up to 2048-dim models)
     float salience;            // Importance score 0-1
     int64_t created_at;
     int64_t last_accessed;
@@ -269,8 +269,8 @@ static inline int64_t zeta_create_node_with_source(
     if (!label || !value || strlen(value) == 0) return -1;
 
     // Pre-compute embedding for the new value (needed for semantic dedup)
-    float new_embedding[256];
-    zeta_subconscious_embed(ctx, value, new_embedding, 256);
+    float new_embedding[2048];
+    zeta_subconscious_embed(ctx, value, new_embedding, 2048);
 
     // Check for existing node - use SEMANTIC similarity for generic labels
     int64_t existing_id = -1;
@@ -290,7 +290,7 @@ static inline int64_t zeta_create_node_with_source(
                 break;
             }
             // For generic labels, check value similarity too
-            float sim = zeta_cosine_sim_early(new_embedding, ctx->nodes[i].embedding, 256);
+            float sim = zeta_cosine_sim_early(new_embedding, ctx->nodes[i].embedding, 2048);
             if (sim > best_similarity && sim > 0.80f) {
                 best_similarity = sim;
                 existing_id = ctx->nodes[i].node_id;
@@ -299,7 +299,7 @@ static inline int64_t zeta_create_node_with_source(
         }
         // For generic labels, also check semantic similarity across ALL nodes
         else if (is_generic) {
-            float sim = zeta_cosine_sim_early(new_embedding, ctx->nodes[i].embedding, 256);
+            float sim = zeta_cosine_sim_early(new_embedding, ctx->nodes[i].embedding, 2048);
             if (sim > best_similarity && sim > 0.85f) {
                 best_similarity = sim;
                 existing_id = ctx->nodes[i].node_id;
@@ -596,7 +596,7 @@ static inline int zeta_tunnel(
     for (int i = 0; i < ctx->num_nodes; i++) {
         if (!ctx->nodes[i].is_active) continue;
         
-        float sim = zeta_cosine_sim(query_embed, ctx->nodes[i].embedding, 256);
+        float sim = zeta_cosine_sim(query_embed, ctx->nodes[i].embedding, 2048);
         
         // Apply salience boost
         sim *= (0.5f + 0.5f * ctx->nodes[i].salience);
@@ -813,8 +813,8 @@ static inline void zeta_surface_context(
     memset(out, 0, sizeof(zeta_surfaced_context_t));
     
     // Compute query embedding
-    float query_embed[256];
-    zeta_subconscious_embed(ctx, query, query_embed, 256);
+    float query_embed[2048];
+    zeta_subconscious_embed(ctx, query, query_embed, 2048);
     
     // Tunnel to relevant nodes
     out->num_nodes = zeta_tunnel(ctx, query_embed, out->nodes, 
