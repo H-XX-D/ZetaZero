@@ -2,9 +2,18 @@
 // 3B runs PARALLEL to 14B with cyclic correlation feedback
 
 // ============================================================================
-// Z6 DEFAULT MODEL PATHS (RTX 5060 Ti 16GB)
-// Override with -m, --model-7b-coder, --embed-model flags if needed
+// CONFIGURATION
 // ============================================================================
+// The server reads zeta.conf on startup. Search order:
+//   1. ./zeta.conf (current directory)
+//   2. ~/ZetaZero/zeta.conf (user home)
+//   3. /etc/zeta/zeta.conf (system-wide)
+//
+// Command-line flags override config file values.
+// If no config file found, uses hardcoded Z6 defaults below.
+// ============================================================================
+
+// Z6 DEFAULT MODEL PATHS (RTX 5060 Ti 16GB) - used if no config file
 #define Z6_MODEL_14B    "/home/xx/models/qwen2.5-14b-instruct-q4.gguf"
 #define Z6_MODEL_7B     "/home/xx/models/qwen2.5-7b-coder-q4_k_m.gguf"
 #define Z6_MODEL_EMBED  "/home/xx/models/Qwen3-Embedding-4B-Q4_K_M.gguf"
@@ -24,6 +33,9 @@
 #ifndef ZETA_BATCH_SIZE
 #define ZETA_BATCH_SIZE 2048  // Batch size for inference (increased for semantic critic)
 #endif
+
+// Configuration parser (reads zeta.conf)
+#include "zeta-config.h"
 
 #include <cpp-httplib/httplib.h>
 #include "arg.h"
@@ -1358,29 +1370,49 @@ int main(int argc, char** argv) {
     // Suppress tensor loading spam
     llama_log_set(quiet_log_callback, NULL);
 
+    // Load config file first (before parsing args)
+    zeta_load_config();
+
     // Z6 defaults now hardcoded - help message only on explicit --help
     if (argc > 1 && (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0)) {
-        fprintf(stderr, "Z.E.T.A. Server v5.1 - Zero flags needed for Z6 defaults\n");
+        fprintf(stderr, "Z.E.T.A. Server v5.1 - Reads zeta.conf on startup\n");
         fprintf(stderr, "Usage: %s [options]\n", argv[0]);
-        fprintf(stderr, "  -m <path>               Override 14B model (default: %s)\n", Z6_MODEL_14B);
-        fprintf(stderr, "  --model-7b-coder <path> Override 7B coder (default: %s)\n", Z6_MODEL_7B);
-        fprintf(stderr, "  --embed-model <path>    Override embed model (default: %s)\n", Z6_MODEL_EMBED);
-        fprintf(stderr, "  --port <N>              Server port (default: %d)\n", Z6_DEFAULT_PORT);
-        fprintf(stderr, "  --gpu-layers <N>        GPU layers (default: %d)\n", Z6_DEFAULT_GPU_LAYERS);
+        fprintf(stderr, "\nConfig file search order:\n");
+        fprintf(stderr, "  1. ./zeta.conf\n");
+        fprintf(stderr, "  2. ~/ZetaZero/zeta.conf\n");
+        fprintf(stderr, "  3. /etc/zeta/zeta.conf\n");
+        fprintf(stderr, "\nCommand-line overrides (take precedence over config):\n");
+        fprintf(stderr, "  -m <path>               Override 14B model\n");
+        fprintf(stderr, "  --model-7b-coder <path> Override 7B coder\n");
+        fprintf(stderr, "  --embed-model <path>    Override embed model\n");
+        fprintf(stderr, "  --port <N>              Server port\n");
+        fprintf(stderr, "  --gpu-layers <N>        GPU layers\n");
+        fprintf(stderr, "  --ctx-14b <N>           Context size for 14B\n");
+        fprintf(stderr, "  --ctx-3b <N>            Context size for 7B/3B\n");
+        fprintf(stderr, "  --zeta-storage <path>   Storage directory\n");
+        fprintf(stderr, "  --memory-password <pw>  Memory protection password\n");
+        fprintf(stderr, "\nDefaults (if no config):\n");
+        fprintf(stderr, "  14B:  %s\n", Z6_MODEL_14B);
+        fprintf(stderr, "  7B:   %s\n", Z6_MODEL_7B);
+        fprintf(stderr, "  Embed: %s\n", Z6_MODEL_EMBED);
+        fprintf(stderr, "  Port: %d, GPU layers: %d\n", Z6_DEFAULT_PORT, Z6_DEFAULT_GPU_LAYERS);
         return 0;
     }
 
     signal(SIGTERM, signal_handler);
     signal(SIGINT, signal_handler);
 
-    // Z6 defaults - no flags needed for standard startup
-    std::string model_conscious_path = Z6_MODEL_14B;
+    // Start with config file values, fall back to Z6 defaults
+    std::string model_conscious_path = g_config.model_14b.empty() ? Z6_MODEL_14B : g_config.model_14b;
     std::string model_subconscious_path, model_3b_coder_path;
-    std::string model_7b_coder_path = Z6_MODEL_7B;
+    std::string model_7b_coder_path = g_config.model_7b_coder.empty() ? Z6_MODEL_7B : g_config.model_7b_coder;
     std::string model_immune_path, model_tools_path, model_router_path, model_critic_path;
-    int port = Z6_DEFAULT_PORT;
-    int gpu_layers = Z6_DEFAULT_GPU_LAYERS;
-    g_embed_model_path = Z6_MODEL_EMBED;
+    int port = g_config.port > 0 ? g_config.port : Z6_DEFAULT_PORT;
+    int gpu_layers = g_config.gpu_layers > 0 ? g_config.gpu_layers : Z6_DEFAULT_GPU_LAYERS;
+    g_embed_model_path = g_config.model_embed.empty() ? Z6_MODEL_EMBED : g_config.model_embed;
+    g_storage_dir = g_config.storage_dir.empty() ? "/mnt/HoloGit/blocks" : g_config.storage_dir;
+    g_ctx_size_14b = g_config.ctx_14b > 0 ? g_config.ctx_14b : ZETA_CTX_SIZE;
+    g_ctx_size_3b = g_config.ctx_7b > 0 ? g_config.ctx_7b : ZETA_CTX_SIZE_3B;
 
     g_params.sampling.temp = 0.7f;
     g_params.sampling.top_p = 0.9f;
