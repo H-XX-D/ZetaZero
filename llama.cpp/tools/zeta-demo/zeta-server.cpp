@@ -604,7 +604,8 @@ static std::string generate(const std::string& prompt, int max_tokens) {
         }
 
         // Start parallel prefetch thread (will tunnel for more as 14B generates)
-        zeta_proactive_start_generation();
+        // TEMP: Disabled for debugging generation hang
+        // zeta_proactive_start_generation();
     }
 
     // Check for numeric conflicts BEFORE generation
@@ -714,12 +715,9 @@ static std::string generate(const std::string& prompt, int max_tokens) {
 
     auto* sampler = common_sampler_init(g_model_14b, g_params.sampling);
     int kv_next_pos = n_tokens;  // Track actual KV cache position for self-eval
-    fprintf(stderr, "[GEN] Starting loop, max_tokens=%d, kv_next_pos=%d\n", max_tokens, kv_next_pos);
 
     for (int i = 0; i < max_tokens; i++) {
-        if (i == 0) fprintf(stderr, "[GEN] First iteration entering\n");
         float* logits = llama_get_logits_ith(g_ctx_14b, -1);
-        if (i == 0) fprintf(stderr, "[GEN] Got logits: %p, n_vocab=%d\n", (void*)logits, n_vocab);
 
         // Compute momentum from 14B logits
         float momentum = compute_momentum_from_logits(logits, n_vocab);
@@ -732,19 +730,15 @@ static std::string generate(const std::string& prompt, int max_tokens) {
         }
 
         // Update proactive prefetch with momentum (drives tunneling)
-        if (i == 0) fprintf(stderr, "[GEN] Before proactive update\n");
-        zeta_proactive_update_momentum(momentum);
-        if (i == 0) fprintf(stderr, "[GEN] Before sample\n");
+        // TEMP: Disabled for debugging
+        // zeta_proactive_update_momentum(momentum);
 
         llama_token tok = common_sampler_sample(sampler, g_ctx_14b, -1);
-        if (i == 0) fprintf(stderr, "[GEN] Sampled token: %d\n", tok);
         common_sampler_accept(sampler, tok, true);
-        if (i == 0) fprintf(stderr, "[GEN] After accept\n");
 
         // Convert token to piece first
         char piece[64] = {0};
         llama_token_to_piece(g_vocab, tok, piece, sizeof(piece), 0, true);
-        if (i == 0) fprintf(stderr, "[GEN] Token piece: '%s'\n", piece);
 
         // Skip stray leading <|im_start|> (don't add to output, but still decode for consistency)
         if (output.empty() && strcmp(piece, "<|im_start|>") == 0) {
