@@ -18,6 +18,33 @@ static const llama_vocab* g_zeta_vocab = NULL;
 
 static inline void zeta_set_vocab(const llama_vocab* vocab) { g_zeta_vocab = vocab; }
 
+// Global git context for automatic versioning (set by server)
+// Uses void* to avoid circular dependency with zeta-graph-git.h
+static void* g_zeta_git_ctx = NULL;
+
+static inline void zeta_set_git_ctx(void* git) { g_zeta_git_ctx = git; }
+
+// Function pointer for automatic git commits (set by zeta-graph-git.h)
+// Signature: (ctx, type, label, value, salience, source) -> node_id
+typedef int64_t (*zeta_git_commit_fn)(void*, int, const char*, const char*, float, int);
+static zeta_git_commit_fn g_zeta_git_commit_auto = NULL;
+
+static inline void zeta_set_git_commit_fn(zeta_git_commit_fn fn) { g_zeta_git_commit_auto = fn; }
+
+// Function pointer for git edge commits (set by zeta-graph-git.h)
+// Signature: (ctx, source_id, target_id, type, weight) -> edge_id
+typedef int64_t (*zeta_git_edge_fn)(void*, int64_t, int64_t, int, float);
+static zeta_git_edge_fn g_zeta_git_commit_edge = NULL;
+
+static inline void zeta_set_git_edge_fn(zeta_git_edge_fn fn) { g_zeta_git_commit_edge = fn; }
+
+// Function pointer for 4B embedding model (set by zeta-embed-integration.h)
+// Signature: (text, output, max_dim) -> actual_dim or -1
+typedef int (*zeta_embed_fn)(const char*, float*, int);
+static zeta_embed_fn g_zeta_embed_text = NULL;
+
+static inline void zeta_set_embed_fn(zeta_embed_fn fn) { g_zeta_embed_text = fn; }
+
 static inline bool zeta_tokenize_value(const char* value, int32_t* tokens, int* n_tok, int max_tok) {
     if (!g_zeta_vocab || !value || !tokens || !n_tok) return false;
     *n_tok = llama_tokenize(g_zeta_vocab, value, strlen(value), tokens, max_tok, false, false);
@@ -77,13 +104,14 @@ typedef struct {
     int num_tokens;            // Number of tokens
     bool has_tokens;           // True if tokenized
 
-    float embedding[256];      // Semantic embedding
+    float embedding[2048];     // Semantic embedding (supports up to 2048-dim models)
     float salience;            // Importance score 0-1
     int64_t created_at;
     int64_t last_accessed;
     int access_count;
     int current_tier;          // VRAM/RAM/NVME
     bool is_active;
+    bool is_pinned;            // Pinned nodes cannot decay (core identity)
     zeta_source_t source;      // USER=ground truth, MODEL=inferred
     int64_t session_id;        // Session isolation
     char concept_key[64];      // For version chains (e.g., "validation_location")
@@ -116,9 +144,9 @@ typedef struct {
 
 // Dual-process state
 typedef struct {
-    // 3B model (subconscious)
-    llama_model* model_3b;
-    llama_context* ctx_3b;
+    // Subconscious model (7B memory/extraction)
+    llama_model* model_subconscious;
+    llama_context* ctx_subconscious;
     
     // Memory graph
     zeta_graph_node_t nodes[ZETA_MAX_GRAPH_NODES];
@@ -157,53 +185,48 @@ static inline int64_t zeta_create_edge(zeta_dual_ctx_t*, int64_t, int64_t, zeta_
 
 // Initialize dual-process context
 static inline zeta_dual_ctx_t* zeta_dual_init(
-    llama_model* model_3b,
+    llama_model* model_subconscious,
     const char* storage_dir
 ) {
     zeta_dual_ctx_t* ctx = (zeta_dual_ctx_t*)calloc(1, sizeof(zeta_dual_ctx_t));
     if (!ctx) return NULL;
     
-    ctx->model_3b = model_3b;
+    ctx->model_subconscious = model_subconscious;
     ctx->next_node_id = 1;
     ctx->next_edge_id = 1;
     strncpy(ctx->storage_dir, storage_dir, sizeof(ctx->storage_dir) - 1);
     
-    // Create 3B context for semantic operations
-    if (model_3b) {
-        llama_context_params cparams = llama_context_default_params();
-        cparams.n_ctx = 8192;  // Larger context for smarter 3B semantic understanding
-        cparams.n_batch = 2048;  // Larger batch for better throughput
-        ctx->ctx_3b = llama_init_from_model(model_3b, cparams);
-    }
+    // DON'T create 3B/7B context here - let main() do it with proper VRAM sizing
+    // The extraction context will be created after all models are loaded
+    // so we know how much VRAM is available
+    ctx->ctx_subconscious = NULL;  // Will be set by main()
     
     return ctx;
 }
 
-// Compute semantic embedding using 3B
-static inline void zeta_3b_embed(
+// Compute semantic embedding using 4B embedding model (or fallback to hash)
+static inline void zeta_subconscious_embed(
     zeta_dual_ctx_t* ctx,
     const char* text,
     float* embedding,
     int embed_dim
 ) {
-    if (!ctx || !ctx->ctx_3b || !text || !embedding) {
-        // Fallback to hash embedding if 3B not available
-        memset(embedding, 0, embed_dim * sizeof(float));
-        size_t len = strlen(text);
-        for (size_t i = 0; i < len; i++) {
-            uint32_t h = (uint32_t)text[i] * 2654435761u;
-            embedding[h % embed_dim] += 1.0f;
+    if (!text || !embedding) return;
+
+    // Use 4B embedding model if available
+    if (g_zeta_embed_text) {
+        int actual_dim = g_zeta_embed_text(text, embedding, embed_dim);
+        if (actual_dim > 0) {
+            // Pad with zeros if actual < embed_dim
+            if (actual_dim < embed_dim) {
+                memset(embedding + actual_dim, 0, (embed_dim - actual_dim) * sizeof(float));
+            }
+            return;
         }
-        // Normalize
-        float norm = 0;
-        for (int i = 0; i < embed_dim; i++) norm += embedding[i] * embedding[i];
-        norm = sqrtf(norm + 1e-8f);
-        for (int i = 0; i < embed_dim; i++) embedding[i] /= norm;
-        return;
+        // Fall through to hash if 4B failed
     }
-    
-    // TODO: Run 3B inference to get hidden states as embedding
-    // For now, use hash embedding
+
+    // Fallback to hash embedding
     memset(embedding, 0, embed_dim * sizeof(float));
     size_t len = strlen(text);
     for (size_t i = 0; i < len; i++) {
@@ -217,8 +240,28 @@ static inline void zeta_3b_embed(
 }
 
 // Create a new graph node
-// Forward declaration
+// Forward declarations
 static inline int64_t zeta_create_edge(zeta_dual_ctx_t* ctx, int64_t source_id, int64_t target_id, zeta_edge_type_t type, float weight);
+static inline float zeta_cosine_sim_early(const float* a, const float* b, int dim);
+
+// Early cosine similarity for deduplication (before main definition)
+static inline float zeta_cosine_sim_early(const float* a, const float* b, int dim) {
+    float dot = 0, norm_a = 0, norm_b = 0;
+    for (int i = 0; i < dim; i++) {
+        dot += a[i] * b[i];
+        norm_a += a[i] * a[i];
+        norm_b += b[i] * b[i];
+    }
+    return dot / (sqrtf(norm_a) * sqrtf(norm_b) + 1e-8f);
+}
+
+// Check if label is generic (needs semantic deduplication)
+static inline bool zeta_is_generic_label(const char* label) {
+    return strcmp(label, "raw_memory") == 0 ||
+           strcmp(label, "memory") == 0 ||
+           strcmp(label, "fact") == 0 ||
+           strcmp(label, "statement") == 0;
+}
 
 // Git-style versioned node creation
 // If same label exists with DIFFERENT value: create new version + SUPERSEDES edge
@@ -233,40 +276,73 @@ static inline int64_t zeta_create_node_with_source(
 ) {
     if (!ctx || ctx->num_nodes >= ZETA_MAX_GRAPH_NODES) return -1;
     if (!label || !value || strlen(value) == 0) return -1;
-    
-    // Check for existing node with same label
+
+    // Pre-compute embedding for the new value (needed for semantic dedup)
+    float new_embedding[2048];
+    zeta_subconscious_embed(ctx, value, new_embedding, 2048);
+
+    // Check for existing node - use SEMANTIC similarity for generic labels
     int64_t existing_id = -1;
     int existing_idx = -1;
+    float best_similarity = 0.0f;
+    bool is_generic = zeta_is_generic_label(label);
+
     for (int i = 0; i < ctx->num_nodes; i++) {
-        if (ctx->nodes[i].is_active && 
-            strcmp(ctx->nodes[i].label, label) == 0) {
-            existing_id = ctx->nodes[i].node_id;
-            existing_idx = i;
-            break;
+        if (!ctx->nodes[i].is_active) continue;
+
+        // Exact label match (always check)
+        if (strcmp(ctx->nodes[i].label, label) == 0) {
+            // For non-generic labels, label match is enough
+            if (!is_generic) {
+                existing_id = ctx->nodes[i].node_id;
+                existing_idx = i;
+                break;
+            }
+            // For generic labels, check value similarity too
+            float sim = zeta_cosine_sim_early(new_embedding, ctx->nodes[i].embedding, 2048);
+            if (sim > best_similarity && sim > 0.80f) {
+                best_similarity = sim;
+                existing_id = ctx->nodes[i].node_id;
+                existing_idx = i;
+            }
+        }
+        // For generic labels, also check semantic similarity across ALL nodes
+        else if (is_generic) {
+            float sim = zeta_cosine_sim_early(new_embedding, ctx->nodes[i].embedding, 2048);
+            if (sim > best_similarity && sim > 0.85f) {
+                best_similarity = sim;
+                existing_id = ctx->nodes[i].node_id;
+                existing_idx = i;
+                fprintf(stderr, "[3B] Semantic match: %.2f sim with node %d '%s'\n",
+                        sim, i, ctx->nodes[i].label);
+            }
         }
     }
-    
+
     if (existing_idx >= 0) {
-        // Node with same label exists
+        // Node with same/similar content exists
         if (strcmp(ctx->nodes[existing_idx].value, value) == 0) {
             // SAME VALUE: just update access time (no new version)
             ctx->nodes[existing_idx].last_accessed = (int64_t)time(NULL);
             ctx->nodes[existing_idx].access_count++;
+            fprintf(stderr, "[3B] Dedup: surfacing existing node %lld '%s'\n",
+                    existing_id, ctx->nodes[existing_idx].label);
             return existing_id;
         }
-        
-        // DIFFERENT VALUE: Check source trust hierarchy
+
+        // DIFFERENT VALUE but semantically similar - Check source trust hierarchy
         zeta_source_t existing_source = ctx->nodes[existing_idx].source;
-        
+
         // SOURCE_MODEL cannot override SOURCE_USER (USER is ground truth)
         if (existing_source == SOURCE_USER && source == SOURCE_MODEL) {
-            fprintf(stderr, "[3B] Blocked: MODEL cannot override USER fact '%s'\n", label);
+            fprintf(stderr, "[3B] Blocked: MODEL cannot override USER fact '%s'\n",
+                    ctx->nodes[existing_idx].label);
             return existing_id;  // Keep existing USER fact
         }
-        
+
         // Create new version (git-style)
         if (ctx->num_nodes >= ZETA_MAX_GRAPH_NODES) return -1;
-        
+
         zeta_graph_node_t* new_node = &ctx->nodes[ctx->num_nodes];
         new_node->node_id = ctx->next_node_id++;
         new_node->type = type;
@@ -280,16 +356,17 @@ static inline int64_t zeta_create_node_with_source(
         new_node->current_tier = ZETA_TIER_RAM;
         new_node->is_active = true;
         new_node->source = source;
-        
-        zeta_3b_embed(ctx, value, new_node->embedding, 256);
+
+        memcpy(new_node->embedding, new_embedding, sizeof(new_embedding));
         ctx->num_nodes++;
-        
+
         // Create SUPERSEDES edge: old -> new (new version supersedes old)
         zeta_create_edge(ctx, existing_id, new_node->node_id, EDGE_SUPERSEDES, 1.0f);
-        
-        fprintf(stderr, "[3B] Version update: %s = '%s' -> '%s' (v%d)\n", 
-                label, ctx->nodes[existing_idx].value, value, ctx->num_nodes);
-        
+
+        fprintf(stderr, "[3B] Version update: %s = '%s' -> '%s' (sim=%.2f, v%d)\n",
+                ctx->nodes[existing_idx].label, ctx->nodes[existing_idx].value,
+                value, best_similarity, ctx->num_nodes);
+
         return new_node->node_id;
     }
     
@@ -308,7 +385,7 @@ static inline int64_t zeta_create_node_with_source(
     node->is_active = true;
     node->source = source;
     
-    zeta_3b_embed(ctx, value, node->embedding, 256);
+    memcpy(node->embedding, new_embedding, sizeof(new_embedding));  // Use pre-computed embedding
     // Pre-tokenize for direct injection
     if (g_zeta_vocab) { node->has_tokens = zeta_tokenize_value(value, node->tokens, &node->num_tokens, 128); if (node->has_tokens) fprintf(stderr, "[TOK] %d tokens: %.40s...\n", node->num_tokens, value); }
     ctx->num_nodes++;
@@ -318,7 +395,41 @@ static inline int64_t zeta_create_node_with_source(
     
     return node->node_id;
 }
+
+// Smart commit: routes through GitGraph when enabled, otherwise direct storage
+// This provides automatic domain branching and version tracking invisibly
+static inline int64_t zeta_commit_fact(
+    zeta_dual_ctx_t* ctx,
+    zeta_node_type_t type,
+    const char* label,
+    const char* value,
+    float salience,
+    zeta_source_t source
+) {
+    // If GitGraph is wired up, use automatic domain-based branching
+    if (g_zeta_git_ctx && g_zeta_git_commit_auto) {
+        int64_t node_id = g_zeta_git_commit_auto(g_zeta_git_ctx, (int)type, label, value, salience, (int)source);
+        if (node_id >= 0) {
+            fprintf(stderr, "[GIT-AUTO] Committed to domain branch: %s = %.40s...\n", label, value);
+            return node_id;
+        }
+    }
+    // Fallback to direct storage
+    return zeta_create_node_with_source(ctx, type, label, value, salience, source);
+}
+
 // Create edge between nodes
+// Max edges per source node (prevents explosion)
+#define ZETA_MAX_EDGES_PER_SOURCE 8
+
+static inline int zeta_count_source_edges(zeta_dual_ctx_t* ctx, int64_t source_id) {
+    int count = 0;
+    for (int i = 0; i < ctx->num_edges; i++) {
+        if (ctx->edges[i].source_id == source_id) count++;
+    }
+    return count;
+}
+
 static inline int64_t zeta_create_edge(
     zeta_dual_ctx_t* ctx,
     int64_t source_id,
@@ -327,7 +438,15 @@ static inline int64_t zeta_create_edge(
     float weight
 ) {
     if (!ctx || ctx->num_edges >= ZETA_MAX_EDGES) return -1;
-    
+
+    // Limit edges per source (except structural edges)
+    if (type == EDGE_RELATED) {
+        int source_edges = zeta_count_source_edges(ctx, source_id);
+        if (source_edges >= ZETA_MAX_EDGES_PER_SOURCE) {
+            return -1;  // Skip - this node already has enough edges
+        }
+    }
+
     zeta_graph_edge_t* edge = &ctx->edges[ctx->num_edges];
     edge->edge_id = ctx->next_edge_id++;
     edge->source_id = source_id;
@@ -336,9 +455,145 @@ static inline int64_t zeta_create_edge(
     edge->weight = weight;
     edge->created_at = (int64_t)time(NULL);
     edge->version = 1;
-    
+
     ctx->num_edges++;
     return edge->edge_id;
+}
+
+// Smart edge commit: routes through GitGraph when enabled (tracked/permanent)
+// Use this for important edges (CAUSES, PREVENTS, CREATED)
+static inline int64_t zeta_commit_edge(
+    zeta_dual_ctx_t* ctx,
+    int64_t source_id,
+    int64_t target_id,
+    zeta_edge_type_t type,
+    float weight
+) {
+    // If GitGraph is wired up, use git-tracked edge creation
+    if (g_zeta_git_ctx && g_zeta_git_commit_edge) {
+        int64_t edge_id = g_zeta_git_commit_edge(g_zeta_git_ctx, source_id, target_id, (int)type, weight);
+        if (edge_id >= 0) {
+            return edge_id;
+        }
+    }
+    // Fallback to direct creation
+    return zeta_create_edge(ctx, source_id, target_id, type, weight);
+}
+
+// ============================================================================
+// Edge Deduplication and Pruning
+// ============================================================================
+
+// Find existing edge between source and target with same type
+static inline int zeta_find_edge(
+    zeta_dual_ctx_t* ctx,
+    int64_t source_id,
+    int64_t target_id,
+    zeta_edge_type_t type
+) {
+    if (!ctx) return -1;
+    for (int i = 0; i < ctx->num_edges; i++) {
+        if (ctx->edges[i].source_id == source_id &&
+            ctx->edges[i].target_id == target_id &&
+            ctx->edges[i].type == type) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+// Create edge only if it doesn't already exist, otherwise update weight
+static inline int64_t zeta_create_edge_dedup(
+    zeta_dual_ctx_t* ctx,
+    int64_t source_id,
+    int64_t target_id,
+    zeta_edge_type_t type,
+    float weight
+) {
+    if (!ctx) return -1;
+
+    // Check for existing edge
+    int existing = zeta_find_edge(ctx, source_id, target_id, type);
+    if (existing >= 0) {
+        // Reinforce existing edge (weighted average, cap at 1.0)
+        float new_weight = ctx->edges[existing].weight * 0.7f + weight * 0.3f;
+        if (new_weight > 1.0f) new_weight = 1.0f;
+        ctx->edges[existing].weight = new_weight;
+        ctx->edges[existing].version++;
+        return ctx->edges[existing].edge_id;
+    }
+
+    // Create new edge
+    return zeta_create_edge(ctx, source_id, target_id, type, weight);
+}
+
+// Prune low-weight edges (weight < threshold)
+// Protected edges: SUPERSEDES, CAUSES, PREVENTS, CREATED (semantic structure)
+static inline int zeta_prune_edges(
+    zeta_dual_ctx_t* ctx,
+    float weight_threshold,
+    int max_prune
+) {
+    if (!ctx || ctx->num_edges == 0) return 0;
+
+    int pruned = 0;
+    int i = 0;
+
+    while (i < ctx->num_edges && pruned < max_prune) {
+        zeta_edge_type_t type = ctx->edges[i].type;
+
+        // Never prune structural/causal edges - they define the knowledge graph
+        if (type == EDGE_SUPERSEDES || type == EDGE_CAUSES ||
+            type == EDGE_PREVENTS || type == EDGE_CREATED) {
+            i++;
+            continue;
+        }
+
+        if (ctx->edges[i].weight < weight_threshold) {
+            for (int j = i; j < ctx->num_edges - 1; j++) {
+                ctx->edges[j] = ctx->edges[j + 1];
+            }
+            ctx->num_edges--;
+            pruned++;
+        } else {
+            i++;
+        }
+    }
+
+    if (pruned > 0) {
+        fprintf(stderr, "[GRAPH:PRUNE] Removed %d low-weight edges (threshold=%.2f)\n",
+                pruned, weight_threshold);
+    }
+
+    return pruned;
+}
+
+// Apply weight decay to all edges (for aging)
+// Protected edges: SUPERSEDES, CAUSES, PREVENTS, CREATED (semantic structure)
+static inline void zeta_decay_edges(
+    zeta_dual_ctx_t* ctx,
+    float decay_factor
+) {
+    if (!ctx) return;
+    for (int i = 0; i < ctx->num_edges; i++) {
+        zeta_edge_type_t type = ctx->edges[i].type;
+
+        // Never decay structural/causal edges - they define the knowledge graph
+        if (type == EDGE_SUPERSEDES || type == EDGE_CAUSES ||
+            type == EDGE_PREVENTS || type == EDGE_CREATED) {
+            continue;
+        }
+
+        // Slow decay for high-weight edges (important relationships)
+        float effective_decay = decay_factor;
+        if (ctx->edges[i].weight > 0.8f) {
+            effective_decay = 0.98f;  // Only 2% decay for important edges
+        } else if (ctx->edges[i].weight > 0.5f) {
+            effective_decay = (decay_factor + 1.0f) / 2.0f;  // Half decay rate
+        }
+
+        ctx->edges[i].weight *= effective_decay;
+    }
 }
 
 // Version a fact (supersede old with new)
@@ -405,7 +660,7 @@ static inline int zeta_tunnel(
     for (int i = 0; i < ctx->num_nodes; i++) {
         if (!ctx->nodes[i].is_active) continue;
         
-        float sim = zeta_cosine_sim(query_embed, ctx->nodes[i].embedding, 256);
+        float sim = zeta_cosine_sim(query_embed, ctx->nodes[i].embedding, 2048);
         
         // Apply salience boost
         sim *= (0.5f + 0.5f * ctx->nodes[i].salience);
@@ -622,8 +877,8 @@ static inline void zeta_surface_context(
     memset(out, 0, sizeof(zeta_surfaced_context_t));
     
     // Compute query embedding
-    float query_embed[256];
-    zeta_3b_embed(ctx, query, query_embed, 256);
+    float query_embed[2048];
+    zeta_subconscious_embed(ctx, query, query_embed, 2048);
     
     // Tunnel to relevant nodes
     out->num_nodes = zeta_tunnel(ctx, query_embed, out->nodes, 
@@ -695,7 +950,7 @@ static inline void zeta_surface_context(
 // ============================================================================
 
 // Extract facts using 3B semantic analysis  
-static inline int zeta_3b_extract_facts(
+static inline int zeta_subconscious_extract_facts(
     zeta_dual_ctx_t* ctx,
     const char* text
 ) {
@@ -713,8 +968,8 @@ static inline int zeta_3b_extract_facts(
         while (*content == ' ') content++;  // Skip spaces
         
         if (strlen(content) > 5) {
-            // Store as raw_memory with high salience
-            zeta_create_node(ctx, NODE_FACT, "raw_memory", content, 0.95f);
+            // Store as raw_memory with high salience (routes through GitGraph if enabled)
+            zeta_commit_fact(ctx, NODE_FACT, "raw_memory", content, 0.95f, SOURCE_USER);
             facts_created++;
             fprintf(stderr, "[REMEMBER] Direct storage: %.60s...\n", content);
 
@@ -748,9 +1003,9 @@ static inline int zeta_3b_extract_facts(
                     obj[oi] = '\0';
 
                     if (strlen(subj) > 1 && strlen(obj) > 1) {
-                        int64_t subj_id = zeta_create_node(ctx, NODE_ENTITY, "causal_agent", subj, 0.9f);
-                        int64_t obj_id = zeta_create_node(ctx, NODE_ENTITY, "causal_target", obj, 0.9f);
-                        zeta_create_edge(ctx, subj_id, obj_id, EDGE_CAUSES, 1.0f);
+                        int64_t subj_id = zeta_commit_fact(ctx, NODE_ENTITY, "causal_agent", subj, 0.9f, SOURCE_USER);
+                        int64_t obj_id = zeta_commit_fact(ctx, NODE_ENTITY, "causal_target", obj, 0.9f, SOURCE_USER);
+                        zeta_commit_edge(ctx, subj_id, obj_id, EDGE_CAUSES, 1.0f);
                         facts_created++;
                         fprintf(stderr, "[CAUSAL] %s --CAUSES--> %s\n", subj, obj);
                     }
@@ -780,9 +1035,9 @@ static inline int zeta_3b_extract_facts(
                     obj[oi] = '\0';
 
                     if (strlen(subj) > 1 && strlen(obj) > 1) {
-                        int64_t subj_id = zeta_create_node(ctx, NODE_ENTITY, "preventer", subj, 0.95f);
-                        int64_t obj_id = zeta_create_node(ctx, NODE_ENTITY, "prevented", obj, 0.9f);
-                        zeta_create_edge(ctx, subj_id, obj_id, EDGE_PREVENTS, 1.0f);
+                        int64_t subj_id = zeta_commit_fact(ctx, NODE_ENTITY, "preventer", subj, 0.95f, SOURCE_USER);
+                        int64_t obj_id = zeta_commit_fact(ctx, NODE_ENTITY, "prevented", obj, 0.9f, SOURCE_USER);
+                        zeta_commit_edge(ctx, subj_id, obj_id, EDGE_PREVENTS, 1.0f);
                         facts_created++;
                         fprintf(stderr, "[PREVENTS] %s --PREVENTS--> %s\n", subj, obj);
                     }
@@ -799,7 +1054,7 @@ static inline int zeta_3b_extract_facts(
                      strstr(text, "function ") != NULL);
     
     // USE 3B MODEL FOR SEMANTIC EXTRACTION
-    if (ctx->ctx_3b && ctx->model_3b) {
+    if (ctx->ctx_subconscious && ctx->model_subconscious) {
         char prompt[4096];
         if (has_code) {
             // CODE EXTRACTION MODE - extract specs, not code
@@ -847,14 +1102,14 @@ static inline int zeta_3b_extract_facts(
                 "<|im_start|>assistant\n",
                 text);
         }
-        const llama_vocab* vocab = llama_model_get_vocab(ctx->model_3b);
+        const llama_vocab* vocab = llama_model_get_vocab(ctx->model_subconscious);
         std::vector<llama_token> tokens(2048);
         int n_tokens = llama_tokenize(vocab, prompt, strlen(prompt),
                                        tokens.data(), tokens.size(), true, true);
         
         if (n_tokens > 0 && n_tokens < 1024) {
             tokens.resize(n_tokens);
-            llama_memory_clear(llama_get_memory(ctx->ctx_3b), true);
+            llama_memory_clear(llama_get_memory(ctx->ctx_subconscious), true);
             
             llama_batch batch = llama_batch_init(n_tokens, 0, 1);
             for (int i = 0; i < n_tokens; i++) {
@@ -862,13 +1117,13 @@ static inline int zeta_3b_extract_facts(
             }
             batch.logits[batch.n_tokens - 1] = true;
             
-            if (llama_decode(ctx->ctx_3b, batch) == 0) {
+            if (llama_decode(ctx->ctx_subconscious, batch) == 0) {
                 std::string output;
                 int n_cur = n_tokens;
                 int n_vocab = llama_vocab_n_tokens(vocab);
                 
                 for (int g = 0; g < 100 && output.size() < 400; g++) {
-                    float* logits = llama_get_logits_ith(ctx->ctx_3b, -1);
+                    float* logits = llama_get_logits_ith(ctx->ctx_subconscious, -1);
                     llama_token best = 0;
                     float best_logit = logits[0];
                     for (int v = 1; v < n_vocab; v++) {
@@ -885,7 +1140,7 @@ static inline int zeta_3b_extract_facts(
                     llama_batch_free(batch);
                     batch = llama_batch_init(1, 0, 1);
                     common_batch_add(batch, best, n_cur++, {0}, true);
-                    if (llama_decode(ctx->ctx_3b, batch) != 0) break;
+                    if (llama_decode(ctx->ctx_subconscious, batch) != 0) break;
                 }
                 
                 fprintf(stderr, "[3B-SEMANTIC] Output: %s\n", output.c_str());
@@ -950,7 +1205,7 @@ static inline int zeta_3b_extract_facts(
                                 }
                             }
                             
-                            int64_t new_id = zeta_create_node(ctx, nt, type, value, sal);
+                            int64_t new_id = zeta_commit_fact(ctx, nt, type, value, sal, SOURCE_MODEL);
                             
                             // Set concept_key on new node
                             if (concept_key[0] && new_id > 0) {
@@ -1025,8 +1280,8 @@ static inline int zeta_3b_extract_facts(
             value[vi] = '\0';
             
             if (vi > 0) {
-                int64_t nid = zeta_create_node(ctx, NODE_ENTITY, "user", value, 1.0f);
-                zeta_create_node(ctx, NODE_FACT, "user_name", value, 0.95f);
+                int64_t nid = zeta_commit_fact(ctx, NODE_ENTITY, "user", value, 1.0f, SOURCE_USER);
+                zeta_commit_fact(ctx, NODE_FACT, "user_name", value, 0.95f, SOURCE_USER);
                 facts_created++;
             }
         }
@@ -1058,7 +1313,7 @@ static inline int zeta_3b_extract_facts(
                 if (vi > 0) {
                     char entity[64];
                     snprintf(entity, sizeof(entity), "favorite_%s", types[t]);
-                    zeta_create_node(ctx, NODE_FACT, entity, value, 0.85f);
+                    zeta_commit_fact(ctx, NODE_FACT, entity, value, 0.85f, SOURCE_USER);
                     facts_created++;
                 }
             }
@@ -1084,14 +1339,14 @@ static inline int zeta_3b_extract_facts(
             value[vi] = '\0';
             
             if (vi > 0) {
-                const char* etype = (strstr(project_patterns[p], "codename")) 
+                const char* etype = (strstr(project_patterns[p], "codename"))
                     ? "project_codename" : "project";
-                int64_t pid = zeta_create_node(ctx, NODE_ENTITY, etype, value, 0.9f);
-                
-                // Create creator edge from user to project
+                int64_t pid = zeta_commit_fact(ctx, NODE_ENTITY, etype, value, 0.9f, SOURCE_USER);
+
+                // Create creator edge from user to project (git-tracked)
                 for (int i = 0; i < ctx->num_nodes; i++) {
                     if (strcmp(ctx->nodes[i].label, "user") == 0) {
-                        zeta_create_edge(ctx, ctx->nodes[i].node_id, pid, 
+                        zeta_commit_edge(ctx, ctx->nodes[i].node_id, pid,
                                         EDGE_CREATED, 1.0f);
                         break;
                     }
@@ -1120,7 +1375,7 @@ static inline int zeta_3b_extract_facts(
             value[vi] = '\0';
             
             if (vi > 1) {
-                zeta_create_node(ctx, NODE_FACT, "location", value, 0.85f);
+                zeta_commit_fact(ctx, NODE_FACT, "location", value, 0.85f, SOURCE_USER);
                 facts_created++;
                 fprintf(stderr, "[3B] Extracted location: %s\n", value);
             }
@@ -1151,7 +1406,7 @@ static inline int zeta_3b_extract_facts(
                 const char* label = "numeric_fact";
                 if (strstr(numeric_patterns[p], "rate")) label = "rate_limit";
                 else if (strstr(numeric_patterns[p], "count")) label = "count";
-                zeta_create_node(ctx, NODE_FACT, label, value, 0.85f);
+                zeta_commit_fact(ctx, NODE_FACT, label, value, 0.85f, SOURCE_USER);
                 facts_created++;
                 fprintf(stderr, "[3B] Extracted numeric: %s = %s\n", label, value);
             }
@@ -1210,16 +1465,16 @@ static inline int zeta_3b_extract_facts(
             c_object[coi] = '\0';
 
             if (strlen(c_subject) > 1 && strlen(c_object) > 1) {
-                int64_t c_subj_id = zeta_create_node(ctx, NODE_ENTITY, "causal_agent", c_subject, 0.85f);
-                int64_t c_obj_id = zeta_create_node(ctx, NODE_ENTITY, "causal_target", c_object, 0.85f);
-                zeta_create_edge(ctx, c_subj_id, c_obj_id, EDGE_CAUSES, 1.0f);
+                int64_t c_subj_id = zeta_commit_fact(ctx, NODE_ENTITY, "causal_agent", c_subject, 0.85f, SOURCE_USER);
+                int64_t c_obj_id = zeta_commit_fact(ctx, NODE_ENTITY, "causal_target", c_object, 0.85f, SOURCE_USER);
+                zeta_commit_edge(ctx, c_subj_id, c_obj_id, EDGE_CAUSES, 1.0f);
                 facts_created++;
                 fprintf(stderr, "[3B] CAUSAL: %s --CAUSES--> %s\n", c_subject, c_object);
 
                 // Store full causal sentence for surfacing
                 char c_sent[256];
                 snprintf(c_sent, sizeof(c_sent), "%s causes %s", c_subject, c_object);
-                zeta_create_node(ctx, NODE_FACT, "causes_relation", c_sent, 0.95f);
+                zeta_commit_fact(ctx, NODE_FACT, "causes_relation", c_sent, 0.95f, SOURCE_USER);
             }
         }
     }
@@ -1250,21 +1505,205 @@ static inline int zeta_3b_extract_facts(
             p_object[poi] = '\0';
 
             if (strlen(p_subject) > 1 && strlen(p_object) > 1) {
-                int64_t p_subj_id = zeta_create_node(ctx, NODE_ENTITY, "preventer", p_subject, 0.9f);
-                int64_t p_obj_id = zeta_create_node(ctx, NODE_ENTITY, "prevented", p_object, 0.85f);
-                zeta_create_edge(ctx, p_subj_id, p_obj_id, EDGE_PREVENTS, 1.0f);
+                int64_t p_subj_id = zeta_commit_fact(ctx, NODE_ENTITY, "preventer", p_subject, 0.9f, SOURCE_USER);
+                int64_t p_obj_id = zeta_commit_fact(ctx, NODE_ENTITY, "prevented", p_object, 0.85f, SOURCE_USER);
+                zeta_commit_edge(ctx, p_subj_id, p_obj_id, EDGE_PREVENTS, 1.0f);
                 facts_created++;
                 fprintf(stderr, "[3B] PREVENTS: %s --PREVENTS--> %s\n", p_subject, p_object);
 
                 // Store full prevents sentence for surfacing
                 char p_sent[256];
                 snprintf(p_sent, sizeof(p_sent), "%s prevents %s", p_subject, p_object);
-                zeta_create_node(ctx, NODE_FACT, "prevents_relation", p_sent, 0.95f);
+                zeta_commit_fact(ctx, NODE_FACT, "prevents_relation", p_sent, 0.95f, SOURCE_USER);
             }
         }
     }
 
     return facts_created;
+}
+
+// ============================================================================
+// Context Injection for Generation (Core Flow)
+// Called BEFORE every generation to surface relevant graph facts
+// ============================================================================
+
+// Build context injection string from graph for a given query/prompt
+// This is the CORE mechanism for maintaining coherence across all input types
+static inline size_t zeta_build_context_injection(
+    zeta_dual_ctx_t* ctx,
+    const char* prompt,
+    char* out_context,
+    size_t max_len
+) {
+    if (!ctx || !prompt || !out_context || max_len < 100) {
+        if (out_context && max_len > 0) out_context[0] = '\0';
+        return 0;
+    }
+
+    // Surface relevant context from graph
+    zeta_surfaced_context_t surfaced;
+    zeta_surface_context(ctx, prompt, &surfaced);
+
+    if (surfaced.num_nodes == 0) {
+        out_context[0] = '\0';
+        return 0;
+    }
+
+    char* p = out_context;
+    size_t remaining = max_len - 1;
+    int n;
+
+    // Header
+    n = snprintf(p, remaining,
+        "[RELEVANT CONTEXT - Use these facts for consistency]\n");
+    p += n; remaining -= n;
+
+    // Group nodes by type for better organization
+    // Facts first (most important for coherence)
+    bool has_facts = false;
+    for (int i = 0; i < surfaced.num_nodes && remaining > 100; i++) {
+        zeta_graph_node_t* node = surfaced.nodes[i];
+        if (node->type == NODE_FACT ||
+            strstr(node->label, "relation") ||
+            strstr(node->label, "raw_memory")) {
+            if (!has_facts) {
+                n = snprintf(p, remaining, "FACTS:\n");
+                p += n; remaining -= n;
+                has_facts = true;
+            }
+            n = snprintf(p, remaining, "- %s\n", node->value);
+            p += n; remaining -= n;
+        }
+    }
+
+    // Entities (characters, locations, etc.)
+    bool has_entities = false;
+    for (int i = 0; i < surfaced.num_nodes && remaining > 100; i++) {
+        zeta_graph_node_t* node = surfaced.nodes[i];
+        if (node->type == NODE_ENTITY) {
+            if (!has_entities) {
+                n = snprintf(p, remaining, "ENTITIES:\n");
+                p += n; remaining -= n;
+                has_entities = true;
+            }
+            n = snprintf(p, remaining, "- %s: %s\n", node->label, node->value);
+            p += n; remaining -= n;
+        }
+    }
+
+    // Events (plot points, temporal)
+    bool has_events = false;
+    for (int i = 0; i < surfaced.num_nodes && remaining > 100; i++) {
+        zeta_graph_node_t* node = surfaced.nodes[i];
+        if (node->type == NODE_EVENT) {
+            if (!has_events) {
+                n = snprintf(p, remaining, "EVENTS:\n");
+                p += n; remaining -= n;
+                has_events = true;
+            }
+            n = snprintf(p, remaining, "- %s\n", node->value);
+            p += n; remaining -= n;
+        }
+    }
+
+    // Footer
+    n = snprintf(p, remaining, "[END CONTEXT]\n\n");
+    p += n; remaining -= n;
+
+    size_t total_len = max_len - remaining - 1;
+    fprintf(stderr, "[CONTEXT-INJECT] Surfaced %d nodes (%zu chars) for prompt\n",
+            surfaced.num_nodes, total_len);
+
+    return total_len;
+}
+
+// Prepend context to prompt (creates new string, caller must free)
+static inline char* zeta_inject_context_to_prompt(
+    zeta_dual_ctx_t* ctx,
+    const char* original_prompt
+) {
+    if (!ctx || !original_prompt) return NULL;
+
+    // Build context injection
+    char context[8192];
+    size_t ctx_len = zeta_build_context_injection(ctx, original_prompt, context, sizeof(context));
+
+    if (ctx_len == 0) {
+        // No context to inject, return copy of original
+        return strdup(original_prompt);
+    }
+
+    // Allocate combined buffer
+    size_t orig_len = strlen(original_prompt);
+    char* combined = (char*)malloc(ctx_len + orig_len + 16);
+    if (!combined) return strdup(original_prompt);
+
+    // Prepend context
+    memcpy(combined, context, ctx_len);
+    memcpy(combined + ctx_len, original_prompt, orig_len);
+    combined[ctx_len + orig_len] = '\0';
+
+    return combined;
+}
+
+// Extract and store facts from completed generation (planning or output)
+// This runs AFTER generation to capture new facts for future context
+static inline int zeta_extract_from_generation(
+    zeta_dual_ctx_t* ctx,
+    const char* generated_text,
+    bool is_planning_phase
+) {
+    if (!ctx || !generated_text || strlen(generated_text) < 10) return 0;
+
+    int facts = 0;
+
+    // Use the existing 3B extraction
+    facts += zeta_subconscious_extract_facts(ctx, generated_text);
+
+    // Additional extraction for story elements if this looks like narrative
+    if (strstr(generated_text, "Chapter") ||
+        strstr(generated_text, "said") ||
+        strstr(generated_text, "replied") ||
+        strstr(generated_text, "walked") ||
+        strstr(generated_text, "looked")) {
+
+        // Extract character names (Dr. X, Professor Y patterns)
+        const char* titles[] = {"Dr. ", "Professor ", "Captain ", "Lord ", "Lady ", NULL};
+        for (int t = 0; titles[t]; t++) {
+            const char* match = generated_text;
+            while ((match = strstr(match, titles[t])) != NULL) {
+                const char* name_start = match + strlen(titles[t]);
+                char name[128];
+                int ni = 0;
+
+                // Get title + name
+                const char* title_start = match;
+                while (*title_start && ni < 127 && *title_start != '.' &&
+                       *title_start != ',' && *title_start != '!' && *title_start != '?') {
+                    if (*title_start == ' ' && ni > 0) {
+                        // Check if next char is uppercase
+                        if (!(*(title_start+1) >= 'A' && *(title_start+1) <= 'Z')) break;
+                    }
+                    name[ni++] = *title_start++;
+                }
+                name[ni] = '\0';
+
+                if (ni > strlen(titles[t]) + 2) {
+                    zeta_commit_fact(ctx, NODE_ENTITY, "character", name, 0.9f, SOURCE_MODEL);
+                    facts++;
+                    fprintf(stderr, "[EXTRACT] Character: %s\n", name);
+                }
+                match++;
+            }
+        }
+    }
+
+    if (facts > 0) {
+        fprintf(stderr, "[EXTRACT] Captured %d facts from %s\n",
+                facts, is_planning_phase ? "planning" : "generation");
+    }
+
+    return facts;
 }
 
 #ifdef __cplusplus
