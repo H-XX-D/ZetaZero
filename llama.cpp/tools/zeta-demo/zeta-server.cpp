@@ -555,6 +555,172 @@ static std::string critic_check(const std::string& query, const std::string& res
 
 static const int CHUNK_SIZE = 800;  // Tokens per chunk (larger for more coherent sections)
 static const int LONG_OUTPUT_THRESHOLD = 1000;  // When to use chunked generation
+static const int CONTEXT_BRIDGE_SENTENCES = 3;  // Number of sentences to carry between chunks
+
+// ============================================================================
+// LANGUAGE DRIFT DETECTION: Detect when model switches to Chinese/CJK
+// Returns true if text contains CJK characters (language drift detected)
+// ============================================================================
+static bool detect_language_drift(const char* piece) {
+    if (!piece) return false;
+
+    // Check each byte for CJK Unicode ranges
+    // CJK characters are typically multi-byte sequences starting with 0xE4-0xE9 in UTF-8
+    const unsigned char* p = (const unsigned char*)piece;
+    while (*p) {
+        // UTF-8 CJK: 0xE4-0xE9 followed by 2 more bytes (Chinese, Japanese kanji, Korean hanja)
+        if (*p >= 0xE4 && *p <= 0xE9) {
+            if (p[1] >= 0x80 && p[1] <= 0xBF && p[2] >= 0x80 && p[2] <= 0xBF) {
+                return true;  // Detected CJK character
+            }
+        }
+        // Also check for CJK Extension B-F (0xF0 0xA0-0xAF)
+        if (*p == 0xF0 && p[1] >= 0xA0 && p[1] <= 0xAF) {
+            return true;
+        }
+        p++;
+    }
+    return false;
+}
+
+// Remove any CJK characters that slipped through (cleanup pass)
+static std::string strip_cjk_characters(const std::string& text) {
+    std::string result;
+    result.reserve(text.length());
+
+    const unsigned char* p = (const unsigned char*)text.c_str();
+    const unsigned char* end = p + text.length();
+
+    while (p < end) {
+        // Check for UTF-8 multi-byte CJK sequences
+        if (*p >= 0xE4 && *p <= 0xE9 && p + 2 < end) {
+            if (p[1] >= 0x80 && p[1] <= 0xBF && p[2] >= 0x80 && p[2] <= 0xBF) {
+                p += 3;  // Skip CJK character (3 bytes)
+                continue;
+            }
+        }
+        // Check for 4-byte CJK extensions
+        if (*p == 0xF0 && p + 3 < end && p[1] >= 0xA0 && p[1] <= 0xAF) {
+            p += 4;  // Skip extended CJK (4 bytes)
+            continue;
+        }
+        // Keep this character
+        result += (char)*p;
+        p++;
+    }
+    return result;
+}
+
+// ============================================================================
+// CONTEXT BRIDGE: Extract last N sentences for entity continuity
+// Prevents name drift between chunks by providing verbatim context
+// ============================================================================
+
+static std::string extract_last_sentences(const std::string& content, int n_sentences) {
+    if (content.empty() || n_sentences <= 0) return "";
+
+    // Find sentence boundaries (. ! ? followed by space or end)
+    std::vector<size_t> sentence_ends;
+    for (size_t i = 0; i < content.length(); i++) {
+        char c = content[i];
+        if (c == '.' || c == '!' || c == '?') {
+            // Check it's not an abbreviation (e.g., "Mr." "Dr." "etc.")
+            bool is_abbrev = false;
+            if (c == '.') {
+                // Look back for common abbreviations
+                if (i >= 2) {
+                    std::string prev = content.substr(i >= 3 ? i - 3 : 0, i >= 3 ? 3 : i);
+                    if (prev == "Mr." || prev == "Dr." || prev == "Ms." ||
+                        prev == "vs." || prev == "etc" || prev == "e.g" || prev == "i.e") {
+                        is_abbrev = true;
+                    }
+                }
+            }
+
+            // Check next char is space, newline, or end
+            if (!is_abbrev && (i + 1 >= content.length() ||
+                content[i + 1] == ' ' || content[i + 1] == '\n' || content[i + 1] == '"')) {
+                sentence_ends.push_back(i);
+            }
+        }
+    }
+
+    if (sentence_ends.empty()) {
+        // No sentence boundaries found, return last chunk
+        size_t start = content.length() > 500 ? content.length() - 500 : 0;
+        return content.substr(start);
+    }
+
+    // Get last N sentence boundaries
+    int start_idx = sentence_ends.size() > (size_t)n_sentences ?
+                    sentence_ends.size() - n_sentences : 0;
+
+    // Find where to start (after the sentence end before our target)
+    size_t start_pos = 0;
+    if (start_idx > 0) {
+        start_pos = sentence_ends[start_idx - 1] + 1;
+        // Skip leading whitespace
+        while (start_pos < content.length() &&
+               (content[start_pos] == ' ' || content[start_pos] == '\n')) {
+            start_pos++;
+        }
+    }
+
+    std::string result = content.substr(start_pos);
+
+    // Trim if too long (max 600 chars to leave room in context)
+    if (result.length() > 600) {
+        result = result.substr(result.length() - 600);
+        // Find first sentence start after truncation
+        size_t first_cap = result.find_first_of("ABCDEFGHIJKLMNOPQRSTUVWXYZ");
+        if (first_cap != std::string::npos && first_cap < 100) {
+            result = result.substr(first_cap);
+        }
+    }
+
+    return result;
+}
+
+// Extract key entities (names, proper nouns) from text for consistency tracking
+static std::vector<std::string> extract_key_entities(const std::string& content) {
+    std::vector<std::string> entities;
+
+    // Simple heuristic: words starting with capital letter that aren't at sentence start
+    bool at_sentence_start = true;
+    std::string current_word;
+
+    for (size_t i = 0; i < content.length(); i++) {
+        char c = content[i];
+
+        if (isalpha(c)) {
+            current_word += c;
+        } else {
+            if (!current_word.empty()) {
+                // Check if it's a proper noun (capital, not at sentence start)
+                if (isupper(current_word[0]) && !at_sentence_start && current_word.length() > 2) {
+                    // Check if we already have this entity
+                    bool found = false;
+                    for (const auto& e : entities) {
+                        if (e == current_word) { found = true; break; }
+                    }
+                    if (!found && entities.size() < 10) {
+                        entities.push_back(current_word);
+                    }
+                }
+                current_word.clear();
+            }
+
+            at_sentence_start = (c == '.' || c == '!' || c == '?' || c == '\n');
+            if (c == ' ' && at_sentence_start) {
+                // Stay at sentence start through whitespace
+            } else if (!isspace(c)) {
+                at_sentence_start = false;
+            }
+        }
+    }
+
+    return entities;
+}
 
 // Generate a plan for long output (outline with sections)
 static std::string generate_output_plan(const std::string& prompt, int target_tokens) {
@@ -648,32 +814,59 @@ static std::vector<std::string> parse_plan_sections(const std::string& plan) {
 }
 
 // Generate a single chunk for a specific section
+// context_bridge: Last 3 sentences verbatim for entity continuity
+// key_entities: Names/proper nouns to maintain consistency
 static std::string generate_chunk(const std::string& original_prompt,
                                    const std::string& section_title,
                                    const std::string& previous_summary,
-                                   const std::string& last_anchor,
+                                   const std::string& context_bridge,
+                                   const std::vector<std::string>& key_entities,
                                    int chunk_tokens) {
     if (!g_ctx_conscious || !g_model_conscious) return "";
-    
-    // Build continuation prompt
-    std::string chunk_prompt = 
+
+    // Build entity reminder if we have tracked entities
+    std::string entity_reminder;
+    if (!key_entities.empty()) {
+        entity_reminder = "IMPORTANT - Maintain these exact names/entities: ";
+        for (size_t i = 0; i < key_entities.size(); i++) {
+            if (i > 0) entity_reminder += ", ";
+            entity_reminder += key_entities[i];
+        }
+        entity_reminder += "\n\n";
+    }
+
+    // Build continuation prompt with context bridge
+    std::string chunk_prompt =
         "<|im_start|>system\n"
         "You are Z.E.T.A., continuing a detailed response. Write ONLY the content for the specified section.\n"
+        "CRITICAL RULES:\n"
+        "1. Write ONLY in English. Never switch to Chinese, Japanese, or any other language.\n"
+        "2. Maintain consistency with character names, locations, and terminology from the context bridge.\n"
+        "3. If you feel the urge to switch languages, stop and continue in English.\n"
         "<|im_end|>\n"
         "<|im_start|>user\n"
         "Original request: " + original_prompt.substr(0, 300) + "\n\n";
-    
+
+    // Context Bridge: Last 3 sentences verbatim (highest priority for continuity)
+    if (!context_bridge.empty()) {
+        chunk_prompt += "=== CONTEXT BRIDGE (continue from here) ===\n";
+        chunk_prompt += context_bridge + "\n";
+        chunk_prompt += "=== END BRIDGE ===\n\n";
+    }
+
+    // Entity reminder for name consistency
+    chunk_prompt += entity_reminder;
+
+    // Summary for broader context
     if (!previous_summary.empty()) {
-        chunk_prompt += "Summary of what you've written so far:\n" + previous_summary + "\n\n";
+        chunk_prompt += "Summary of earlier content:\n" + previous_summary + "\n\n";
     }
-    
-    if (!last_anchor.empty()) {
-        chunk_prompt += "You ended with: \"..." + last_anchor + "\"\n\n";
-    }
-    
+
     chunk_prompt += "Now write the content for: " + section_title + "\n"
-                    "Continue naturally from where you left off. Write about " + 
-                    std::to_string(chunk_tokens * 3) + " characters.\n"
+                    "CONTINUE THE NARRATIVE directly from where the context bridge ends.\n"
+                    "Keep all names and entities consistent with what came before.\n"
+                    "IMPORTANT: Write ONLY in English. Do not use Chinese or any other language.\n"
+                    "Write about " + std::to_string(chunk_tokens * 3) + " characters.\n"
                     "<|im_end|>\n"
                     "<|im_start|>assistant\n";
     
@@ -702,27 +895,42 @@ static std::string generate_chunk(const std::string& original_prompt,
     std::string chunk;
     auto* sampler = common_sampler_init(g_model_conscious, g_params.sampling);
     int kv_pos = n_tokens;
-    
+    int cjk_streak = 0;  // Track consecutive CJK tokens for drift detection
+
     for (int i = 0; i < chunk_tokens; i++) {
         llama_token tok = common_sampler_sample(sampler, g_ctx_conscious, -1);
         common_sampler_accept(sampler, tok, true);
-        
+
         char piece[64] = {0};
         llama_token_to_piece(g_vocab, tok, piece, sizeof(piece), 0, true);
-        
+
         if (strcmp(piece, "<|im_end|>") == 0) break;
         if (llama_vocab_is_eog(g_vocab, tok)) break;
         if (strstr(piece, "<|im_start")) break;
+
+        // Language drift detection: stop if too many CJK tokens in a row
+        if (detect_language_drift(piece)) {
+            cjk_streak++;
+            if (cjk_streak >= 3) {
+                fprintf(stderr, "[LANG-DRIFT] Detected language switch to CJK, stopping chunk\n");
+                break;  // Stop generation to prevent language drift
+            }
+            // Don't add CJK tokens to output
+            continue;
+        } else {
+            cjk_streak = 0;  // Reset streak on ASCII/Latin token
+        }
+
         chunk += piece;
-        
+
         common_batch_clear(batch);
         common_batch_add(batch, tok, kv_pos++, {0}, true);
         if (llama_decode(g_ctx_conscious, batch) != 0) break;
     }
-    
+
     common_sampler_free(sampler);
     llama_batch_free(batch);
-    
+
     return chunk;
 }
 
@@ -748,43 +956,55 @@ static std::string generate_summary(const std::string& content) {
     return summary;
 }
 
-// Main chunked generation function
+// Main chunked generation function with Context Bridge for entity continuity
 static std::string generate_chunked_output(const std::string& prompt, int max_tokens) {
     fprintf(stderr, "[CHUNK] Starting chunked generation for %d tokens\n", max_tokens);
-    
+
     // Step 1: Generate plan
     std::string plan = generate_output_plan(prompt, max_tokens);
     std::vector<std::string> sections = parse_plan_sections(plan);
-    
+
     fprintf(stderr, "[CHUNK] Plan has %zu sections\n", sections.size());
-    
-    // Step 2: Generate each section into scratch buffer
+
+    // Step 2: Generate each section with Context Bridge for continuity
     std::string accumulated_output;
     std::string running_summary;
-    std::string last_anchor;
-    
+    std::string context_bridge;  // Last 3 sentences verbatim
+    std::vector<std::string> key_entities;  // Track names/proper nouns
+
     int tokens_per_section = max_tokens / sections.size();
     if (tokens_per_section < 100) tokens_per_section = 100;
     if (tokens_per_section > CHUNK_SIZE) tokens_per_section = CHUNK_SIZE;
-    
+
     for (size_t i = 0; i < sections.size(); i++) {
-        fprintf(stderr, "[CHUNK] Generating section %zu/%zu: %s\n", 
+        fprintf(stderr, "[CHUNK] Generating section %zu/%zu: %s\n",
                 i + 1, sections.size(), sections[i].c_str());
-        
-        // Generate this section's content
+
+        // Log context bridge for debugging
+        if (!context_bridge.empty()) {
+            fprintf(stderr, "[BRIDGE] Carrying forward: %.100s...\n", context_bridge.c_str());
+        }
+        if (!key_entities.empty()) {
+            fprintf(stderr, "[BRIDGE] Tracking %zu entities: ", key_entities.size());
+            for (const auto& e : key_entities) fprintf(stderr, "%s ", e.c_str());
+            fprintf(stderr, "\n");
+        }
+
+        // Generate this section's content with context bridge
         std::string chunk = generate_chunk(
             prompt,
             sections[i],
             running_summary,
-            last_anchor,
+            context_bridge,
+            key_entities,
             tokens_per_section
         );
-        
+
         if (chunk.empty()) {
             fprintf(stderr, "[CHUNK] Section %zu failed, stopping\n", i + 1);
             break;
         }
-        
+
         // Accumulate into RAM buffer
         if (!accumulated_output.empty() && !chunk.empty()) {
             // Add newline between sections if needed
@@ -794,23 +1014,41 @@ static std::string generate_chunked_output(const std::string& prompt, int max_to
             }
         }
         accumulated_output += chunk;
-        
-        // Update continuity anchors
-        running_summary = generate_summary(accumulated_output);
-        if (chunk.length() > 150) {
-            last_anchor = chunk.substr(chunk.length() - 150);
-        } else {
-            last_anchor = chunk;
+
+        // === UPDATE CONTEXT BRIDGE ===
+        // Extract last 3 sentences verbatim for next chunk
+        context_bridge = extract_last_sentences(accumulated_output, CONTEXT_BRIDGE_SENTENCES);
+
+        // Update entity tracking - merge new entities from this chunk
+        std::vector<std::string> new_entities = extract_key_entities(chunk);
+        for (const auto& e : new_entities) {
+            bool found = false;
+            for (const auto& existing : key_entities) {
+                if (existing == e) { found = true; break; }
+            }
+            if (!found && key_entities.size() < 15) {
+                key_entities.push_back(e);
+            }
         }
-        
-        fprintf(stderr, "[CHUNK] Section %zu complete: %zu chars, total: %zu chars\n",
-                i + 1, chunk.length(), accumulated_output.length());
+
+        // Update summary (for broader context, not primary continuity)
+        running_summary = generate_summary(accumulated_output);
+
+        fprintf(stderr, "[CHUNK] Section %zu complete: %zu chars, bridge: %zu chars, entities: %zu\n",
+                i + 1, chunk.length(), context_bridge.length(), key_entities.size());
     }
-    
-    fprintf(stderr, "[CHUNK] Chunked generation complete: %zu total chars\n", 
-            accumulated_output.length());
-    
-    return accumulated_output;
+
+    fprintf(stderr, "[CHUNK] Chunked generation complete: %zu total chars, %zu entities tracked\n",
+            accumulated_output.length(), key_entities.size());
+
+    // Final cleanup: strip any CJK characters that slipped through
+    std::string clean_output = strip_cjk_characters(accumulated_output);
+    if (clean_output.length() != accumulated_output.length()) {
+        fprintf(stderr, "[LANG-CLEAN] Removed %zu bytes of CJK from output\n",
+                accumulated_output.length() - clean_output.length());
+    }
+
+    return clean_output;
 }
 
 // ============================================================================
@@ -2277,6 +2515,185 @@ int main(int argc, char** argv) {
         fflush(stderr);
     });
 
+    // ========================================================================
+    // /code ENDPOINT: Direct 7B coder generation with memory/graph context
+    // For raw code output (SWE-bench, diffs, etc.) - bypasses 14B reasoning
+    // ========================================================================
+    svr.Post("/code", [](const httplib::Request& req, httplib::Response& res) {
+        g_last_activity = time(NULL);
+        res.set_header("Access-Control-Allow-Origin", "*");
+
+        // Parse JSON body
+        std::string prompt;
+        int max_tokens = 2000;
+
+        if (!req.body.empty()) {
+            size_t prompt_pos = req.body.find("\"prompt\":");
+            if (prompt_pos != std::string::npos) {
+                size_t start = req.body.find('\"', prompt_pos + 9);
+                if (start != std::string::npos) {
+                    size_t end = req.body.find('\"', start + 1);
+                    if (end != std::string::npos) {
+                        prompt = req.body.substr(start + 1, end - start - 1);
+                    }
+                }
+            }
+            size_t tokens_pos = req.body.find("\"max_tokens\":");
+            if (tokens_pos != std::string::npos) {
+                size_t num_start = tokens_pos + 13;
+                while (num_start < req.body.size() && !isdigit(req.body[num_start])) num_start++;
+                if (num_start < req.body.size()) {
+                    max_tokens = std::stoi(req.body.substr(num_start));
+                }
+            }
+        }
+
+        if (prompt.empty()) {
+            res.set_content("{\"error\": \"Missing prompt\"}", "application/json");
+            return;
+        }
+
+        fprintf(stderr, "[CODE] Direct 7B generation, prompt len=%zu, max_tokens=%d\n",
+                prompt.size(), max_tokens);
+
+        // Check for 7B model availability
+        if (!g_dual || !g_dual->model_subconscious || !g_dual->ctx_subconscious) {
+            res.set_content("{\"error\": \"7B coder model not available\"}", "application/json");
+            return;
+        }
+
+        std::lock_guard<std::mutex> lock(g_mutex);
+
+        // Surface memory context using 4B embeddings (same as /generate)
+        char stream_context[2048];
+        stream_context[0] = '\0';
+
+        if (g_dual && g_embed_ctx && g_embed_ctx->initialized) {
+            zeta_stream_evict(&g_stream_state, 0.5f);
+
+            // Pre-embed query
+            if (!g_stream_state.has_query_embedding) {
+                int dim = zeta_embed_text(prompt.c_str(), g_stream_state.query_embedding, 3072);
+                if (dim > 0) g_stream_state.has_query_embedding = true;
+            }
+
+            // Proactive prefetch from graph
+            int prefetched = zeta_proactive_prefetch(
+                prompt.c_str(), &g_stream_state, ZETA_PREFETCH_MAX_NODES, 0.5f
+            );
+
+            if (prefetched > 0) {
+                std::string prefetch_context = zeta_proactive_get_context(400);
+                if (!prefetch_context.empty()) {
+                    snprintf(stream_context, sizeof(stream_context),
+                             "[CONTEXT]\n%s[/CONTEXT]\n", prefetch_context.c_str());
+                    fprintf(stderr, "[CODE] Surfaced %d graph nodes for context\n", prefetched);
+                }
+            }
+        }
+
+        // Build augmented prompt for 7B coder
+        std::string full_prompt = stream_context;
+        full_prompt += prompt;
+
+        // Use Qwen coder template
+        std::string wrapped = "<|im_start|>system\nYou are a code generator. Output only code, no explanations.<|im_end|>\n"
+                              "<|im_start|>user\n" + full_prompt + "<|im_end|>\n"
+                              "<|im_start|>assistant\n";
+
+        // Tokenize
+        const llama_vocab* vocab = llama_model_get_vocab(g_dual->model_subconscious);
+        if (!vocab) {
+            res.set_content("{\"error\": \"Vocab not available\"}", "application/json");
+            return;
+        }
+
+        std::vector<llama_token> tokens(4096);
+        int n_tokens = llama_tokenize(vocab, wrapped.c_str(), wrapped.length(),
+                                       tokens.data(), tokens.size(), true, true);
+        if (n_tokens < 0 || n_tokens > 3500) {
+            res.set_content("{\"error\": \"Prompt too long for 7B context\"}", "application/json");
+            return;
+        }
+        tokens.resize(n_tokens);
+
+        // Clear KV cache
+        llama_memory_clear(llama_get_memory(g_dual->ctx_subconscious), true);
+
+        // Decode prompt
+        llama_batch batch = llama_batch_init(n_tokens + max_tokens, 0, 1);
+        for (int i = 0; i < n_tokens; i++) {
+            common_batch_add(batch, tokens[i], i, {0}, false);
+        }
+        batch.logits[batch.n_tokens - 1] = true;
+
+        if (llama_decode(g_dual->ctx_subconscious, batch) != 0) {
+            llama_batch_free(batch);
+            res.set_content("{\"error\": \"Decode failed\"}", "application/json");
+            return;
+        }
+
+        // Generate with 7B coder
+        std::string output;
+        int n_vocab = llama_vocab_n_tokens(vocab);
+        int n_cur = n_tokens;
+        int generated = 0;
+
+        for (int i = 0; i < max_tokens; i++) {
+            float* logits = llama_get_logits_ith(g_dual->ctx_subconscious, -1);
+
+            // Greedy sampling for deterministic code output
+            llama_token best = 0;
+            float best_logit = logits[0];
+            for (int v = 1; v < n_vocab; v++) {
+                if (logits[v] > best_logit) {
+                    best_logit = logits[v];
+                    best = v;
+                }
+            }
+
+            if (llama_vocab_is_eog(vocab, best)) break;
+
+            std::string piece = common_token_to_piece(vocab, best, true);
+            if (piece.find("<|im_end|>") != std::string::npos) break;
+            if (piece.find("<|endoftext|>") != std::string::npos) break;
+
+            output += piece;
+            generated++;
+
+            llama_batch_free(batch);
+            batch = llama_batch_init(1, 0, 1);
+            common_batch_add(batch, best, n_cur++, {0}, true);
+            if (llama_decode(g_dual->ctx_subconscious, batch) != 0) break;
+        }
+
+        llama_batch_free(batch);
+
+        fprintf(stderr, "[CODE] Generated %d tokens, output len=%zu\n", generated, output.size());
+
+        // Escape for JSON
+        std::string escaped;
+        for (char c : output) {
+            if (c == '"') escaped += "\\\"";
+            else if (c == '\\') escaped += "\\\\";
+            else if (c == '\n') escaped += "\\n";
+            else if (c == '\r') escaped += "\\r";
+            else if (c == '\t') escaped += "\\t";
+            else escaped += c;
+        }
+
+        char json[65536];
+        snprintf(json, sizeof(json),
+            "{\"output\": \"%s\", \"tokens\": %d, \"model\": \"7b-coder\", "
+            "\"graph_nodes\": %d, \"graph_edges\": %d}",
+            escaped.c_str(), generated,
+            g_dual ? g_dual->num_nodes : 0,
+            g_dual ? g_dual->num_edges : 0);
+
+        res.set_header("Connection", "close");
+        res.set_content(json, "application/json");
+    });
+
     svr.Get("/health", [](const httplib::Request&, httplib::Response& res) {
         res.set_header("Access-Control-Allow-Origin", "*");
         char json[1024];
@@ -2572,49 +2989,64 @@ int main(int argc, char** argv) {
         }
 
         // Use dual-process tunnel search
-        const int EMBED_DIM = 256;
+        const int EMBED_DIM = 2048;  // Must match node embedding dimension
         if (g_dual) {
             float q_emb[EMBED_DIM];
             zeta_subconscious_embed(g_dual, query.c_str(), q_emb, EMBED_DIM);
 
-            // Find similar nodes
-            std::string json = "{\"query\": \"" + query + "\", \"results\": [";
-            int found = 0;
+            // Collect ALL matching nodes with similarity scores, then sort
+            struct ScoredNode { int idx; float sim; };
+            std::vector<ScoredNode> candidates;
+            candidates.reserve(g_dual->num_nodes);
 
-            // Search through graph nodes
-            for (int i = 0; i < g_dual->num_nodes && found < top_k; i++) {
+            // Search through ALL graph nodes (no early exit)
+            for (int i = 0; i < g_dual->num_nodes; i++) {
                 zeta_graph_node_t* node = &g_dual->nodes[i];
                 if (!node->is_active) continue;
 
                 // Calculate similarity
                 float sim = zeta_cosine_sim(q_emb, node->embedding, EMBED_DIM);
-                if (sim > 0.3f) {  // Threshold
-                    if (found > 0) json += ",";
-
-                    // Escape label and value
-                    std::string esc_label, esc_value;
-                    for (char c : std::string(node->label)) {
-                        if (c == '"') esc_label += "\\\"";
-                        else if (c == '\\') esc_label += "\\\\";
-                        else if (c == '\n') esc_label += "\\n";
-                        else esc_label += c;
-                    }
-                    for (char c : std::string(node->value)) {
-                        if (c == '"') esc_value += "\\\"";
-                        else if (c == '\\') esc_value += "\\\\";
-                        else if (c == '\n') esc_value += "\\n";
-                        else esc_value += c;
-                    }
-
-                    char entry[2048];
-                    snprintf(entry, sizeof(entry),
-                        "{\"node_id\": %lld, \"label\": \"%s\", \"value\": \"%s\", "
-                        "\"similarity\": %.4f, \"salience\": %.2f}",
-                        (long long)node->node_id, esc_label.c_str(), esc_value.c_str(),
-                        sim, node->salience);
-                    json += entry;
-                    found++;
+                if (sim > 0.2f) {  // Lower threshold, let sorting handle ranking
+                    candidates.push_back({i, sim});
                 }
+            }
+
+            // Sort by similarity (highest first)
+            std::sort(candidates.begin(), candidates.end(),
+                [](const ScoredNode& a, const ScoredNode& b) { return a.sim > b.sim; });
+
+            // Build JSON response with top K results
+            std::string json = "{\"query\": \"" + query + "\", \"results\": [";
+            int found = 0;
+            for (size_t j = 0; j < candidates.size() && found < top_k; j++) {
+                zeta_graph_node_t* node = &g_dual->nodes[candidates[j].idx];
+                float sim = candidates[j].sim;
+
+                if (found > 0) json += ",";
+
+                // Escape label and value
+                std::string esc_label, esc_value;
+                for (char c : std::string(node->label)) {
+                    if (c == '"') esc_label += "\\\"";
+                    else if (c == '\\') esc_label += "\\\\";
+                    else if (c == '\n') esc_label += "\\n";
+                    else esc_label += c;
+                }
+                for (char c : std::string(node->value)) {
+                    if (c == '"') esc_value += "\\\"";
+                    else if (c == '\\') esc_value += "\\\\";
+                    else if (c == '\n') esc_value += "\\n";
+                    else esc_value += c;
+                }
+
+                char entry[2048];
+                snprintf(entry, sizeof(entry),
+                    "{\"node_id\": %lld, \"label\": \"%s\", \"value\": \"%s\", "
+                    "\"similarity\": %.4f, \"salience\": %.2f}",
+                    (long long)node->node_id, esc_label.c_str(), esc_value.c_str(),
+                    sim, node->salience);
+                json += entry;
+                found++;
             }
 
             json += "], \"count\": " + std::to_string(found) + "}";
