@@ -673,7 +673,7 @@ Current code:
 Output the corrected code as a unified diff:
 ```diff"""
 
-    # Use generate_code for direct 7B coder access
+    # Generate fix using /code endpoint (direct 7B coder, no SECTION analysis)
     fix_response = agent.generate_code(fix_prompt, max_tokens=2000)
 
     # Z.E.T.A. often outputs "SECTION X:" analysis - filter to just code
