@@ -62,23 +62,25 @@ extern "C" {
 #include "zeta-memory.h"
 #include "zeta-integration.h"
 #include "zeta-constitution.h"
-#include "zeta-dual-process.h"
-#include "zeta-embed-integration.h"
 #include "zeta-cyclic.h"
-#include "zeta-code-mode.h"
-#include "zeta-code-conflict.h"
 #include "zeta-code-streaming.h"
 #include "zeta-streaming.h"
 #include "zeta-conflict.h"
 #include "zeta-graph-kv.h"
-//MOVED: zeta-tools.h
+//MOVED: zeta-tools.h, zeta-code-mode.h, zeta-code-conflict.h, zeta-embed-integration.h
 }
 
 // C++ headers (cannot be in extern "C")
+#include "zeta-dual-process.h"  // Contains std::vector/string, must be outside extern C
+#include "zeta-embed-integration.h"  // Has std::mutex, uses zeta_set_embed_fn from dual-process
+#include "zeta-code-mode.h"  // Uses zeta_embed_* from embed-integration
+#include "zeta-code-conflict.h"  // Has C++ code
 #include "zeta-proactive-memory.h"
 #include "zeta-graph-manager.h"
 #include "zeta-semantic-attacks.h"
 #include "zeta-critic.h"
+#include "zeta-trm.h"
+#include "zeta-hrm.h"
 
 // Scratch Buffer: Working memory for staged generation
 #include "../../../zeta-integration/zeta-scratch-buffer.h"
@@ -95,6 +97,12 @@ extern "C" {
 
 // GitGraph context (git-style branching for knowledge graph)
 static zeta_git_ctx_t* g_git = nullptr;
+
+// Temporal Recursive Memory (TRM)
+static ZetaTRM g_trm;
+
+// Hierarchical Reasoning Module (HRM)
+static ZetaHRM g_hrm;
 
 // Conscious model (14B reasoning)
 static llama_model* g_model_conscious = nullptr;
@@ -447,28 +455,315 @@ static std::string semantic_generate_7b(const char* prompt, int max_tokens) {
     return output;
 }
 
-// Router: Classify query complexity
+// ============================================================================
+// HRM WRAPPER FUNCTIONS
+// ============================================================================
+// Match hrm_gen_fn signature: (prompt, max_tokens, stop_sequence) -> response
+
+// 14B Conscious model for HRM reasoning tasks
+static std::string hrm_generate_14b(const std::string& prompt, int max_tokens, const std::string& stop_seq) {
+    if (!g_ctx_conscious || !g_vocab) return "";
+
+    std::lock_guard<std::mutex> lock(g_mutex);
+
+    // Tokenize prompt
+    std::vector<llama_token> tokens(4096);
+    int n_tokens = llama_tokenize(g_vocab, prompt.c_str(), prompt.length(),
+                                   tokens.data(), tokens.size(), true, true);
+    if (n_tokens < 0 || n_tokens > 3500) {
+        fprintf(stderr, "[HRM-14B] Prompt too long: %d tokens\n", n_tokens);
+        return "";
+    }
+    tokens.resize(n_tokens);
+
+    // Clear KV cache
+    llama_memory_clear(llama_get_memory(g_ctx_conscious), true);
+
+    // Decode prompt
+    llama_batch batch = llama_batch_init(n_tokens, 0, 1);
+    for (int i = 0; i < n_tokens; i++) {
+        common_batch_add(batch, tokens[i], i, {0}, false);
+    }
+    batch.logits[batch.n_tokens - 1] = true;
+
+    if (llama_decode(g_ctx_conscious, batch) != 0) {
+        llama_batch_free(batch);
+        return "";
+    }
+
+    // Generate response
+    std::string output;
+    int n_vocab = llama_vocab_n_tokens(g_vocab);
+    int n_cur = n_tokens;
+
+    for (int i = 0; i < max_tokens && output.size() < 4096; i++) {
+        float* logits = llama_get_logits_ith(g_ctx_conscious, -1);
+
+        // Greedy sampling
+        llama_token best = 0;
+        float best_logit = logits[0];
+        for (int v = 1; v < n_vocab; v++) {
+            if (logits[v] > best_logit) {
+                best_logit = logits[v];
+                best = v;
+            }
+        }
+
+        if (llama_vocab_is_eog(g_vocab, best)) break;
+
+        std::string piece = common_token_to_piece(g_vocab, best, true);
+
+        // Check for stop sequence
+        if (!stop_seq.empty() && piece.find(stop_seq) != std::string::npos) break;
+        if (piece.find("<|im_end|>") != std::string::npos) break;
+
+        output += piece;
+
+        // Check if accumulated output ends with stop sequence
+        if (!stop_seq.empty() && output.length() >= stop_seq.length()) {
+            if (output.substr(output.length() - stop_seq.length()) == stop_seq) {
+                output = output.substr(0, output.length() - stop_seq.length());
+                break;
+            }
+        }
+
+        llama_batch_free(batch);
+        batch = llama_batch_init(1, 0, 1);
+        common_batch_add(batch, best, n_cur++, {0}, true);
+        if (llama_decode(g_ctx_conscious, batch) != 0) break;
+    }
+
+    llama_batch_free(batch);
+    return output;
+}
+
+// 7B Subconscious model for HRM retrieval tasks
+static std::string hrm_generate_7b(const std::string& prompt, int max_tokens, const std::string& stop_seq) {
+    if (!g_dual || !g_dual->model_subconscious || !g_dual->ctx_subconscious) return "";
+
+    const llama_vocab* vocab = llama_model_get_vocab(g_dual->model_subconscious);
+    if (!vocab) return "";
+
+    // Tokenize prompt
+    std::vector<llama_token> tokens(2048);
+    int n_tokens = llama_tokenize(vocab, prompt.c_str(), prompt.length(),
+                                   tokens.data(), tokens.size(), true, true);
+    if (n_tokens < 0 || n_tokens > 1500) {
+        fprintf(stderr, "[HRM-7B] Prompt too long: %d tokens\n", n_tokens);
+        return "";
+    }
+    tokens.resize(n_tokens);
+
+    // Clear KV cache
+    llama_memory_clear(llama_get_memory(g_dual->ctx_subconscious), true);
+
+    // Decode prompt
+    llama_batch batch = llama_batch_init(n_tokens, 0, 1);
+    for (int i = 0; i < n_tokens; i++) {
+        common_batch_add(batch, tokens[i], i, {0}, false);
+    }
+    batch.logits[batch.n_tokens - 1] = true;
+
+    if (llama_decode(g_dual->ctx_subconscious, batch) != 0) {
+        llama_batch_free(batch);
+        return "";
+    }
+
+    // Generate response
+    std::string output;
+    int n_vocab = llama_vocab_n_tokens(vocab);
+    int n_cur = n_tokens;
+
+    for (int i = 0; i < max_tokens && output.size() < 1024; i++) {
+        float* logits = llama_get_logits_ith(g_dual->ctx_subconscious, -1);
+
+        // Greedy sampling
+        llama_token best = 0;
+        float best_logit = logits[0];
+        for (int v = 1; v < n_vocab; v++) {
+            if (logits[v] > best_logit) {
+                best_logit = logits[v];
+                best = v;
+            }
+        }
+
+        if (llama_vocab_is_eog(vocab, best)) break;
+
+        std::string piece = common_token_to_piece(vocab, best, true);
+
+        // Check for stop sequence
+        if (!stop_seq.empty() && piece.find(stop_seq) != std::string::npos) break;
+        if (piece.find("<|im_end|>") != std::string::npos) break;
+
+        output += piece;
+
+        // Check if accumulated output ends with stop sequence
+        if (!stop_seq.empty() && output.length() >= stop_seq.length()) {
+            if (output.substr(output.length() - stop_seq.length()) == stop_seq) {
+                output = output.substr(0, output.length() - stop_seq.length());
+                break;
+            }
+        }
+
+        llama_batch_free(batch);
+        batch = llama_batch_init(1, 0, 1);
+        common_batch_add(batch, best, n_cur++, {0}, true);
+        if (llama_decode(g_dual->ctx_subconscious, batch) != 0) break;
+    }
+
+    llama_batch_free(batch);
+    return output;
+}
+
+// ============================================================================
+// Embedding-Based Query Router (uses 4B embedding model, no extra model needed)
+// ============================================================================
+
+#define ROUTER_EMBED_DIM 3072  // Must match embedding model
+#define ROUTER_NUM_CLASSES 5
+
+static struct {
+    float anchors[ROUTER_NUM_CLASSES][ROUTER_EMBED_DIM];
+    const char* class_names[ROUTER_NUM_CLASSES];
+    bool initialized;
+} g_router = {
+    .class_names = {"SIMPLE", "MEDIUM", "COMPLEX", "MEMORY", "CODE"},
+    .initialized = false
+};
+
+// Cosine similarity between two vectors
+static float router_cosine_sim(const float* a, const float* b, int dim) {
+    float dot = 0.0f, norm_a = 0.0f, norm_b = 0.0f;
+    for (int i = 0; i < dim; i++) {
+        dot += a[i] * b[i];
+        norm_a += a[i] * a[i];
+        norm_b += b[i] * b[i];
+    }
+    if (norm_a < 1e-8f || norm_b < 1e-8f) return 0.0f;
+    return dot / (sqrtf(norm_a) * sqrtf(norm_b));
+}
+
+// Initialize router anchors (call after embedding model is loaded)
+static void router_init_anchors() {
+    if (g_router.initialized) return;
+
+    // Anchor prompts that represent each query class
+    // Use distinct semantic patterns to maximize separation in embedding space
+    const char* anchor_prompts[ROUTER_NUM_CLASSES] = {
+        // SIMPLE: short factual lookup, single entity, direct answer
+        "capital city country name date year number fact definition meaning",
+        // MEDIUM: explanation, description, how things work
+        "explain describe how why works process mechanism reason understanding concept",
+        // COMPLEX: multi-step, calculation, comparison, analysis, reasoning chain
+        "calculate solve step-by-step analyze compare contrast if then deduce derive prove logic",
+        // MEMORY: personal info, store, recall, remember, earlier, previous
+        "remember recall earlier told you my favorite previous conversation store memory personal",
+        // CODE: programming, function, implement, debug, code, algorithm
+        "write code function implement algorithm debug fix program Python JavaScript class method"
+    };
+
+    fprintf(stderr, "[ROUTER] Initializing embedding-based router...\n");
+
+    for (int i = 0; i < ROUTER_NUM_CLASSES; i++) {
+        int dim = zeta_embed_text(anchor_prompts[i], g_router.anchors[i], ROUTER_EMBED_DIM);
+        if (dim > 0) {
+            fprintf(stderr, "[ROUTER] Anchor '%s' embedded (dim=%d)\n", g_router.class_names[i], dim);
+        } else {
+            fprintf(stderr, "[ROUTER] WARNING: Failed to embed anchor '%s'\n", g_router.class_names[i]);
+        }
+    }
+
+    g_router.initialized = true;
+    fprintf(stderr, "[ROUTER] Embedding-based router ready (5 classes)\n");
+}
+
+// Router: Classify query complexity using hybrid approach
+// Priority: Keywords for clear cases, embeddings for ambiguous ones
 // Returns: "SIMPLE", "MEDIUM", "COMPLEX", "MEMORY", "CODE"
 static std::string route_query(const std::string& query) {
-    if (!g_model_router || !g_ctx_router) return "MEDIUM";  // Default path
+    std::string lower = query;
+    std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
 
-    std::string prompt = "Classify this query into exactly one category:\n"
-                         "SIMPLE - factual, short answer\n"
-                         "MEDIUM - explanation needed\n"
-                         "COMPLEX - multi-step reasoning\n"
-                         "MEMORY - store or recall information\n"
-                         "CODE - programming task\n\n"
-                         "Query: " + query + "\n\nCategory:";
+    // 1. MEMORY: highest priority - clear intent keywords
+    if (lower.find("remember") != std::string::npos ||
+        lower.find("recall") != std::string::npos ||
+        lower.find("what did i") != std::string::npos ||
+        lower.find("my favorite") != std::string::npos ||
+        lower.find("i told you") != std::string::npos) {
+        fprintf(stderr, "[ROUTER] Query classified as MEMORY (keyword)\n");
+        return "MEMORY";
+    }
 
-    std::string result = run_specialist(g_model_router, g_ctx_router,
-                                        llama_model_get_vocab(g_model_router), prompt, 8);
+    // 2. CODE: programming keywords
+    if (lower.find("write a function") != std::string::npos ||
+        lower.find("write code") != std::string::npos ||
+        lower.find("implement") != std::string::npos ||
+        lower.find("debug") != std::string::npos ||
+        lower.find("```") != std::string::npos ||
+        lower.find("def ") != std::string::npos ||
+        lower.find("class ") != std::string::npos) {
+        fprintf(stderr, "[ROUTER] Query classified as CODE (keyword)\n");
+        return "CODE";
+    }
 
-    // Parse result
-    if (result.find("SIMPLE") != std::string::npos) return "SIMPLE";
-    if (result.find("COMPLEX") != std::string::npos) return "COMPLEX";
-    if (result.find("MEMORY") != std::string::npos) return "MEMORY";
-    if (result.find("CODE") != std::string::npos) return "CODE";
-    return "MEDIUM";
+    // 3. COMPLEX: multi-step reasoning patterns
+    if (lower.find("step by step") != std::string::npos ||
+        lower.find("calculate") != std::string::npos ||
+        lower.find("solve") != std::string::npos ||
+        lower.find("analyze") != std::string::npos ||
+        lower.find("compare and contrast") != std::string::npos ||
+        lower.find(" and then ") != std::string::npos ||
+        query.length() > 200) {
+        fprintf(stderr, "[ROUTER] Query classified as COMPLEX (keyword)\n");
+        return "COMPLEX";
+    }
+
+    // 4. MEDIUM: explanation queries (before SIMPLE length check)
+    if (lower.find("explain") != std::string::npos ||
+        lower.find("describe") != std::string::npos ||
+        lower.find("how does") != std::string::npos ||
+        lower.find("why does") != std::string::npos) {
+        fprintf(stderr, "[ROUTER] Query classified as MEDIUM (keyword)\n");
+        return "MEDIUM";
+    }
+
+    // 5. SIMPLE: short factual queries
+    if (query.length() < 50 ||
+        lower.find("what is") != std::string::npos ||
+        lower.find("who is") != std::string::npos ||
+        lower.find("capital of") != std::string::npos) {
+        fprintf(stderr, "[ROUTER] Query classified as SIMPLE (keyword)\n");
+        return "SIMPLE";
+    }
+
+    // 5. Embedding fallback for ambiguous cases
+    if (!g_router.initialized) {
+        fprintf(stderr, "[ROUTER] Query classified as MEDIUM (default)\n");
+        return "MEDIUM";
+    }
+
+    float query_embed[ROUTER_EMBED_DIM];
+    int dim = zeta_embed_text(query.c_str(), query_embed, ROUTER_EMBED_DIM);
+    if (dim <= 0) {
+        fprintf(stderr, "[ROUTER] Query classified as MEDIUM (embed fail)\n");
+        return "MEDIUM";
+    }
+
+    float best_sim = -1.0f;
+    int best_class = 1;  // Default to MEDIUM
+
+    for (int i = 0; i < ROUTER_NUM_CLASSES; i++) {
+        float sim = router_cosine_sim(query_embed, g_router.anchors[i], dim);
+        if (sim > best_sim) {
+            best_sim = sim;
+            best_class = i;
+        }
+    }
+
+    fprintf(stderr, "[ROUTER] Query classified as %s (embed sim=%.3f)\n",
+            g_router.class_names[best_class], best_sim);
+
+    return g_router.class_names[best_class];
 }
 
 // Immune: System health monitor (runs periodically, not per-request)
@@ -2102,6 +2397,8 @@ int main(int argc, char** argv) {
             }
             // Wire 4B embedding model to dual-process layer
             zeta_embed_wire();
+            // Initialize embedding-based query router
+            router_init_anchors();
         } else {
             fprintf(stderr, "WARNING: Failed to load embedding model\n");
         }
@@ -2166,6 +2463,12 @@ int main(int argc, char** argv) {
         }
     }
 
+    // Wire graph context for context injection (core coherence flow)
+    if (g_dual) {
+        ZETA_SCRATCH_SET_GRAPH(g_dual);
+        fprintf(stderr, "[INIT] Context injection enabled for all generation\n");
+    }
+
     // Initialize streaming memory state
     memset(&g_stream_state, 0, sizeof(g_stream_state));
 
@@ -2194,6 +2497,13 @@ int main(int argc, char** argv) {
         fprintf(stderr, "Dual-process engine initialized (nodes=%d, edges=%d)\n",
                 g_dual->num_nodes, g_dual->num_edges);
 
+        // Initialize HRM (Hierarchical Reasoning Module)
+        g_hrm.init(g_dual);
+        // Set HRM model callbacks: 14B for reasoning, 7B for retrieval
+        ZetaHRM::set_models(hrm_generate_14b, hrm_generate_7b);
+        fprintf(stderr, "[HRM] Hierarchical reasoning enabled (14B planner, 7B executor)\n");
+        fprintf(stderr, "[INIT] TRM already active (temporal decay=%f)\n", TRM_DEFAULT_LAMBDA);
+
         // START 3B PARALLEL WORKER
         g_subconscious_worker_tid = zeta_subconscious_start_worker(g_dual);
         g_subconscious_worker_running = true;
@@ -2214,6 +2524,16 @@ int main(int argc, char** argv) {
     ZETA_SCRATCH_INIT(g_vocab);
     zeta_scratch_set_inject_ctx(g_dual, zeta_default_graph_query, NULL);
     fprintf(stderr, "[SCRATCH] Scratch buffer initialized for staged generation\n");
+
+    // Initialize Output Buffer: Formatted deliverable (Dual-Buffer Architecture)
+    // Planning Buffer (scratch) = hidden reasoning
+    // Output Buffer = formatted deliverable for test/benchmark
+    g_output_buffer = zeta_output_create(0);
+    if (g_output_buffer) {
+        fprintf(stderr, "[OUTPUT] Output buffer initialized for dual-buffer architecture\n");
+    } else {
+        fprintf(stderr, "[OUTPUT] WARNING: Failed to initialize output buffer\n");
+    }
 
     httplib::Server svr;
     g_server = &svr;
@@ -2502,8 +2822,133 @@ int main(int argc, char** argv) {
             }
         }
 
-        std::string result = generate(prompt, max_tokens);
+        // ====== TRM: TEMPORAL RECURSIVE MEMORY ======
+        // 1. Check for infinite recursion / safety
+        if (!g_trm.is_safe_query(prompt)) {
+             fprintf(stderr, "[TRM] Blocked recursive/unsafe query: %.100s...\n", prompt.c_str());
+             char json[1024];
+             snprintf(json, sizeof(json),
+                 "{\"output\":\"I cannot process that request. It triggers a recursive loop in my memory systems.\",\"tokens\":0,\"momentum\":0.0,\"action\":\"trm_blocked\"}");
+             res.set_content(json, "application/json");
+             return;
+        }
+        
+        // 2. Push to stream
+        g_trm.push_state(prompt, "user");
+        
+        // 3. Retrieve TRM context (using embeddings if available)
+        std::string trm_context;
+        if (g_stream_state.has_query_embedding) {
+             trm_context = g_trm.retrieve_context(prompt, g_stream_state.query_embedding, 3072);
+        } else {
+             trm_context = g_trm.retrieve_context(prompt);
+        }
+        
+        if (!trm_context.empty()) {
+             fprintf(stderr, "[TRM] Retrieved context: %zu chars\n", trm_context.size());
+        }
+
+        // ====== HRM: HIERARCHICAL REASONING MODULE ======
+        // Route complex queries through hierarchical decomposition
+        std::string query_class = route_query(prompt);
+        std::string hrm_result;
+
+        if (query_class == "COMPLEX" && g_hrm.is_ready()) {
+            fprintf(stderr, "[HRM] Complex query detected, decomposing...\n");
+            hrm_result = g_hrm.run(prompt);
+
+            if (!hrm_result.empty()) {
+                fprintf(stderr, "[HRM] Hierarchical reasoning complete (%zu chars)\n", hrm_result.size());
+
+                // Return HRM result directly as it's already synthesized
+                std::string escaped;
+                for (char c : hrm_result) {
+                    if (c == '"') escaped += "\\\"";
+                    else if (c == '\\') escaped += "\\\\";
+                    else if (c == '\n') escaped += "\\n";
+                    else if (c == '\r') escaped += "\\r";
+                    else if (c == '\t') escaped += "\\t";
+                    else escaped += c;
+                }
+
+                int graph_nodes = g_dual ? g_dual->num_nodes : 0;
+                int graph_edges = g_dual ? g_dual->num_edges : 0;
+
+                char json[32768];
+                snprintf(json, sizeof(json),
+                    "{\"output\":\"%s\",\"tokens\":%d,\"momentum\":0.9,"
+                    "\"hrm\":true,\"route\":\"%s\",\"graph_nodes\":%d,\"graph_edges\":%d}",
+                    escaped.c_str(), (int)hrm_result.length(), query_class.c_str(),
+                    graph_nodes, graph_edges);
+
+                // Push HRM result to TRM stream
+                g_trm.push_state(hrm_result, "hrm");
+
+                res.set_content(json, "application/json");
+                return;
+            }
+            // If HRM fails, fall through to normal generation
+            fprintf(stderr, "[HRM] Decomposition returned empty, falling back to standard generation\n");
+        }
+
+        // ====== SCRATCH BUFFER PLANNING ======
+        // Use scratch buffer to plan response if complex
+        if (prompt.length() > 100) { // Only for non-trivial prompts
+             ZETA_SCRATCH_START_GENERATION();  // Reset decode hook state
+             // In a full implementation, we would run a planning pass here
+             // For now, we just initialize the buffer to be ready
+        }
+
+        // ====== CONTEXT INJECTION (Core Coherence Flow) ======
+        // Prepend relevant graph facts to prompt for consistency
+        std::string enhanced_prompt = "";
+        
+        // Add TRM context if available
+        if (!trm_context.empty()) {
+            enhanced_prompt += "[RECURSIVE_MEMORY]\n" + trm_context + "[/RECURSIVE_MEMORY]\n\n";
+        }
+
+        enhanced_prompt += prompt;
+        char context_buf[8192];
+        size_t ctx_len = ZETA_BUILD_CONTEXT(prompt.c_str(), context_buf, sizeof(context_buf));
+        if (ctx_len > 0) {
+            enhanced_prompt = std::string(context_buf) + enhanced_prompt;
+            fprintf(stderr, "[CONTEXT] Injected %zu chars of graph context\n", ctx_len);
+        }
+
+        std::string result = generate(enhanced_prompt, max_tokens);
         fprintf(stderr, "[HTTP] generate() returned, result size=%zu\n", result.size());
+
+        // ====== FACT EXTRACTION (Core Coherence Flow) ======
+        // Extract facts from generation for future context
+        if (!result.empty()) {
+            // Parse output from JSON result to extract facts
+            size_t out_start = result.find("\"output\":");
+            if (out_start != std::string::npos) {
+                out_start = result.find('"', out_start + 9);
+                if (out_start != std::string::npos) {
+                    out_start++;
+                    size_t out_end = out_start;
+                    while (out_end < result.size()) {
+                        if (result[out_end] == '"' && result[out_end-1] != '\\') break;
+                        out_end++;
+                    }
+                    std::string output_text = result.substr(out_start, out_end - out_start);
+                    
+                    // TRM: Push assistant response to recursive stream
+                    g_trm.push_state(output_text, "assistant");
+
+                    // Scratch Buffer: Finalize generation (via decode hook)
+                    ZETA_SCRATCH_END_GENERATION();
+
+                    int facts = ZETA_EXTRACT_FACTS(output_text.c_str(), false);
+                    if (facts > 0) {
+                        fprintf(stderr, "[EXTRACT] Captured %d facts from generation\n", facts);
+                    }
+                }
+            }
+        }
+
         // Save graph after each generate (resilience against crash)
         if (g_dual && g_dual->num_nodes > 0) consolidate_memory();
         fprintf(stderr, "[HTTP] About to set_content\n");
@@ -2523,7 +2968,7 @@ int main(int argc, char** argv) {
         g_last_activity = time(NULL);
         res.set_header("Access-Control-Allow-Origin", "*");
 
-        // Parse JSON body
+        // Parse JSON body (handle escaped quotes in prompt)
         std::string prompt;
         int max_tokens = 2000;
 
@@ -2532,9 +2977,31 @@ int main(int argc, char** argv) {
             if (prompt_pos != std::string::npos) {
                 size_t start = req.body.find('\"', prompt_pos + 9);
                 if (start != std::string::npos) {
-                    size_t end = req.body.find('\"', start + 1);
-                    if (end != std::string::npos) {
-                        prompt = req.body.substr(start + 1, end - start - 1);
+                    // Find end quote, handling escapes
+                    size_t end = start + 1;
+                    while (end < req.body.size()) {
+                        if (req.body[end] == '\"' && req.body[end-1] != '\\') break;
+                        // Handle double backslash before quote
+                        if (req.body[end] == '\"' && end >= 2 && req.body[end-1] == '\\' && req.body[end-2] == '\\') break;
+                        end++;
+                    }
+                    if (end < req.body.size()) {
+                        std::string raw = req.body.substr(start + 1, end - start - 1);
+                        // Unescape JSON string
+                        prompt.reserve(raw.size());
+                        for (size_t i = 0; i < raw.size(); i++) {
+                            if (raw[i] == '\\' && i + 1 < raw.size()) {
+                                char next = raw[i + 1];
+                                if (next == 'n') { prompt += '\n'; i++; }
+                                else if (next == 't') { prompt += '\t'; i++; }
+                                else if (next == 'r') { prompt += '\r'; i++; }
+                                else if (next == '"') { prompt += '"'; i++; }
+                                else if (next == '\\') { prompt += '\\'; i++; }
+                                else prompt += raw[i];
+                            } else {
+                                prompt += raw[i];
+                            }
+                        }
                     }
                 }
             }
@@ -2670,6 +3137,15 @@ int main(int argc, char** argv) {
         llama_batch_free(batch);
 
         fprintf(stderr, "[CODE] Generated %d tokens, output len=%zu\n", generated, output.size());
+
+        // ====== FACT EXTRACTION (Core Coherence Flow) ======
+        // Extract facts from code generation for future context
+        if (!output.empty()) {
+            int facts = ZETA_EXTRACT_FACTS(output.c_str(), false);
+            if (facts > 0) {
+                fprintf(stderr, "[EXTRACT] Captured %d facts from code generation\n", facts);
+            }
+        }
 
         // Escape for JSON
         std::string escaped;
