@@ -5,6 +5,7 @@
 #define ZETA_CODE_MODE_H
 
 #include "zeta-dual-process.h"
+#include "zeta-embed-integration.h"  // For zeta_embed_init/free
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdlib.h>
