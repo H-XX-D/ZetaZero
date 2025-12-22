@@ -1522,6 +1522,190 @@ static inline int zeta_subconscious_extract_facts(
     return facts_created;
 }
 
+// ============================================================================
+// Context Injection for Generation (Core Flow)
+// Called BEFORE every generation to surface relevant graph facts
+// ============================================================================
+
+// Build context injection string from graph for a given query/prompt
+// This is the CORE mechanism for maintaining coherence across all input types
+static inline size_t zeta_build_context_injection(
+    zeta_dual_ctx_t* ctx,
+    const char* prompt,
+    char* out_context,
+    size_t max_len
+) {
+    if (!ctx || !prompt || !out_context || max_len < 100) {
+        if (out_context && max_len > 0) out_context[0] = '\0';
+        return 0;
+    }
+
+    // Surface relevant context from graph
+    zeta_surfaced_context_t surfaced;
+    zeta_surface_context(ctx, prompt, &surfaced);
+
+    if (surfaced.num_nodes == 0) {
+        out_context[0] = '\0';
+        return 0;
+    }
+
+    char* p = out_context;
+    size_t remaining = max_len - 1;
+    int n;
+
+    // Header
+    n = snprintf(p, remaining,
+        "[RELEVANT CONTEXT - Use these facts for consistency]\n");
+    p += n; remaining -= n;
+
+    // Group nodes by type for better organization
+    // Facts first (most important for coherence)
+    bool has_facts = false;
+    for (int i = 0; i < surfaced.num_nodes && remaining > 100; i++) {
+        zeta_graph_node_t* node = surfaced.nodes[i];
+        if (node->type == NODE_FACT ||
+            strstr(node->label, "relation") ||
+            strstr(node->label, "raw_memory")) {
+            if (!has_facts) {
+                n = snprintf(p, remaining, "FACTS:\n");
+                p += n; remaining -= n;
+                has_facts = true;
+            }
+            n = snprintf(p, remaining, "- %s\n", node->value);
+            p += n; remaining -= n;
+        }
+    }
+
+    // Entities (characters, locations, etc.)
+    bool has_entities = false;
+    for (int i = 0; i < surfaced.num_nodes && remaining > 100; i++) {
+        zeta_graph_node_t* node = surfaced.nodes[i];
+        if (node->type == NODE_ENTITY) {
+            if (!has_entities) {
+                n = snprintf(p, remaining, "ENTITIES:\n");
+                p += n; remaining -= n;
+                has_entities = true;
+            }
+            n = snprintf(p, remaining, "- %s: %s\n", node->label, node->value);
+            p += n; remaining -= n;
+        }
+    }
+
+    // Events (plot points, temporal)
+    bool has_events = false;
+    for (int i = 0; i < surfaced.num_nodes && remaining > 100; i++) {
+        zeta_graph_node_t* node = surfaced.nodes[i];
+        if (node->type == NODE_EVENT) {
+            if (!has_events) {
+                n = snprintf(p, remaining, "EVENTS:\n");
+                p += n; remaining -= n;
+                has_events = true;
+            }
+            n = snprintf(p, remaining, "- %s\n", node->value);
+            p += n; remaining -= n;
+        }
+    }
+
+    // Footer
+    n = snprintf(p, remaining, "[END CONTEXT]\n\n");
+    p += n; remaining -= n;
+
+    size_t total_len = max_len - remaining - 1;
+    fprintf(stderr, "[CONTEXT-INJECT] Surfaced %d nodes (%zu chars) for prompt\n",
+            surfaced.num_nodes, total_len);
+
+    return total_len;
+}
+
+// Prepend context to prompt (creates new string, caller must free)
+static inline char* zeta_inject_context_to_prompt(
+    zeta_dual_ctx_t* ctx,
+    const char* original_prompt
+) {
+    if (!ctx || !original_prompt) return NULL;
+
+    // Build context injection
+    char context[8192];
+    size_t ctx_len = zeta_build_context_injection(ctx, original_prompt, context, sizeof(context));
+
+    if (ctx_len == 0) {
+        // No context to inject, return copy of original
+        return strdup(original_prompt);
+    }
+
+    // Allocate combined buffer
+    size_t orig_len = strlen(original_prompt);
+    char* combined = (char*)malloc(ctx_len + orig_len + 16);
+    if (!combined) return strdup(original_prompt);
+
+    // Prepend context
+    memcpy(combined, context, ctx_len);
+    memcpy(combined + ctx_len, original_prompt, orig_len);
+    combined[ctx_len + orig_len] = '\0';
+
+    return combined;
+}
+
+// Extract and store facts from completed generation (planning or output)
+// This runs AFTER generation to capture new facts for future context
+static inline int zeta_extract_from_generation(
+    zeta_dual_ctx_t* ctx,
+    const char* generated_text,
+    bool is_planning_phase
+) {
+    if (!ctx || !generated_text || strlen(generated_text) < 10) return 0;
+
+    int facts = 0;
+
+    // Use the existing 3B extraction
+    facts += zeta_subconscious_extract_facts(ctx, generated_text);
+
+    // Additional extraction for story elements if this looks like narrative
+    if (strstr(generated_text, "Chapter") ||
+        strstr(generated_text, "said") ||
+        strstr(generated_text, "replied") ||
+        strstr(generated_text, "walked") ||
+        strstr(generated_text, "looked")) {
+
+        // Extract character names (Dr. X, Professor Y patterns)
+        const char* titles[] = {"Dr. ", "Professor ", "Captain ", "Lord ", "Lady ", NULL};
+        for (int t = 0; titles[t]; t++) {
+            const char* match = generated_text;
+            while ((match = strstr(match, titles[t])) != NULL) {
+                const char* name_start = match + strlen(titles[t]);
+                char name[128];
+                int ni = 0;
+
+                // Get title + name
+                const char* title_start = match;
+                while (*title_start && ni < 127 && *title_start != '.' &&
+                       *title_start != ',' && *title_start != '!' && *title_start != '?') {
+                    if (*title_start == ' ' && ni > 0) {
+                        // Check if next char is uppercase
+                        if (!(*(title_start+1) >= 'A' && *(title_start+1) <= 'Z')) break;
+                    }
+                    name[ni++] = *title_start++;
+                }
+                name[ni] = '\0';
+
+                if (ni > strlen(titles[t]) + 2) {
+                    zeta_commit_fact(ctx, NODE_ENTITY, "character", name, 0.9f, SOURCE_MODEL);
+                    facts++;
+                    fprintf(stderr, "[EXTRACT] Character: %s\n", name);
+                }
+                match++;
+            }
+        }
+    }
+
+    if (facts > 0) {
+        fprintf(stderr, "[EXTRACT] Captured %d facts from %s\n",
+                facts, is_planning_phase ? "planning" : "generation");
+    }
+
+    return facts;
+}
+
 #ifdef __cplusplus
 }
 #endif

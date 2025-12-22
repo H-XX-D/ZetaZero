@@ -45,6 +45,7 @@ extern "C" {
 // Control Tokens (added to tokenizer)
 // ============================================================================
 
+// Planning Buffer (hidden reasoning)
 #define SCRATCH_TOK_START       "<|scratch_start|>"    // Begin hidden reasoning
 #define SCRATCH_TOK_END         "<|scratch_end|>"      // End hidden, resume visible
 #define SCRATCH_TOK_CHECKPOINT  "<|checkpoint|>"       // Mark revision point
@@ -53,6 +54,15 @@ extern "C" {
 #define SCRATCH_TOK_FLUSH       "<|flush|>"            // Send current buffer to user
 #define SCRATCH_TOK_CLEAR       "<|clear|>"            // Clear buffer, start fresh
 #define SCRATCH_TOK_INJECT      "<|inject|>"           // Injection point for graph results
+
+// Output Buffer (formatted deliverable)
+#define OUTPUT_TOK_START        "<|output_start|>"     // Begin writing to output buffer
+#define OUTPUT_TOK_END          "<|output_end|>"       // End output, finalize deliverable
+#define OUTPUT_TOK_FORMAT       "<|format|>"           // Format specification marker
+
+// Format Discovery (self-configuration)
+#define FORMAT_TOK_DISCOVER     "<|format_discover|>"  // 14B determines output format
+#define FORMAT_TOK_APPLY        "<|format_apply|>"     // Apply discovered format to output
 
 // ============================================================================
 // Buffer State
@@ -160,6 +170,183 @@ typedef struct {
     int auto_checkpoint_interval; // Tokens between auto checkpoints
     
 } zeta_scratch_buffer_t;
+
+// ============================================================================
+// Output Buffer: Formatted Deliverable (Dual-Buffer Architecture)
+// ============================================================================
+// The Planning Buffer (scratch) holds hidden reasoning.
+// The Output Buffer holds the formatted deliverable.
+// 14B reasons in Planning, writes deliverable to Output.
+// Format is self-discovered via FORMAT_TOK_DISCOVER.
+
+#define ZETA_OUTPUT_DEFAULT_CAPACITY   (16 * 1024 * 1024)  // 16MB default
+#define ZETA_OUTPUT_MAX_CAPACITY       (64 * 1024 * 1024)  // 64MB max
+#define ZETA_FORMAT_SPEC_SIZE          4096                // Max format spec size
+
+typedef struct {
+    // Raw buffer
+    char* data;
+    size_t capacity;
+    size_t length;
+
+    // Write cursor
+    size_t write_cursor;
+
+    // Format specification (self-discovered by 14B)
+    char format_spec[ZETA_FORMAT_SPEC_SIZE];
+    size_t format_spec_len;
+    bool format_locked;          // Once format is set, it's locked
+
+    // Output state
+    bool is_active;              // Currently writing to output buffer
+    bool is_finalized;           // Output complete, ready to deliver
+
+    // Statistics
+    size_t total_bytes_written;
+    int64_t start_time;
+    int64_t finalize_time;
+
+} zeta_output_buffer_t;
+
+// Global output buffer instance
+static zeta_output_buffer_t* g_output_buffer = NULL;
+
+static inline zeta_output_buffer_t* zeta_output_create(size_t capacity) {
+    if (capacity == 0) capacity = ZETA_OUTPUT_DEFAULT_CAPACITY;
+    if (capacity > ZETA_OUTPUT_MAX_CAPACITY) capacity = ZETA_OUTPUT_MAX_CAPACITY;
+
+    zeta_output_buffer_t* buf = (zeta_output_buffer_t*)calloc(1, sizeof(zeta_output_buffer_t));
+    if (!buf) return NULL;
+
+    buf->data = (char*)malloc(capacity);
+    if (!buf->data) {
+        free(buf);
+        return NULL;
+    }
+
+    buf->capacity = capacity;
+    buf->length = 0;
+    buf->write_cursor = 0;
+    buf->format_spec_len = 0;
+    buf->format_locked = false;
+    buf->is_active = false;
+    buf->is_finalized = false;
+    buf->total_bytes_written = 0;
+    buf->start_time = 0;
+    buf->finalize_time = 0;
+
+    return buf;
+}
+
+static inline void zeta_output_destroy(zeta_output_buffer_t* buf) {
+    if (!buf) return;
+    if (buf->data) free(buf->data);
+    free(buf);
+}
+
+static inline void zeta_output_reset(zeta_output_buffer_t* buf) {
+    if (!buf) return;
+    buf->length = 0;
+    buf->write_cursor = 0;
+    buf->format_spec_len = 0;
+    buf->format_locked = false;
+    buf->is_active = false;
+    buf->is_finalized = false;
+    buf->start_time = 0;
+    buf->finalize_time = 0;
+}
+
+// Set format specification (called after FORMAT_TOK_DISCOVER)
+static inline bool zeta_output_set_format(zeta_output_buffer_t* buf, const char* format_spec, size_t len) {
+    if (!buf || buf->format_locked) return false;
+
+    if (len >= ZETA_FORMAT_SPEC_SIZE) len = ZETA_FORMAT_SPEC_SIZE - 1;
+    memcpy(buf->format_spec, format_spec, len);
+    buf->format_spec[len] = '\0';
+    buf->format_spec_len = len;
+    buf->format_locked = true;
+
+    fprintf(stderr, "[OUTPUT] Format spec set (%zu bytes): %.100s%s\n",
+            len, buf->format_spec, len > 100 ? "..." : "");
+    return true;
+}
+
+// Begin writing to output buffer
+static inline void zeta_output_start(zeta_output_buffer_t* buf) {
+    if (!buf) return;
+    buf->is_active = true;
+    buf->is_finalized = false;
+    buf->start_time = time(NULL);
+    fprintf(stderr, "[OUTPUT] Output buffer activated\n");
+}
+
+// Append to output buffer
+static inline bool zeta_output_append(zeta_output_buffer_t* buf, const char* text, size_t len) {
+    if (!buf || !buf->is_active || buf->is_finalized) return false;
+    if (!text || len == 0) return true;
+
+    // Grow if needed
+    if (buf->length + len >= buf->capacity) {
+        size_t new_cap = buf->capacity * 2;
+        if (new_cap > ZETA_OUTPUT_MAX_CAPACITY) return false;
+        char* new_data = (char*)realloc(buf->data, new_cap);
+        if (!new_data) return false;
+        buf->data = new_data;
+        buf->capacity = new_cap;
+    }
+
+    memcpy(buf->data + buf->length, text, len);
+    buf->length += len;
+    buf->write_cursor = buf->length;
+    buf->total_bytes_written += len;
+
+    return true;
+}
+
+// Finalize output buffer (mark as ready for delivery)
+static inline void zeta_output_finalize(zeta_output_buffer_t* buf) {
+    if (!buf) return;
+    buf->is_active = false;
+    buf->is_finalized = true;
+    buf->finalize_time = time(NULL);
+    fprintf(stderr, "[OUTPUT] Output buffer finalized (%zu bytes)\n", buf->length);
+}
+
+// Get output content
+static inline const char* zeta_output_get_content(zeta_output_buffer_t* buf, size_t* out_len) {
+    if (!buf) return NULL;
+    if (out_len) *out_len = buf->length;
+    return buf->data;
+}
+
+// Check if output is ready
+static inline bool zeta_output_is_ready(zeta_output_buffer_t* buf) {
+    return buf && buf->is_finalized && buf->length > 0;
+}
+
+// JSON serialization for output buffer
+static inline size_t zeta_output_to_json(zeta_output_buffer_t* buf, char* json, size_t json_size) {
+    if (!buf || !json || json_size < 256) return 0;
+
+    return snprintf(json, json_size,
+        "{"
+        "\"length\":%zu,"
+        "\"capacity\":%zu,"
+        "\"format_spec_len\":%zu,"
+        "\"format_locked\":%s,"
+        "\"is_active\":%s,"
+        "\"is_finalized\":%s,"
+        "\"total_bytes_written\":%zu"
+        "}",
+        buf->length,
+        buf->capacity,
+        buf->format_spec_len,
+        buf->format_locked ? "true" : "false",
+        buf->is_active ? "true" : "false",
+        buf->is_finalized ? "true" : "false",
+        buf->total_bytes_written
+    );
+}
 
 // ============================================================================
 // Initialization & Cleanup
@@ -1266,6 +1453,96 @@ static inline size_t zeta_scratch_to_json(zeta_scratch_buffer_t* buf, char* json
     );
     
     return (size_t)written;
+}
+
+// ============================================================================
+// PART 9: Dual-Buffer Context (combines Planning + Output)
+// ============================================================================
+// This section must be AFTER all scratch buffer functions are defined.
+// Planning Buffer (scratch) = hidden reasoning
+// Output Buffer = formatted deliverable for test/benchmark
+
+typedef struct {
+    zeta_scratch_buffer_t* planning;   // Hidden reasoning (existing scratch)
+    zeta_output_buffer_t* output;      // Formatted deliverable
+
+    // Current mode
+    bool in_planning;                  // Currently writing to planning buffer
+    bool in_output;                    // Currently writing to output buffer
+    bool format_discovered;            // 14B has discovered the format
+
+    // Generation state
+    bool is_generating;
+    int64_t start_time;
+
+} zeta_dual_buffer_ctx_t;
+
+static inline zeta_dual_buffer_ctx_t* zeta_dual_buffer_create(void) {
+    zeta_dual_buffer_ctx_t* ctx = (zeta_dual_buffer_ctx_t*)calloc(1, sizeof(zeta_dual_buffer_ctx_t));
+    if (!ctx) return NULL;
+
+    ctx->planning = zeta_scratch_create(0);
+    ctx->output = zeta_output_create(0);
+
+    if (!ctx->planning || !ctx->output) {
+        if (ctx->planning) zeta_scratch_destroy(ctx->planning);
+        if (ctx->output) zeta_output_destroy(ctx->output);
+        free(ctx);
+        return NULL;
+    }
+
+    ctx->in_planning = false;
+    ctx->in_output = false;
+    ctx->format_discovered = false;
+    ctx->is_generating = false;
+
+    return ctx;
+}
+
+static inline void zeta_dual_buffer_destroy(zeta_dual_buffer_ctx_t* ctx) {
+    if (!ctx) return;
+    if (ctx->planning) zeta_scratch_destroy(ctx->planning);
+    if (ctx->output) zeta_output_destroy(ctx->output);
+    free(ctx);
+}
+
+static inline void zeta_dual_buffer_reset(zeta_dual_buffer_ctx_t* ctx) {
+    if (!ctx) return;
+    if (ctx->planning) zeta_scratch_reset(ctx->planning);
+    if (ctx->output) zeta_output_reset(ctx->output);
+    ctx->in_planning = false;
+    ctx->in_output = false;
+    ctx->format_discovered = false;
+    ctx->is_generating = false;
+}
+
+// Enter planning mode (hidden reasoning)
+static inline void zeta_dual_buffer_enter_planning(zeta_dual_buffer_ctx_t* ctx) {
+    if (!ctx) return;
+    ctx->in_planning = true;
+    ctx->in_output = false;
+    if (ctx->planning) zeta_scratch_enter_hidden(ctx->planning);
+}
+
+// Exit planning, enter output mode
+static inline void zeta_dual_buffer_enter_output(zeta_dual_buffer_ctx_t* ctx) {
+    if (!ctx) return;
+    ctx->in_planning = false;
+    ctx->in_output = true;
+    if (ctx->planning) zeta_scratch_exit_hidden(ctx->planning);
+    if (ctx->output) zeta_output_start(ctx->output);
+}
+
+// Append to current buffer
+static inline bool zeta_dual_buffer_append(zeta_dual_buffer_ctx_t* ctx, const char* text, size_t len) {
+    if (!ctx) return false;
+
+    if (ctx->in_output && ctx->output) {
+        return zeta_output_append(ctx->output, text, len);
+    } else if (ctx->planning) {
+        return zeta_scratch_append(ctx->planning, text, len);
+    }
+    return false;
 }
 
 #ifdef __cplusplus
