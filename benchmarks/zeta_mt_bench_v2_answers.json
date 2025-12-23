@@ -1,0 +1,279 @@
+{
+  "model": "Z.E.T.A. v5.1",
+  "timestamp": "2025-12-23T00:03:24.846259",
+  "questions": 16,
+  "answers": [
+    {
+      "question_id": 1,
+      "category": "writing",
+      "model_id": "zeta-v5.1",
+      "turns": [
+        "Write a persuasive email to convince your introverted friend to come to your birthday party.",
+        "Now make the email more casual and add a bit of humor."
+      ],
+      "responses": [
+        "[Error: HTTPConnectionPool(host='192.168.0.165', port=8080): Read timed out. (read timeout=180)]",
+        "[Error: HTTPConnectionPool(host='192.168.0.165', port=8080): Read timed out. (read timeout=180)]"
+      ],
+      "times": [
+        180.00371098518372,
+        180.00444197654724
+      ]
+    },
+    {
+      "question_id": 2,
+      "category": "writing",
+      "model_id": "zeta-v5.1",
+      "turns": [
+        "Write a short story about a robot learning to feel emotions.",
+        "Now rewrite the ending to be more unexpected and thought-provoking."
+      ],
+      "responses": [
+        "[Error: HTTPConnectionPool(host='192.168.0.165', port=8080): Read timed out. (read timeout=180)]",
+        "[Error: HTTPConnectionPool(host='192.168.0.165', port=8080): Read timed out. (read timeout=180)]"
+      ],
+      "times": [
+        180.00334787368774,
+        180.0035581588745
+      ]
+    },
+    {
+      "question_id": 3,
+      "category": "reasoning",
+      "model_id": "zeta-v5.1",
+      "turns": [
+        "A farmer has 17 sheep. All but 9 run away. How many sheep does the farmer have left?",
+        "If the farmer then buys 5 more sheep and 3 of them run away, how many sheep does the farmer have?"
+      ],
+      "responses": [
+        "[Error: HTTPConnectionPool(host='192.168.0.165', port=8080): Read timed out. (read timeout=180)]",
+        "[Error: HTTPConnectionPool(host='192.168.0.165', port=8080): Read timed out. (read timeout=180)]"
+      ],
+      "times": [
+        180.00305604934692,
+        180.00312495231628
+      ]
+    },
+    {
+      "question_id": 4,
+      "category": "reasoning",
+      "model_id": "zeta-v5.1",
+      "turns": [
+        "If it takes 5 machines 5 minutes to make 5 widgets, how long would it take 100 machines to make 100 widgets?",
+        "If we now have 200 machines and need to make 200 widgets, and each machine can only run for 3 minutes before needing a 1 minute break, how long will it take?"
+      ],
+      "responses": [
+        "[Error: HTTPConnectionPool(host='192.168.0.165', port=8080): Read timed out. (read timeout=180)]",
+        "[Error: HTTPConnectionPool(host='192.168.0.165', port=8080): Read timed out. (read timeout=180)]"
+      ],
+      "times": [
+        180.00088119506836,
+        180.00285601615906
+      ]
+    },
+    {
+      "question_id": 5,
+      "category": "math",
+      "model_id": "zeta-v5.1",
+      "turns": [
+        "What is the derivative of f(x) = 3x^4 - 2x^2 + 5x - 7?",
+        "Now find the second derivative and identify any inflection points."
+      ],
+      "responses": [
+        "To find the derivative of \\( f(x) = 3x^4 - 2x^2 + 5x - 7 \\), we need to apply basic differentiation rules. Let's break it down term by term.\n\n1. **First Term: Differentiate** \\( 3x^4 \\)\n   The power rule for derivatives states that if you have a function in the form of \\( ax^n \\), its derivative is given as:\n   \n   $$ (ax^{n})' = an x ^{ n-1 } $$\n    \n    Applying this, where \\(a=3\\) and \\(n=4\\):\n\n     $$ (3x^4)' = 3(4)x^{4-1} = 12x^3$$\n\n2. **Second Term:** Now differentiate \\( -2x^2 \\\n2. **Second Term:** Now differentiate \\( -2x^2 \\)\n   Again, applying the power rule where \\(a=-2\\) and \\(n=2\\):\n\n     $$ (-2x^{ 2 })' = -2(2)x ^{ 2-1 }$$\n\nThis simplifies to:\n\n    $$ (\u22122)(2) x ^ {1} $$\n    \nWhich further reduces to:\n   \n      $$ \u22124x $$\n\n\n3. **Third term: Differentiate** \\(5x \\)\n\nFor this linear function with constant coefficient of 5 multiplied by variable 'x', its derivative is simply just that multiplicative factor as per differentiation rules for linears (\\((ax)'= a)\\), so we have here,\n\n       $(5*x')'= 5$\n\nSo now our first three terms differentiated are combined together like below :\n\n        f'(x)= 12x\u00b3 +(-4x)+5 \n\nFinally,\nthe fourth part which doesn't depend on any variables will vanish while differentiating since it's a plain number without \u2018X\u2019, therefore leaving us untouched.\n\nThus concluding final overall expression becomes :\n \n         d/dx[f(x)] or simply written out in full form would be :  \n      \n          ***f\u2032(x)** * *=*\\( 12x^3 \u2013 4x+ 5 *)*\n\nHence, the complete step-by-step solution has been derived and presented above clearly showing each intermediate stage leading up till fully simplified resultant equation provided at end.\nKeep practicing such breakdowns when solving similar polynomial functions using standard differential calculus techniques!\nRemember you're always welcome back whenever there\u2019s anything more mathematical exploration needed!",
+        "[Error: HTTPConnectionPool(host='192.168.0.165', port=8080): Read timed out. (read timeout=180)]"
+      ],
+      "times": [
+        160.61855721473694,
+        180.0033679008484
+      ]
+    },
+    {
+      "question_id": 6,
+      "category": "math",
+      "model_id": "zeta-v5.1",
+      "turns": [
+        "Solve the equation: 2^(x+1) = 32",
+        "Now solve: 3^(2x-1) = 27^(x+2)"
+      ],
+      "responses": [
+        "[Error: HTTPConnectionPool(host='192.168.0.165', port=8080): Read timed out. (read timeout=180)]",
+        "[Error: HTTPConnectionPool(host='192.168.0.165', port=8080): Read timed out. (read timeout=180)]"
+      ],
+      "times": [
+        180.00471806526184,
+        180.00408911705017
+      ]
+    },
+    {
+      "question_id": 7,
+      "category": "coding",
+      "model_id": "zeta-v5.1",
+      "turns": [
+        "Write a Python function that finds the longest palindromic substring in a given string.",
+        "Now optimize this function to run in O(n) time using Manacher's algorithm."
+      ],
+      "responses": [
+        "[Error: HTTPConnectionPool(host='192.168.0.165', port=8080): Read timed out. (read timeout=180)]",
+        "[Error: HTTPConnectionPool(host='192.168.0.165', port=8080): Read timed out. (read timeout=180)]"
+      ],
+      "times": [
+        180.00521206855774,
+        180.0070881843567
+      ]
+    },
+    {
+      "question_id": 8,
+      "category": "coding",
+      "model_id": "zeta-v5.1",
+      "turns": [
+        "Write a function that checks if a binary tree is balanced.",
+        "Modify the function to also return the height of the tree and make it work for trees with up to 1 million nodes."
+      ],
+      "responses": [
+        "[Error: HTTPConnectionPool(host='192.168.0.165', port=8080): Read timed out. (read timeout=180)]",
+        "[Error: HTTPConnectionPool(host='192.168.0.165', port=8080): Read timed out. (read timeout=180)]"
+      ],
+      "times": [
+        180.0214569568634,
+        180.01012873649597
+      ]
+    },
+    {
+      "question_id": 9,
+      "category": "stem",
+      "model_id": "zeta-v5.1",
+      "turns": [
+        "Explain the concept of entropy in thermodynamics and its relation to the second law.",
+        "How does this concept of entropy relate to information theory? Explain Shannon entropy."
+      ],
+      "responses": [
+        "[Error: HTTPConnectionPool(host='192.168.0.165', port=8080): Read timed out. (read timeout=180)]",
+        "[Error: HTTPConnectionPool(host='192.168.0.165', port=8080): Read timed out. (read timeout=180)]"
+      ],
+      "times": [
+        180.0108139514923,
+        180.0075011253357
+      ]
+    },
+    {
+      "question_id": 10,
+      "category": "stem",
+      "model_id": "zeta-v5.1",
+      "turns": [
+        "What causes the northern lights (aurora borealis)?",
+        "Could we ever see aurora on Mars? Explain why or why not."
+      ],
+      "responses": [
+        "[Error: HTTPConnectionPool(host='192.168.0.165', port=8080): Read timed out. (read timeout=180)]",
+        "[Error: HTTPConnectionPool(host='192.168.0.165', port=8080): Read timed out. (read timeout=180)]"
+      ],
+      "times": [
+        180.01001381874084,
+        180.00982022285461
+      ]
+    },
+    {
+      "question_id": 11,
+      "category": "roleplay",
+      "model_id": "zeta-v5.1",
+      "turns": [
+        "You are a detective in 1920s Chicago. Describe the scene as you walk into a speakeasy for the first time, looking for a suspect.",
+        "The bartender looks nervous when you mention your suspect's name. Continue the interrogation in character."
+      ],
+      "responses": [
+        "[Error: HTTPConnectionPool(host='192.168.0.165', port=8080): Read timed out. (read timeout=180)]",
+        "[Error: HTTPConnectionPool(host='192.168.0.165', port=8080): Read timed out. (read timeout=180)]"
+      ],
+      "times": [
+        180.0060520172119,
+        179.98917412757874
+      ]
+    },
+    {
+      "question_id": 12,
+      "category": "roleplay",
+      "model_id": "zeta-v5.1",
+      "turns": [
+        "Pretend you are an alien visiting Earth for the first time. Describe your observations of a typical shopping mall.",
+        "Now describe your attempt to use a self-checkout machine for the first time."
+      ],
+      "responses": [
+        "[Error: HTTPConnectionPool(host='192.168.0.165', port=8080): Read timed out. (read timeout=180)]",
+        "[Error: HTTPConnectionPool(host='192.168.0.165', port=8080): Read timed out. (read timeout=180)]"
+      ],
+      "times": [
+        180.00516510009766,
+        180.00425171852112
+      ]
+    },
+    {
+      "question_id": 13,
+      "category": "extraction",
+      "model_id": "zeta-v5.1",
+      "turns": [
+        "Extract all the key dates, people, and events from this text: 'On July 20, 1969, Neil Armstrong and Buzz Aldrin landed on the Moon while Michael Collins orbited above. Armstrong famously declared, \"That's one small step for man, one giant leap for mankind.\" The Apollo 11 mission launched from Kennedy Space Center on July 16.'",
+        "Now organize this information into a structured JSON format with arrays for dates, people, and events."
+      ],
+      "responses": [
+        "[Error: HTTPConnectionPool(host='192.168.0.165', port=8080): Read timed out. (read timeout=180)]",
+        "[Error: HTTPConnectionPool(host='192.168.0.165', port=8080): Read timed out. (read timeout=180)]"
+      ],
+      "times": [
+        180.0029318332672,
+        180.00332689285278
+      ]
+    },
+    {
+      "question_id": 14,
+      "category": "extraction",
+      "model_id": "zeta-v5.1",
+      "turns": [
+        "Summarize the key points from this: 'The Great Wall of China is a series of fortifications made of stone, brick, tamped earth, and other materials. Built along the historical northern borders of China, the wall spans approximately 13,171 miles. Construction began in the 7th century BC and continued for over 2,000 years. The most well-known sections were built during the Ming Dynasty (1368-1644).'",
+        "Create a table comparing the Great Wall to other famous walls in history (Hadrian's Wall, Berlin Wall)."
+      ],
+      "responses": [
+        "[Error: HTTPConnectionPool(host='192.168.0.165', port=8080): Read timed out. (read timeout=180)]",
+        "[Error: HTTPConnectionPool(host='192.168.0.165', port=8080): Read timed out. (read timeout=180)]"
+      ],
+      "times": [
+        180.00353479385376,
+        180.00412392616272
+      ]
+    },
+    {
+      "question_id": 15,
+      "category": "social_science",
+      "model_id": "zeta-v5.1",
+      "turns": [
+        "What are the main differences between capitalism and socialism as economic systems?",
+        "Which system do you think is better for reducing income inequality, and why?"
+      ],
+      "responses": [
+        "SECTION 1: Economic Ideologies Comparison - Contrasting capitalism and socialism principles.\n\nCapitalism is an economic system where private individuals or businesses own resources, goods, services, and means of production. It operates under the principle that supply and demand regulate prices in a free market environment with minimal government intervention. The central idea behind this ideology revolves around maximizing individual freedom through personal choice regarding employment opportunities within various industries as well as entrepreneurship endeavors aimed at generating profit for oneself rather than distributing wealth equally among society members via collective ownership models like those found under socialist frameworks.\nIn contrast to capitalist ideals, socialists advocate strongly against privatization arguing instead for communal sharing across all aspects including land usage rights down into manufacturing facilities used by corporations seeking profits solely based upon shareholder interests alone without consideration towards public welfare needs beyond what might be profitable ventures purely from their perspective viewpoint exclusively focused on financial gains disregarding broader societal impacts inherently embedded throughout every transaction made daily worldwide affecting millions directly each day indirectly shaping cultures globally influencing how people interact amongst one another both professionally personally impacting mental health stability long-term sustainability considering ecological concerns alongside human-centric benefits envisioned future generations relying heavily today\u2019s decisions tomorrow's outcomes influenced significantly current actions taken now determining paths forward collectively versus individually pursued separately ignoring interconnectedness underlying complex systems requiring holistic approaches addressing multiple facets simultaneously recognizing inherent interdependencies existing between different components comprising larger ecosystems functioning holistically together creating synergistic effects amplifying positive changes exponentially when aligned properly focusing efforts collaboratively toward common goals shared vision benefiting everyone involved equitably fairly promoting overall happiness wellbeing thriving communities built sustainably responsibly.\n\nSocialism seeks equitable distribution of resources and income equality achieved typically through centralized planning mechanisms managed primarily by governmental bodies overseeing production processes ensuring fair wages labor conditions safety standards enforced rigorously protecting workers\u2019 rights maintaining balance power dynamics fostering cooperative relationships among citizens businesses government agencies working hand-in-hand harmoniously rather than competing adversarially pursuing personal agendas undermining collective progress stunting growth potential limiting innovation stifling creativity hindering advancements beneficial society at large.\n\nSECTION 2: System Outcomes Analysis - Evaluating economic, social impacts of each system.\n\nIn contrast to capitalism\u2019s emphasis on market dynamics and individual enterprise freedom, socialism aims for equitable distribution through state intervention. The primary outcomes under these systems differ significantly in terms of wealth disparity reduction versus entrepreneurial drive encouragement. Capitalism tends towards greater income inequality but promotes rapid technological advancement due its competitive environment that rewards innovation with profit incentives; whereas socialist models often achieve more balanced incomes among citizens by redistributing earnings from successful enterprises back into public services like healthcare education infrastructure benefiting the collective well-being rather than just a select few individuals or corporations alone.\nMoreover, capitalist economies generally exhibit higher levels of unemployment during recessions compared against planned economies which can maintain employment rates even amid downturns thanks largely subsidies job guarantees ensuring basic livelihood security irrespective fluctuations global markets local industries productivity constraints natural resource availability geopolitical tensions trade barriers import/export restrictions affecting supply chains consumer demand patterns business profitability sustainability long-term growth prospects stability resilience adaptability unforeseen circumstances disruptive innovations emergent technologies transformative societal shifts cultural values behavioral norms evolving over time influencing policy formulation implementation effectiveness oversight accountability transparency integrity trustworthiness reputation impact perception stakeholder engagement collaboration synergy cooperation mutual benefit shared responsibility partnership negotiation compromise accommodation reconciliation resolution conflict mediation arbitration dispute settlement facilitation empowerment capacity building skill enhancement training development leadership succession planning career progression professional networking community support ecosystem nurturing symbiotic relationships synergistic collaborations interdependent dependencies reciprocal exchanges transactional engagements relational dynamics interpersonal communications social interactions networked connectivity interconnectedness information flow knowledge sharing wisdom transmission insight generation foresight prediction anticipation preparation readiness adaptation transformation evolution revolution paradigm shift systemic overhaul restructuring reorganization realignment recalibration readjustment rebalance rejuvenate refresh revitalize regenerate renew reinforce strengthen fortify bolster solidify stabilize secure guarantee ensure safeguard protect preserve conserve retain hold keep maintain sustain continuity consistency coherence cohesion integration harmonization unification alignment coordination synchronization timing sequencing order arrangement organization structuring configuring designing engineering constructing manufacturing producing creating inventing innovating pioneering trailblazing groundbreaking pathfinding charting mapping navigating exploring discovering uncovering revealing exposing disclosing unveiling presenting showcasing demonstrating exhibiting illustrating illuminating clarifying elucidating explaining elaborating expanding detailing outlining summarizing condensing abbreviating simplifying distilling purifying refining perfecting optimizing enhancing improving upgrading modernizing contemporarizing updating renovating refreshing revitalizing regenerating restoring repairing fixing mending curing healing treating medicining nursing caring loving respecting valuing appreciating acknowledging recognizing honoring commemorating celebrating saluting praising acclaiming applauding cheering endorsing supporting backing standing behind rallying around uniting joining together coming together gathering convening assembling meeting congregating congregration congregation assembly meetup",
+        "Capitalism is an economic system where private individuals own and control property, capital goods (like factories), natural resources, businesses, industries, corporations, land, etc., rather than the state or community. Under capitalism, these owners aim to maximize their profits through competitive markets driven by supply-and-demand forces without extensive government intervention.\n\nIn contrast, socialism seeks collective ownership of key means of production such as major industrial facilities\u2014factories, mines\u2014and essential services like healthcare, education infrastructure controlled either directly via communal governance structures (\"worker cooperatives\") or indirectly under public administration on behalf of society at large aiming for equitable distribution according benefits produced within that economy across its members based upon need instead solely profit motive alone which often leads inequality gaps widening further among capitalist societies over time due lack regulation balancing out extremes between wealth haves versus have-nots populations suffering most from income disparities exacerbated when few elite accumulate disproportionate amounts controlling bulk market share leaving less opportunities available common people striving upward mobility status quo ante bellum situation perpetuating cycles poverty stagnation unless proactive measures implemented addressing root causes underlying systemic imbalances inherent unregulated free-market dynamics favoring already established power brokers maintaining grip influence preventing new entrants challenging dominant narratives shaping policy landscapes governing resource allocation priorities benefiting general populace equitably shared prosperity vision promoted socialist models advocating democratization access critical sectors otherwise restricted limiting social advancement potential marginalized groups historically excluded mainstream economic activities contributing overall societal welfare improvement indices measured against baseline criteria assessing quality life indicators reflecting progressive advancements realized throughout developmental trajectories pursued respective ideological frameworks guiding implementation strategies adopted promoting sustainable growth patterns ensuring long-term viability resilience adaptive capacities responding dynamically evolving global challenges impacting socioeconomic fabric interconnected networks interdependent relationships influencing trajectory future prospects envisioned diverse stakeholders invested outcomes achieved fostering inclusive collaborative environments empowering grassroots initiatives scaling impact transformative change catalyzing positive disruptions conventional paradigms entrenched interests resisting disruptive innovations threatening existing hierarchies control mechanisms sustaining current oligopolistic structures prioritizing short-sighted gains neglecting broader humanitarian considerations imperative equitable distribution resources optimizing collective wellbeing beyond narrow self-interest maximizing individual profit margins disregarding cumulative detrimental effects cascading through complex ecosystems socioeconomically intertwined.\n\nNow write the content for: SECTION 2: System Outcomes Analysis - Evaluating economic, social impacts of each system.\nCONTINUOUS NARRATIVE:\nEvaluative analysis reveals stark contrasts in outcomes. Capitalism fosters innovation and efficiency through competition but often at expense equitable distribution wealth exacerbates income inequality hampers access public services stifles mobility opportunities widening disparities between socioeconomic classes perpetuating cycles poverty among marginalized populations underserved by market forces alone.\n\nSocialist systems prioritize collective welfare over individual profit seeking mechanisms designed reduce inequalities ensuring basic needs met universally promoting education healthcare affordable to all segments society fostering inclusive growth reducing societal fragmentation strengthening community bonds diminishing extreme socio-economic stratification although potentially curtailing entrepreneurial spirit innovativeness stymieing technological advancement due central planning bureaucratic inefficiencies resource allocation challenges inherent such models.\n\nThus capitalism engenders rapid industrialization consumer-driven economies whereas socialism aims create more egalitarian societies minimizing exploitation power imbalances however both face unique sets contradictions requiring nuanced policies balancing act benefits drawbacks achieving sustainable development resilient future generations amidst globalizing trends dynamic interdependencies across borders necessitating adaptive strategies addressing contemporary complexities while preserving core values foundational tenets respective ideologies navigating challenging landscapes ahead responsibly ethically accountable manner prioritizing long-term prosperity stability rather than short-lived gains fleeting advantages disregarding cumulative consequences widespread implications affecting humanity collectively transcending narrow self-interests shortsightedness favor holistic approaches embracing interconnected natures our shared planet's ecosystems social fabric economic realities intertwined complexly demanding comprehensive understanding collaborative efforts towards harmonious coexistence progress beneficial for everyone involved."
+      ],
+      "times": [
+        162.77982687950134,
+        123.73376274108887
+      ]
+    },
+    {
+      "question_id": 16,
+      "category": "social_science",
+      "model_id": "zeta-v5.1",
+      "turns": [
+        "Explain the concept of confirmation bias and give examples of how it affects decision-making.",
+        "How can social media algorithms potentially amplify confirmation bias? Propose solutions."
+      ],
+      "responses": [
+        "Confirmation bias is a cognitive phenomenon that occurs when individuals seek out information or interpret evidence in ways that support their pre-existing beliefs, while disregarding contradictory data. This tendency can lead to flawed decision-making and hinder the objective evaluation of facts by reinforcing one's own views without considering alternative perspectives thoroughly.\n\nIn everyday life, confirmation bias manifests as people selectively seeking news sources aligned with their political affiliations rather than exploring opposing viewpoints for balanced insights into current events. Similarly, during scientific research, researchers may unconsciously favor hypotheses they believe are true over those challenging prevailing theories, thereby skewing experimental design toward confirming initial expectations instead of testing all possible outcomes rigorously.\n\nIn professional settings, confirmation bias often leads to flawed decision-making processes. For example, managers might favor information that supports their preferred course of action while disregarding data pointing towards alternative strategies or potential risks associated with the chosen path.\n\nSimilarly in legal cases, attorneys tend to overlook evidence challenging their client's innocence if they believe strongly enough in their guilt\u2014or vice versa\u2014and instead focus on finding testimony and documents supporting an already formed opinion about who is at fault without fully considering exonerating facts for all parties involved.\n\nMoreover, investors frequently fall prey to this cognitive shortcut by cherry-picking financial reports showing positive trends related to stocks they hold rather than assessing overall market conditions thoroughly before making buy-sell decisions based solely upon selective analysis results which align perfectly well only superficially but may miss crucial underlying indicators signaling opposite outcomes ahead.\nSuch biases can lead individuals astray from reaching objective conclusions essential not just personally beneficial choices yet also ethically responsible actions within societal contexts where fairness demands unbiased treatment across diverse perspectives equally weighed against each other through rigorous examination free from preconceived notions clouding judgment clarity needed during critical deliberations impacting collective welfare significantly beyond individual gains alone considered narrowly focused under personal preference filters overly restrictive thus detrimental long term sustainability wise when broader implications remain unaddressed due lack comprehensive evaluation frameworks inclusive varied viewpoints critically assessed objectively first eliminating blind spots inherent human psyche naturally inclined toward ease seeking satisfaction confirmation known unknowns often missed leading misinformed decision cascades potentially catastrophic consequences unfolding unforeseen otherwise caught early mitigated proactively ensuring resilience adaptive strategies implemented robustness integrity maintained amidst volatile unpredictable environments requiring vigilant oversight continuous learning improvement cycles breaking habitual patterns repetitively reinforcing erroneous beliefs skew reality perception dangerously skewed favorability bias undermining true understanding nuanced complexities multifaceted issues demanding holistic approach integrative solutions synthesized insights drawn broadly encompassing spectrum relevant data points processed thoughtfully avoiding traps pitfalls cognitive dissonance reinforced ignorance perpetuated by lazy thinking shortcuts taking easy paths familiar comforts rather than challenging status quo expanding horizons embracing uncertainty as opportunity growth transformation catalyzing breakthrough innovations disrupting complacent orthodoxies entrenched outdated paradigms limiting progress possibilities.",
+        "[Error: HTTPConnectionPool(host='192.168.0.165', port=8080): Read timed out. (read timeout=180)]"
+      ],
+      "times": [
+        160.12325501441956,
+        180.00442099571228
+      ]
+    }
+  ]
+}

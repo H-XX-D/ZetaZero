@@ -17,6 +17,7 @@
 
 #include <string>
 #include <map>
+#include <vector>
 #include <fstream>
 #include <cstdlib>
 #include <cstring>
@@ -196,6 +197,147 @@ static inline void zeta_print_config() {
     fprintf(stderr, "  Context: 14B=%d, 7B=%d, Embed=%d\n", g_config.ctx_14b, g_config.ctx_7b, g_config.ctx_embed);
     fprintf(stderr, "Storage:   %s\n", g_config.storage_dir.c_str());
     fprintf(stderr, "==============================\n\n");
+}
+
+// =============================================================================
+// DREAM SUGGESTION: ContextChecker Class for Unified Context Validation
+// =============================================================================
+// Provides centralized context validation to ensure consistency across modules
+
+class ZetaContextChecker {
+public:
+    // Validation result structure
+    struct ValidationResult {
+        bool is_valid;
+        std::string error_message;
+        std::string sanitized_value;
+    };
+
+    // Validate that a context string is non-empty and well-formed
+    static ValidationResult validate_context(const std::string& context) {
+        ValidationResult result;
+        result.is_valid = true;
+        result.error_message = "";
+        result.sanitized_value = context;
+
+        // Rule 1: Context must not be empty
+        if (context.empty()) {
+            result.is_valid = false;
+            result.error_message = "Context cannot be empty";
+            return result;
+        }
+
+        // Rule 2: Context must not exceed max length
+        const size_t MAX_CONTEXT_LEN = 4096;
+        if (context.length() > MAX_CONTEXT_LEN) {
+            result.is_valid = false;
+            result.error_message = "Context exceeds maximum length";
+            return result;
+        }
+
+        // Rule 3: Context must not contain null bytes
+        if (context.find('\0') != std::string::npos) {
+            result.is_valid = false;
+            result.error_message = "Context contains null bytes";
+            return result;
+        }
+
+        // Sanitize: trim leading/trailing whitespace
+        size_t start = context.find_first_not_of(" \t\n\r");
+        size_t end = context.find_last_not_of(" \t\n\r");
+        if (start != std::string::npos && end != std::string::npos) {
+            result.sanitized_value = context.substr(start, end - start + 1);
+        }
+
+        return result;
+    }
+
+    // Validate a context type (must be one of known types)
+    static bool validate_context_type(const std::string& type) {
+        static const std::vector<std::string> valid_types = {
+            "emotional", "task", "domain", "temporal", "causal",
+            "system", "user", "memory", "cognitive"
+        };
+
+        for (const auto& valid : valid_types) {
+            if (type == valid) return true;
+        }
+        return false;
+    }
+
+    // Validate intensity is in valid range [0.0, 1.0]
+    static bool validate_intensity(float intensity) {
+        return intensity >= 0.0f && intensity <= 1.0f;
+    }
+
+    // Validate a causal relationship (cause -> effect)
+    static ValidationResult validate_causal_relation(
+            const std::string& cause,
+            const std::string& effect) {
+        ValidationResult result;
+        result.is_valid = true;
+
+        auto cause_check = validate_context(cause);
+        if (!cause_check.is_valid) {
+            result.is_valid = false;
+            result.error_message = "Invalid cause: " + cause_check.error_message;
+            return result;
+        }
+
+        auto effect_check = validate_context(effect);
+        if (!effect_check.is_valid) {
+            result.is_valid = false;
+            result.error_message = "Invalid effect: " + effect_check.error_message;
+            return result;
+        }
+
+        // Check for self-referential causation
+        if (cause == effect) {
+            result.is_valid = false;
+            result.error_message = "Self-referential causation detected";
+            return result;
+        }
+
+        result.sanitized_value = cause_check.sanitized_value + " -> " + effect_check.sanitized_value;
+        return result;
+    }
+
+    // Validate a lambda value (must be positive and reasonable)
+    static bool validate_lambda(float lambda) {
+        const float MIN_LAMBDA = 0.0001f;
+        const float MAX_LAMBDA = 1.0f;
+        return lambda >= MIN_LAMBDA && lambda <= MAX_LAMBDA;
+    }
+
+    // Validate recursion depth
+    static bool validate_recursion_depth(int depth) {
+        const int MIN_DEPTH = 1;
+        const int MAX_DEPTH = 20;
+        return depth >= MIN_DEPTH && depth <= MAX_DEPTH;
+    }
+
+    // Log validation results
+    static void log_validation(const std::string& context_name,
+                                const ValidationResult& result) {
+        if (result.is_valid) {
+            fprintf(stderr, "[CONTEXT-CHECK] %s: VALID\n", context_name.c_str());
+        } else {
+            fprintf(stderr, "[CONTEXT-CHECK] %s: INVALID - %s\n",
+                    context_name.c_str(), result.error_message.c_str());
+        }
+    }
+};
+
+// Convenience function for quick context validation
+static inline bool zeta_check_context(const std::string& context) {
+    return ZetaContextChecker::validate_context(context).is_valid;
+}
+
+// Convenience function for quick context validation with logging
+static inline bool zeta_check_context_log(const std::string& name, const std::string& context) {
+    auto result = ZetaContextChecker::validate_context(context);
+    ZetaContextChecker::log_validation(name, result);
+    return result.is_valid;
 }
 
 #endif // ZETA_CONFIG_H

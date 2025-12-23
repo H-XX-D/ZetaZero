@@ -59,7 +59,25 @@ def load_config():
                 if line and not line.startswith('#') and '=' in line:
                     # Handle shell variable expansion like ${VAR}
                     key, value = line.split('=', 1)
-                    value = value.strip('"').strip("'")
+                    # Strip quotes first
+                    value = value.strip()
+                    if value.startswith('"'):
+                        # Find closing quote, ignore anything after (comments)
+                        end_quote = value.find('"', 1)
+                        if end_quote > 0:
+                            value = value[1:end_quote]
+                        else:
+                            value = value.strip('"')
+                    elif value.startswith("'"):
+                        end_quote = value.find("'", 1)
+                        if end_quote > 0:
+                            value = value[1:end_quote]
+                        else:
+                            value = value.strip("'")
+                    else:
+                        # No quotes - strip trailing comment
+                        if '#' in value:
+                            value = value.split('#')[0].strip()
                     # Simple variable expansion
                     for k, v in config.items():
                         value = value.replace(f'${{{k}}}', v)

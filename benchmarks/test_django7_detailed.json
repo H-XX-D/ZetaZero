@@ -1,0 +1,17 @@
+[
+  {
+    "instance_id": "django__django-11099",
+    "model_name_or_path": "zeta-14b-7b-4b",
+    "model_patch": "diff --git a/django/contrib/auth/validators.py b/django/contrib/auth/validators.py\n--- a/django/contrib/auth/validators.py\n+++ b/django/contrib/auth/validators.py\n@@ -7,12 +7,12 @@\n from django.utils.deconstruct import deconstructible\n from django.utils.translation import gettext_lazy as _\n \n+\n @deconstructible\n class ASCIIUsernameValidator(validators.RegexValidator):\n-    regex = r'^[\\\\w.@+-]+$'\n+    regex = r'\\\\A[\\\\w.@+-]+\\\\Z'\n     message = _('Enter a valid username. This value may contain only letters, '\n                 'numbers, and @/./+/-/_ characters.')\n     code = 'invalid'\n@@ -23,10 +23,10 @@\n class UnicodeUsernameValidator(validators.RegexValidator):\n     regex = r'^[\\w.@+-]+$'\n     message = _('Enter a valid username. This value may contain only letters, '\n-                'numbers, and @/./+/-/_ characters.')\n+                'numbers, and @/./+/-/_ characters. Usernames cannot end with a newline character.')\n     code = 'invalid'\n \n-\n+\n @deconstructible\n class UnicodeUsernameLowerCaseValidator(UnicodeUsernameValidator):\n     flags = re.UNICODE | re.IGNORECASE\n",
+    "patch_valid": false,
+    "validation_msg": "error: corrupt patch at line 16",
+    "elapsed_time": 88.814945936203,
+    "chunks_indexed": 12,
+    "graph_hits": 5,
+    "full_response": "diff --git a/django/contrib/auth/validators.py b/django/contrib/auth/validators.py\n```diff\ndiff --git a/django/contrib/auth/validators.py b/django/contrib/auth/validators.py\n--- a/django/contrib/auth/validators.py\n+++ b/django/contrib/auth/validators.py\n@@ -7,12 +7,12 @@\n from django.utils.deconstruct import deconstructible\n from django.utils.translation import gettext_lazy as _\n \n+\n @deconstructible\n class ASCIIUsernameValidator(validators.RegexValidator):\n-    regex = r'^[\\\\w.@+-]+$'\n+    regex = r'\\\\A[\\\\w.@+-]+\\\\Z'\n     message = _('Enter a valid username. This value may contain only letters, '\n                 'numbers, and @/./+/-/_ characters.')\n     code = 'invalid'\n@@ -23,10 +23,10 @@\n class UnicodeUsernameValidator(validators.RegexValidator):\n     regex = r'^[\\w.@+-]+$'\n     message = _('Enter a valid username. This value may contain only letters, '\n-                'numbers, and @/./+/-/_ characters.')\n+                'numbers, and @/./+/-/_ characters. Usernames cannot end with a newline character.')\n     code = 'invalid'\n \n-\n+\n @deconstructible\n class UnicodeUsernameLowerCaseValidator(UnicodeUsernameValidator):\n     flags = re.UNICODE | re.IGNORECASE\n\n```",
+    "target_file": "django/contrib/auth/validators.py",
+    "scratch_content": "",
+    "discovered_format": "unified_diff",
+    "format_valid": true
+  }
+]

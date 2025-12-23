@@ -1,0 +1,17 @@
+[
+  {
+    "instance_id": "django__django-11099",
+    "model_name_or_path": "zeta-14b-7b-4b",
+    "model_patch": "# Code suggestion (convert to proper diff):\nimport re\n\nfrom django.core import validators\nfrom django.utils.deconstruct import deconstructible\nfrom django.utils.translation import gettext_lazy as _\n\n@deconstructible\nclass ASCIIUsernameValidator(validators.RegexValidator):\n    regex = r'^[\\w.@+-]+$'\n    message = _('Enter a valid username. This value may contain only letters, numbers and @/./+/-/_ characters.')\n    code = 'invalid'\n\n# Example of how to use the validator in another context (like models.Field.validators)\nclass CustomUser(models.Model):\n    username = models.CharField(\n        max_length=150,\n        unique=True,\n        validators=[ASCIIUsernameValidator()],\n        error_messages={\n            'unique': _(\"A user with that username already exists.\"),\n        },\n    )",
+    "patch_valid": false,
+    "validation_msg": "",
+    "elapsed_time": 98.13405704498291,
+    "chunks_indexed": 12,
+    "graph_hits": 5,
+    "full_response": "It seems like you're looking for a corrected version of the `ASCIIUsernameValidator` class from the file `django/contrib/auth/validators.py`. Based on your input, it looks like only part of the code was provided. Below is an example completion of what that validator might look like:\n\n```python\nimport re\n\nfrom django.core import validators\nfrom django.utils.deconstruct import deconstructible\nfrom django.utils.translation import gettext_lazy as _\n\n@deconstructible\nclass ASCIIUsernameValidator(validators.RegexValidator):\n    regex = r'^[\\w.@+-]+$'\n    message = _('Enter a valid username. This value may contain only letters, numbers and @/./+/-/_ characters.')\n    code = 'invalid'\n\n# Example of how to use the validator in another context (like models.Field.validators)\nclass CustomUser(models.Model):\n    username = models.CharField(\n        max_length=150,\n        unique=True,\n        validators=[ASCIIUsernameValidator()],\n        error_messages={\n            'unique': _(\"A user with that username already exists.\"),\n        },\n    )\n```\n\n### Explanation:\n- **Regex**: The regular expression `r'^[\\w.@+-]+$'` ensures the input contains only alphanumeric characters, as well as dots (`.`), underscores (`_`), plus signs (`+`) and hyphens (`-`). \n  - `\\w`: matches any word character (alphanumeric + underscore).\n  - `[.@+-]`: allows specific special characters.\n  \n- **Message**: The error message is provided when the input does not match the regex pattern.\n\nIf you need further modifications or a more precise fix, please provide additional context about what needs to be fixed.",
+    "target_file": "django/contrib/auth/validators.py",
+    "scratch_content": "",
+    "discovered_format": "unified_diff",
+    "format_valid": true
+  }
+]

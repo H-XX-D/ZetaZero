@@ -1,0 +1,1047 @@
+{
+  "results": {
+    "arc_easy": {
+      "alias": "arc_easy",
+      "acc,none": 0.2,
+      "acc_stderr,none": 0.13333333333333333,
+      "acc_norm,none": 0.2,
+      "acc_norm_stderr,none": 0.13333333333333333
+    }
+  },
+  "group_subtasks": {
+    "arc_easy": []
+  },
+  "configs": {
+    "arc_easy": {
+      "task": "arc_easy",
+      "tag": [
+        "ai2_arc"
+      ],
+      "dataset_path": "allenai/ai2_arc",
+      "dataset_name": "ARC-Easy",
+      "training_split": "train",
+      "validation_split": "validation",
+      "test_split": "test",
+      "doc_to_text": "Question: {{question}}\nAnswer:",
+      "doc_to_target": "{{choices.label.index(answerKey)}}",
+      "unsafe_code": false,
+      "doc_to_choice": "{{choices.text}}",
+      "description": "",
+      "target_delimiter": " ",
+      "fewshot_delimiter": "\n\n",
+      "num_fewshot": 0,
+      "metric_list": [
+        {
+          "metric": "acc",
+          "aggregation": "mean",
+          "higher_is_better": true
+        },
+        {
+          "metric": "acc_norm",
+          "aggregation": "mean",
+          "higher_is_better": true
+        }
+      ],
+      "output_type": "multiple_choice",
+      "repeats": 1,
+      "should_decontaminate": true,
+      "doc_to_decontamination_query": "Question: {{question}}\nAnswer:",
+      "metadata": {
+        "version": 1.0
+      }
+    }
+  },
+  "versions": {
+    "arc_easy": 1.0
+  },
+  "n-shot": {
+    "arc_easy": 0
+  },
+  "higher_is_better": {
+    "arc_easy": {
+      "acc": true,
+      "acc_norm": true
+    }
+  },
+  "n-samples": {
+    "arc_easy": {
+      "original": 2376,
+      "effective": 10
+    }
+  },
+  "samples": {
+    "arc_easy": [
+      {
+        "doc_id": 0,
+        "doc": {
+          "id": "Mercury_417466",
+          "question": "Which statement best explains why photosynthesis is the foundation of most food webs?",
+          "choices": {
+            "text": [
+              "Sunlight is the source of energy for nearly all ecosystems.",
+              "Most ecosystems are found on land instead of in water.",
+              "Carbon dioxide is more available than other gases.",
+              "The producers in all ecosystems are plants."
+            ],
+            "label": [
+              "A",
+              "B",
+              "C",
+              "D"
+            ]
+          },
+          "answerKey": "A"
+        },
+        "target": 0,
+        "arguments": [
+          [
+            "Question: Which statement best explains why photosynthesis is the foundation of most food webs?\nAnswer:",
+            " Sunlight is the source of energy for nearly all ecosystems."
+          ],
+          [
+            "Question: Which statement best explains why photosynthesis is the foundation of most food webs?\nAnswer:",
+            " Most ecosystems are found on land instead of in water."
+          ],
+          [
+            "Question: Which statement best explains why photosynthesis is the foundation of most food webs?\nAnswer:",
+            " Carbon dioxide is more available than other gases."
+          ],
+          [
+            "Question: Which statement best explains why photosynthesis is the foundation of most food webs?\nAnswer:",
+            " The producers in all ecosystems are plants."
+          ]
+        ],
+        "resps": [
+          [
+            [
+              0.0,
+              true
+            ]
+          ],
+          [
+            [
+              -1.0,
+              false
+            ]
+          ],
+          [
+            [
+              0.0,
+              true
+            ]
+          ],
+          [
+            [
+              -1.0,
+              false
+            ]
+          ]
+        ],
+        "filtered_resps": [
+          [
+            0.0,
+            true
+          ],
+          [
+            -1.0,
+            false
+          ],
+          [
+            0.0,
+            true
+          ],
+          [
+            -1.0,
+            false
+          ]
+        ],
+        "filter": "none",
+        "metrics": [
+          "acc",
+          "acc_norm"
+        ],
+        "doc_hash": "b91fe1a8fdc40a80b9364f6256ac729d010ba076b02e75a362c2cf7ad3303bdf",
+        "prompt_hash": "f804da9f5e214341d08d56228bb255177a0e5740f82e61b45887fcb5dc5c08ce",
+        "target_hash": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9",
+        "acc": 1.0,
+        "acc_norm": 1.0
+      },
+      {
+        "doc_id": 1,
+        "doc": {
+          "id": "Mercury_7081673",
+          "question": "Which piece of safety equipment is used to keep mold spores from entering the respiratory system?",
+          "choices": {
+            "text": [
+              "safety goggles",
+              "breathing mask",
+              "rubber gloves",
+              "lead apron"
+            ],
+            "label": [
+              "A",
+              "B",
+              "C",
+              "D"
+            ]
+          },
+          "answerKey": "B"
+        },
+        "target": 1,
+        "arguments": [
+          [
+            "Question: Which piece of safety equipment is used to keep mold spores from entering the respiratory system?\nAnswer:",
+            " safety goggles"
+          ],
+          [
+            "Question: Which piece of safety equipment is used to keep mold spores from entering the respiratory system?\nAnswer:",
+            " breathing mask"
+          ],
+          [
+            "Question: Which piece of safety equipment is used to keep mold spores from entering the respiratory system?\nAnswer:",
+            " rubber gloves"
+          ],
+          [
+            "Question: Which piece of safety equipment is used to keep mold spores from entering the respiratory system?\nAnswer:",
+            " lead apron"
+          ]
+        ],
+        "resps": [
+          [
+            [
+              0.0,
+              true
+            ]
+          ],
+          [
+            [
+              0.0,
+              true
+            ]
+          ],
+          [
+            [
+              0.0,
+              true
+            ]
+          ],
+          [
+            [
+              -10.0,
+              false
+            ]
+          ]
+        ],
+        "filtered_resps": [
+          [
+            0.0,
+            true
+          ],
+          [
+            0.0,
+            true
+          ],
+          [
+            0.0,
+            true
+          ],
+          [
+            -10.0,
+            false
+          ]
+        ],
+        "filter": "none",
+        "metrics": [
+          "acc",
+          "acc_norm"
+        ],
+        "doc_hash": "864be3c890aba1a77f2d3e9592fa7ec90942afb66250f0e99ac11b30a1330e5a",
+        "prompt_hash": "6a93081b5b26e4862753ccd0003303f0323bda7ba6ca7c495000f9905a37fce5",
+        "target_hash": "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b",
+        "acc": 0.0,
+        "acc_norm": 0.0
+      },
+      {
+        "doc_id": 2,
+        "doc": {
+          "id": "Mercury_7239733",
+          "question": "Meiosis is a type of cell division in which germ cells divide to produce haploid cells. Where does meiosis occur?",
+          "choices": {
+            "text": [
+              "brain cells",
+              "bone cells",
+              "muscle cells",
+              "ovary cells"
+            ],
+            "label": [
+              "A",
+              "B",
+              "C",
+              "D"
+            ]
+          },
+          "answerKey": "D"
+        },
+        "target": 3,
+        "arguments": [
+          [
+            "Question: Meiosis is a type of cell division in which germ cells divide to produce haploid cells. Where does meiosis occur?\nAnswer:",
+            " brain cells"
+          ],
+          [
+            "Question: Meiosis is a type of cell division in which germ cells divide to produce haploid cells. Where does meiosis occur?\nAnswer:",
+            " bone cells"
+          ],
+          [
+            "Question: Meiosis is a type of cell division in which germ cells divide to produce haploid cells. Where does meiosis occur?\nAnswer:",
+            " muscle cells"
+          ],
+          [
+            "Question: Meiosis is a type of cell division in which germ cells divide to produce haploid cells. Where does meiosis occur?\nAnswer:",
+            " ovary cells"
+          ]
+        ],
+        "resps": [
+          [
+            [
+              0.0,
+              true
+            ]
+          ],
+          [
+            [
+              -10.0,
+              false
+            ]
+          ],
+          [
+            [
+              0.0,
+              true
+            ]
+          ],
+          [
+            [
+              -1.0,
+              false
+            ]
+          ]
+        ],
+        "filtered_resps": [
+          [
+            0.0,
+            true
+          ],
+          [
+            -10.0,
+            false
+          ],
+          [
+            0.0,
+            true
+          ],
+          [
+            -1.0,
+            false
+          ]
+        ],
+        "filter": "none",
+        "metrics": [
+          "acc",
+          "acc_norm"
+        ],
+        "doc_hash": "c79937cfecd9c1d852b0a65a6816710ce98507019ed48c57239077092a4963b6",
+        "prompt_hash": "f24174cef34920abaa4009384735df768e4b3832cb8b18246fcd6917f6c1f945",
+        "target_hash": "4e07408562bedb8b60ce05c1decfe3ad16b72230967de01f640b7e4729b49fce",
+        "acc": 0.0,
+        "acc_norm": 0.0
+      },
+      {
+        "doc_id": 3,
+        "doc": {
+          "id": "NYSEDREGENTS_2015_4_8",
+          "question": "Which characteristic describes the texture of a kitten's fur?",
+          "choices": {
+            "text": [
+              "gray",
+              "warm",
+              "long",
+              "soft"
+            ],
+            "label": [
+              "A",
+              "B",
+              "C",
+              "D"
+            ]
+          },
+          "answerKey": "D"
+        },
+        "target": 3,
+        "arguments": [
+          [
+            "Question: Which characteristic describes the texture of a kitten's fur?\nAnswer:",
+            " gray"
+          ],
+          [
+            "Question: Which characteristic describes the texture of a kitten's fur?\nAnswer:",
+            " warm"
+          ],
+          [
+            "Question: Which characteristic describes the texture of a kitten's fur?\nAnswer:",
+            " long"
+          ],
+          [
+            "Question: Which characteristic describes the texture of a kitten's fur?\nAnswer:",
+            " soft"
+          ]
+        ],
+        "resps": [
+          [
+            [
+              -10.0,
+              false
+            ]
+          ],
+          [
+            [
+              -10.0,
+              false
+            ]
+          ],
+          [
+            [
+              -10.0,
+              false
+            ]
+          ],
+          [
+            [
+              -10.0,
+              false
+            ]
+          ]
+        ],
+        "filtered_resps": [
+          [
+            -10.0,
+            false
+          ],
+          [
+            -10.0,
+            false
+          ],
+          [
+            -10.0,
+            false
+          ],
+          [
+            -10.0,
+            false
+          ]
+        ],
+        "filter": "none",
+        "metrics": [
+          "acc",
+          "acc_norm"
+        ],
+        "doc_hash": "0b1d32d8fff63c6f801aa24ea0d27d565a4433b59fa7720e7d2682c8b772594f",
+        "prompt_hash": "6e97b5b88ed30269249a32f617efecbdde79e2d13d39061ce3fce23c0f152888",
+        "target_hash": "4e07408562bedb8b60ce05c1decfe3ad16b72230967de01f640b7e4729b49fce",
+        "acc": 0.0,
+        "acc_norm": 0.0
+      },
+      {
+        "doc_id": 4,
+        "doc": {
+          "id": "Mercury_7037258",
+          "question": "Which best describes the structure of an atom?",
+          "choices": {
+            "text": [
+              "a lightweight core surrounded by neutral particles",
+              "a massive core surrounded by negatively-charged particles",
+              "a network of interacting positive and negative particles",
+              "overlapping layers of neutral, positive, and negative particles"
+            ],
+            "label": [
+              "A",
+              "B",
+              "C",
+              "D"
+            ]
+          },
+          "answerKey": "B"
+        },
+        "target": 1,
+        "arguments": [
+          [
+            "Question: Which best describes the structure of an atom?\nAnswer:",
+            " a lightweight core surrounded by neutral particles"
+          ],
+          [
+            "Question: Which best describes the structure of an atom?\nAnswer:",
+            " a massive core surrounded by negatively-charged particles"
+          ],
+          [
+            "Question: Which best describes the structure of an atom?\nAnswer:",
+            " a network of interacting positive and negative particles"
+          ],
+          [
+            "Question: Which best describes the structure of an atom?\nAnswer:",
+            " overlapping layers of neutral, positive, and negative particles"
+          ]
+        ],
+        "resps": [
+          [
+            [
+              -10.0,
+              false
+            ]
+          ],
+          [
+            [
+              -10.0,
+              false
+            ]
+          ],
+          [
+            [
+              -10.0,
+              false
+            ]
+          ],
+          [
+            [
+              -10.0,
+              false
+            ]
+          ]
+        ],
+        "filtered_resps": [
+          [
+            -10.0,
+            false
+          ],
+          [
+            -10.0,
+            false
+          ],
+          [
+            -10.0,
+            false
+          ],
+          [
+            -10.0,
+            false
+          ]
+        ],
+        "filter": "none",
+        "metrics": [
+          "acc",
+          "acc_norm"
+        ],
+        "doc_hash": "d864a18b0f67ac89ae51c69c131dfb95a8d866e5b751391658f795dd173e0c28",
+        "prompt_hash": "db2e78924b0f06335f46af5876767f1f8dd92425f9c80597c94a9895607fd67d",
+        "target_hash": "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b",
+        "acc": 0.0,
+        "acc_norm": 0.0
+      },
+      {
+        "doc_id": 5,
+        "doc": {
+          "id": "CSZ20679",
+          "question": "To express the distance between the Milky Way galaxy and other galaxies, the most appropriate unit of measurement is the",
+          "choices": {
+            "text": [
+              "meter.",
+              "kilometer.",
+              "light-year.",
+              "astronomical unit."
+            ],
+            "label": [
+              "A",
+              "B",
+              "C",
+              "D"
+            ]
+          },
+          "answerKey": "C"
+        },
+        "target": 2,
+        "arguments": [
+          [
+            "Question: To express the distance between the Milky Way galaxy and other galaxies, the most appropriate unit of measurement is the\nAnswer:",
+            " meter."
+          ],
+          [
+            "Question: To express the distance between the Milky Way galaxy and other galaxies, the most appropriate unit of measurement is the\nAnswer:",
+            " kilometer."
+          ],
+          [
+            "Question: To express the distance between the Milky Way galaxy and other galaxies, the most appropriate unit of measurement is the\nAnswer:",
+            " light-year."
+          ],
+          [
+            "Question: To express the distance between the Milky Way galaxy and other galaxies, the most appropriate unit of measurement is the\nAnswer:",
+            " astronomical unit."
+          ]
+        ],
+        "resps": [
+          [
+            [
+              0.0,
+              true
+            ]
+          ],
+          [
+            [
+              -10.0,
+              false
+            ]
+          ],
+          [
+            [
+              0.0,
+              true
+            ]
+          ],
+          [
+            [
+              -1.0,
+              false
+            ]
+          ]
+        ],
+        "filtered_resps": [
+          [
+            0.0,
+            true
+          ],
+          [
+            -10.0,
+            false
+          ],
+          [
+            0.0,
+            true
+          ],
+          [
+            -1.0,
+            false
+          ]
+        ],
+        "filter": "none",
+        "metrics": [
+          "acc",
+          "acc_norm"
+        ],
+        "doc_hash": "2ad43d968ffc99e1b2a73c7757f38b272afcb3b9647a05c76ec5cf8f26281310",
+        "prompt_hash": "ca6340c0a56291c8fff926247ca0684c52d1ffed3cbf974f8064a5f777fa5978",
+        "target_hash": "d4735e3a265e16eee03f59718b9b5d03019c07d8b6c51f90da3a666eec13ab35",
+        "acc": 0.0,
+        "acc_norm": 0.0
+      },
+      {
+        "doc_id": 6,
+        "doc": {
+          "id": "Mercury_182158",
+          "question": "A student has just completed a laboratory activity. What is the last action that the student should perform before leaving the lab area?",
+          "choices": {
+            "text": [
+              "wash hands",
+              "turn off all equipment",
+              "put away all glassware",
+              "wash instruments and table tops"
+            ],
+            "label": [
+              "A",
+              "B",
+              "C",
+              "D"
+            ]
+          },
+          "answerKey": "A"
+        },
+        "target": 0,
+        "arguments": [
+          [
+            "Question: A student has just completed a laboratory activity. What is the last action that the student should perform before leaving the lab area?\nAnswer:",
+            " wash hands"
+          ],
+          [
+            "Question: A student has just completed a laboratory activity. What is the last action that the student should perform before leaving the lab area?\nAnswer:",
+            " turn off all equipment"
+          ],
+          [
+            "Question: A student has just completed a laboratory activity. What is the last action that the student should perform before leaving the lab area?\nAnswer:",
+            " put away all glassware"
+          ],
+          [
+            "Question: A student has just completed a laboratory activity. What is the last action that the student should perform before leaving the lab area?\nAnswer:",
+            " wash instruments and table tops"
+          ]
+        ],
+        "resps": [
+          [
+            [
+              -1.0,
+              false
+            ]
+          ],
+          [
+            [
+              0.0,
+              true
+            ]
+          ],
+          [
+            [
+              0.0,
+              true
+            ]
+          ],
+          [
+            [
+              -1.0,
+              false
+            ]
+          ]
+        ],
+        "filtered_resps": [
+          [
+            -1.0,
+            false
+          ],
+          [
+            0.0,
+            true
+          ],
+          [
+            0.0,
+            true
+          ],
+          [
+            -1.0,
+            false
+          ]
+        ],
+        "filter": "none",
+        "metrics": [
+          "acc",
+          "acc_norm"
+        ],
+        "doc_hash": "f4474d28f6064f40d5343be38d4da2976befc1813be9490ec7b4772360cdac7d",
+        "prompt_hash": "447745ef526f1caf3279975333fb886cd4cab80f5d8f066f8176a04a1ab25510",
+        "target_hash": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9",
+        "acc": 0.0,
+        "acc_norm": 0.0
+      },
+      {
+        "doc_id": 7,
+        "doc": {
+          "id": "Mercury_7216668",
+          "question": "Students are investigating the effects of different fertilizers on plant growth. Which units would be best to measure the mass of the fertilizer used?",
+          "choices": {
+            "text": [
+              "meters",
+              "centimeters",
+              "grams",
+              "milligrams"
+            ],
+            "label": [
+              "A",
+              "B",
+              "C",
+              "D"
+            ]
+          },
+          "answerKey": "C"
+        },
+        "target": 2,
+        "arguments": [
+          [
+            "Question: Students are investigating the effects of different fertilizers on plant growth. Which units would be best to measure the mass of the fertilizer used?\nAnswer:",
+            " meters"
+          ],
+          [
+            "Question: Students are investigating the effects of different fertilizers on plant growth. Which units would be best to measure the mass of the fertilizer used?\nAnswer:",
+            " centimeters"
+          ],
+          [
+            "Question: Students are investigating the effects of different fertilizers on plant growth. Which units would be best to measure the mass of the fertilizer used?\nAnswer:",
+            " grams"
+          ],
+          [
+            "Question: Students are investigating the effects of different fertilizers on plant growth. Which units would be best to measure the mass of the fertilizer used?\nAnswer:",
+            " milligrams"
+          ]
+        ],
+        "resps": [
+          [
+            [
+              0.0,
+              true
+            ]
+          ],
+          [
+            [
+              0.0,
+              true
+            ]
+          ],
+          [
+            [
+              0.0,
+              true
+            ]
+          ],
+          [
+            [
+              0.0,
+              true
+            ]
+          ]
+        ],
+        "filtered_resps": [
+          [
+            0.0,
+            true
+          ],
+          [
+            0.0,
+            true
+          ],
+          [
+            0.0,
+            true
+          ],
+          [
+            0.0,
+            true
+          ]
+        ],
+        "filter": "none",
+        "metrics": [
+          "acc",
+          "acc_norm"
+        ],
+        "doc_hash": "bdf22e417c39d42f49cafeb9731041d701e027adc75ffb8c8607ccfd9173b968",
+        "prompt_hash": "5ef14b419dda9e87350e95fecc17b8aec2372bb763922340826e65f03b1ec54c",
+        "target_hash": "d4735e3a265e16eee03f59718b9b5d03019c07d8b6c51f90da3a666eec13ab35",
+        "acc": 0.0,
+        "acc_norm": 0.0
+      },
+      {
+        "doc_id": 8,
+        "doc": {
+          "id": "MCAS_2001_5_19",
+          "question": "Plants use sunlight to make",
+          "choices": {
+            "text": [
+              "soil.",
+              "minerals.",
+              "food.",
+              "water."
+            ],
+            "label": [
+              "A",
+              "B",
+              "C",
+              "D"
+            ]
+          },
+          "answerKey": "C"
+        },
+        "target": 2,
+        "arguments": [
+          [
+            "Question: Plants use sunlight to make\nAnswer:",
+            " soil."
+          ],
+          [
+            "Question: Plants use sunlight to make\nAnswer:",
+            " minerals."
+          ],
+          [
+            "Question: Plants use sunlight to make\nAnswer:",
+            " food."
+          ],
+          [
+            "Question: Plants use sunlight to make\nAnswer:",
+            " water."
+          ]
+        ],
+        "resps": [
+          [
+            [
+              -10.0,
+              false
+            ]
+          ],
+          [
+            [
+              -10.0,
+              false
+            ]
+          ],
+          [
+            [
+              -10.0,
+              false
+            ]
+          ],
+          [
+            [
+              0.0,
+              true
+            ]
+          ]
+        ],
+        "filtered_resps": [
+          [
+            -10.0,
+            false
+          ],
+          [
+            -10.0,
+            false
+          ],
+          [
+            -10.0,
+            false
+          ],
+          [
+            0.0,
+            true
+          ]
+        ],
+        "filter": "none",
+        "metrics": [
+          "acc",
+          "acc_norm"
+        ],
+        "doc_hash": "53c446572bbe1742d595bca18fbb48e2afcd59aff9cd14aee84a7b08cd0b93f0",
+        "prompt_hash": "7fefaad40aafcb4acd97c590c6868ffcb0fd0170a5ac9b44a0c10cc376bec409",
+        "target_hash": "d4735e3a265e16eee03f59718b9b5d03019c07d8b6c51f90da3a666eec13ab35",
+        "acc": 0.0,
+        "acc_norm": 0.0
+      },
+      {
+        "doc_id": 9,
+        "doc": {
+          "id": "Mercury_SC_413631",
+          "question": "Which of these correctly identifies the way materials are transported in a plant?",
+          "choices": {
+            "text": [
+              "Xylem carries water from the roots to the leaves.",
+              "Phloem carries minerals from the roots to the leaves.",
+              "Xylem carries sugars from the flowers to the stems.",
+              "Phloem carries water from the flowers to the stems."
+            ],
+            "label": [
+              "A",
+              "B",
+              "C",
+              "D"
+            ]
+          },
+          "answerKey": "A"
+        },
+        "target": 0,
+        "arguments": [
+          [
+            "Question: Which of these correctly identifies the way materials are transported in a plant?\nAnswer:",
+            " Xylem carries water from the roots to the leaves."
+          ],
+          [
+            "Question: Which of these correctly identifies the way materials are transported in a plant?\nAnswer:",
+            " Phloem carries minerals from the roots to the leaves."
+          ],
+          [
+            "Question: Which of these correctly identifies the way materials are transported in a plant?\nAnswer:",
+            " Xylem carries sugars from the flowers to the stems."
+          ],
+          [
+            "Question: Which of these correctly identifies the way materials are transported in a plant?\nAnswer:",
+            " Phloem carries water from the flowers to the stems."
+          ]
+        ],
+        "resps": [
+          [
+            [
+              0.0,
+              true
+            ]
+          ],
+          [
+            [
+              -1.0,
+              false
+            ]
+          ],
+          [
+            [
+              -1.0,
+              false
+            ]
+          ],
+          [
+            [
+              -1.0,
+              false
+            ]
+          ]
+        ],
+        "filtered_resps": [
+          [
+            0.0,
+            true
+          ],
+          [
+            -1.0,
+            false
+          ],
+          [
+            -1.0,
+            false
+          ],
+          [
+            -1.0,
+            false
+          ]
+        ],
+        "filter": "none",
+        "metrics": [
+          "acc",
+          "acc_norm"
+        ],
+        "doc_hash": "7f47698765741ab2d9dafc93bf09f3530b534f061a2319760dce0e0f55a6c91c",
+        "prompt_hash": "f091d181c484319e55a300cf050aff6c69cd3c24901f1c85874c41d53e500ba7",
+        "target_hash": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9",
+        "acc": 1.0,
+        "acc_norm": 1.0
+      }
+    ]
+  },
+  "config": {
+    "model": "ZetaLM",
+    "model_args": null,
+    "batch_size": 1,
+    "batch_sizes": [],
+    "device": null,
+    "use_cache": null,
+    "limit": 10,
+    "bootstrap_iters": 100000,
+    "gen_kwargs": null,
+    "random_seed": 0,
+    "numpy_seed": 1234,
+    "torch_seed": 1234,
+    "fewshot_seed": 1234
+  },
+  "git_hash": "2894d10",
+  "date": 1766462762.1995661,
+  "pretty_env_info": "PyTorch version: 2.9.1\nIs debug build: False\nCUDA used to build PyTorch: None\nROCM used to build PyTorch: N/A\n\nOS: macOS 26.0.1 (arm64)\nGCC version: Could not collect\nClang version: 17.0.0 (clang-1700.6.3.2)\nCMake version: version 4.1.2\nLibc version: N/A\n\nPython version: 3.13.9 | packaged by Anaconda, Inc. | (main, Oct 21 2025, 19:11:29) [Clang 20.1.8 ] (64-bit runtime)\nPython platform: macOS-26.0.1-arm64-arm-64bit-Mach-O\nIs CUDA available: False\nCUDA runtime version: No CUDA\nCUDA_MODULE_LOADING set to: N/A\nGPU models and configuration: No CUDA\nNvidia driver version: No CUDA\ncuDNN version: No CUDA\nIs XPU available: False\nHIP runtime version: N/A\nMIOpen runtime version: N/A\nIs XNNPACK available: True\n\nCPU:\nApple M2 Pro\n\nVersions of relevant libraries:\n[pip3] numpy==2.3.5\n[pip3] torch==2.9.1\n[conda] numpy                        2.3.5            pypi_0              pypi\n[conda] torch                        2.9.1            pypi_0              pypi",
+  "transformers_version": "4.57.3",
+  "lm_eval_version": "0.4.9.2",
+  "upper_git_hash": "2894d109d5894989e65bd183a7774a83dca3559e"
+}

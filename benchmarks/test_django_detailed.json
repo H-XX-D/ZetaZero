@@ -1,0 +1,13 @@
+[
+  {
+    "instance_id": "django__django-11099",
+    "model_name_or_path": "zeta-14b-7b-4b",
+    "model_patch": "",
+    "patch_valid": false,
+    "validation_msg": "Could not read target file",
+    "elapsed_time": 51.66867780685425,
+    "chunks_indexed": 12,
+    "graph_hits": 5,
+    "full_response": ""
+  }
+]

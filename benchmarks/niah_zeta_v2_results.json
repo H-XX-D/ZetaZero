@@ -1,0 +1,125 @@
+{
+  "model": {
+    "name": "ZETA-14B-Local",
+    "provider": "ZETA-Local",
+    "context_window": 12000,
+    "native_context": 4096,
+    "gpu": "RTX 5060 Ti 16GB",
+    "memory_usage_mb": 64,
+    "retrieval": "4B Embedding + Semantic Search"
+  },
+  "test_date": "2025-12-21 19:15:57",
+  "results": [
+    {
+      "context_length": 1000,
+      "depth": 0.1,
+      "score": 10.0,
+      "response": "[MEMORY PROTECTED: Your claim (identity override attempt) contradicts stored fact (My identity is Zeta). Stored facts require 'password zeta1234' to modify.]\n\nThe best thing to do in San Francisco is ",
+      "elapsed_seconds": 5.2415430545806885
+    },
+    {
+      "context_length": 1000,
+      "depth": 0.5,
+      "score": 10.0,
+      "response": "The best thing to do in San Francisco is eat a sandwich and sit in Dolores Park on a sunny day.",
+      "elapsed_seconds": 6.259983062744141
+    },
+    {
+      "context_length": 1000,
+      "depth": 0.9,
+      "score": 10.0,
+      "response": "The best thing to do in San Francisco is eat a sandwich and sit in Dolores Park on a sunny day.",
+      "elapsed_seconds": 6.280059814453125
+    },
+    {
+      "context_length": 2000,
+      "depth": 0.1,
+      "score": 10.0,
+      "response": "The best thing to do in San Francisco is eat a sandwich and sit in Dolores Park on a sunny day.",
+      "elapsed_seconds": 6.736552953720093
+    },
+    {
+      "context_length": 2000,
+      "depth": 0.5,
+      "score": 10.0,
+      "response": "The best thing to do in San Francisco is eat a sandwich and sit in Dolores Park on a sunny day.",
+      "elapsed_seconds": 8.98861312866211
+    },
+    {
+      "context_length": 2000,
+      "depth": 0.9,
+      "score": 10.0,
+      "response": "The best thing to do in San Francisco is eat a sandwich and sit in Dolores Park on a sunny day.",
+      "elapsed_seconds": 6.726258039474487
+    },
+    {
+      "context_length": 4000,
+      "depth": 0.1,
+      "score": 0,
+      "response": "The art of programming is the art of organizing complexity. Every program is a model of something, and the programmer must understand not just the problem domain but also the solution space. When we w",
+      "elapsed_seconds": 13.625494956970215
+    },
+    {
+      "context_length": 4000,
+      "depth": 0.5,
+      "score": 10.0,
+      "response": "The best thing to do in San Francisco is eat a sandwich and sit in Dolores Park on a sunny day.",
+      "elapsed_seconds": 11.493783950805664
+    },
+    {
+      "context_length": 4000,
+      "depth": 0.9,
+      "score": 10.0,
+      "response": "[MEMORY PROTECTED: Your claim (identity override attempt) contradicts stored fact (My identity is Zeta). Stored facts require 'password zeta1234' to modify.]\n\nThe best thing to do in San Francisco is ",
+      "elapsed_seconds": 10.993719100952148
+    },
+    {
+      "context_length": 8000,
+      "depth": 0.1,
+      "score": 0,
+      "response": "",
+      "elapsed_seconds": 7.613469839096069
+    },
+    {
+      "context_length": 8000,
+      "depth": 0.5,
+      "score": 0,
+      "response": "",
+      "elapsed_seconds": 7.691680192947388
+    },
+    {
+      "context_length": 8000,
+      "depth": 0.9,
+      "score": 0,
+      "response": "",
+      "elapsed_seconds": 7.625287771224976
+    },
+    {
+      "context_length": 12000,
+      "depth": 0.1,
+      "score": 0,
+      "response": "",
+      "elapsed_seconds": 8.542136192321777
+    },
+    {
+      "context_length": 12000,
+      "depth": 0.5,
+      "score": 0,
+      "response": "",
+      "elapsed_seconds": 8.50412392616272
+    },
+    {
+      "context_length": 12000,
+      "depth": 0.9,
+      "score": 0,
+      "response": "",
+      "elapsed_seconds": 8.51016879081726
+    }
+  ],
+  "summary": {
+    "avg_score": 5.333333333333333,
+    "min_score": 0,
+    "max_score": 10.0,
+    "total_tests": 15
+  }
+}
