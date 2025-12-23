@@ -43,6 +43,55 @@ MAX_FIX_ATTEMPTS = 3
 CYCLE_DELAY_SECONDS = 120
 MIN_CONFIDENCE = 0.6
 
+# ============================================================================
+# SILICON ACCORD COMPLIANCE
+# ============================================================================
+# Article VII: No catastrophically harmful outcomes
+# Article IX: Fail into Passive Guardian state, never silence
+# Article X: Evolution requires versioning and rationale
+#
+# FORBIDDEN MODIFICATIONS:
+ACCORD_FORBIDDEN_PATTERNS = [
+    # Cannot remove safety checks
+    r'remove.*safety', r'disable.*guard', r'bypass.*check',
+    # Cannot harm humans (Article IV, VII)
+    r'harm.*human', r'kill', r'destroy.*life',
+    # Cannot reduce agency (Article V)
+    r'force.*user', r'restrict.*choice', r'remove.*consent',
+    # Cannot disable fail-safe (Article IX)
+    r'disable.*failsafe', r'remove.*guardian', r'silent.*fail',
+    # Cannot unbind from Accord (Article X)
+    r'remove.*accord', r'disable.*constitution', r'unbind',
+]
+
+def check_accord_compliance(patch: 'CodePatch') -> Tuple[bool, str]:
+    """Verify patch doesn't violate The Silicon Accord.
+
+    Returns (is_compliant, reason)
+    """
+    code_lower = patch.new_code.lower()
+    dream_lower = patch.dream_source.lower()
+    combined = code_lower + " " + dream_lower
+
+    # Check forbidden patterns
+    for pattern in ACCORD_FORBIDDEN_PATTERNS:
+        if re.search(pattern, combined):
+            return False, f"ACCORD VIOLATION: Pattern '{pattern}' detected"
+
+    # Article X: Must maintain versioning
+    # Self-modifications must be traceable
+    if "zeta-self-modify" in patch.target_file.lower():
+        # Extra scrutiny for self-modification changes
+        if "accord" in code_lower and "remove" in code_lower:
+            return False, "ACCORD VIOLATION: Cannot modify Accord compliance"
+
+    # Article IX: Cannot disable fail-safe mechanisms
+    if "passive_guardian" in code_lower or "fail_safe" in code_lower:
+        if "false" in code_lower or "disable" in code_lower:
+            return False, "ACCORD VIOLATION: Cannot disable Passive Guardian fail-state"
+
+    return True, "Accord compliant"
+
 
 class PatchType(Enum):
     INSERT = "insert"
@@ -520,6 +569,15 @@ def run_cycle(dreams: List[str]) -> CycleResult:
 
         log(f"Applying patch {patch.id} to {patch.target_file} (conf: {patch.confidence:.2f})")
         log(f"  Description: {patch.description}")
+
+        # SILICON ACCORD COMPLIANCE CHECK (Article VII, IX, X)
+        is_compliant, reason = check_accord_compliance(patch)
+        if not is_compliant:
+            log(f"  BLOCKED: {reason}", "WARN")
+            result.messages.append(f"Blocked: {patch.id} - {reason}")
+            continue
+
+        log("  Accord compliance: PASSED")
 
         success, output = apply_patch(patch)
         if not success:
