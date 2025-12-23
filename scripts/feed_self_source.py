@@ -28,6 +28,7 @@ SOURCE_FILES = [
     "zeta-ternary.h",
     "zeta-pruning.h",        # Memory pruning
     "zeta-task-eval.h",      # Task evaluation
+    "zeta-self-modify.h",    # Autonomous self-modification
     "zeta-server.cpp",
 ]
 
