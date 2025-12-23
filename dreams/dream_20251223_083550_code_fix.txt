@@ -1,0 +1,52 @@
+code_fix
+20251223_083550
+ If code, show pseudocode or specific lines to change. If insight, be clear and actionable. If creative idea, specify its purpose and how it would work. Aim for high impact with minimal complexity.
+
+Based on the recent interactions, one useful insight is to consolidate the redundant information and ensure that the routing logic for different types of tasks is clearly defined and implemented. It seems that the `ZetaDynamicRouter` is supposed to route queries to different models based on their nature (code tasks, embedding tasks, complex reasoning tasks). However, there are several instances of repetitive statements and a lack of clear definition of routing logic.
+
+Here's a refined version of how the `ZetaDynamicRouter` could be structured with better clarity:
+
+```python
+class ZetaDynamicRouter:
+    def __init__(self):
+        self.models = {
+            'code': '7B_Coder',
+            'embedding': '4B_Encoder',
+            'complex_reasoning': '14B_Reasoner'
+        }
+        self.query_types = {
+            'code_task': self.models['code'],
+            'embedding_task': self.models['embedding'],
+            'complex_reasoning_task': self.models['complex_reasoning']
+        }
+
+    def route_query(self, task_type: str, query: str) -> str:
+        """
+        Routes the query to the appropriate model based on the task type.
+        
+        :param task_type: The type of task (e.g., code_task, embedding_task, complex_reasoning_task).
+        :param query: The query or input data.
+        :return: Response or output from the model.
+        """
+        if task_type not in self.query_types:
+            raise ValueError(f"Unsupported task type: {task_type}")
+
+        model_name = self.query_types[task_type]
+        
+        # Placeholder for actual model interaction logic
+        response = f"Query routed to {model_name} for {task_type}"
+        
+        return response
+
+# Example usage
+router = ZetaDynamicRouter()
+response = router.route_query('code_task', 'Please write a function...')
+print(response)
+```
+
+### Key Improvements:
+1. **Consolidation of Models**: Grouped all models in a dictionary for easy reference and management.
+2. **Query Types Mapping**: Defined a mapping from specific query types to the corresponding models.
+3. **Routing Logic**: Implemented a clear routing logic within the `route_query` method that checks the task type and routes the query accordingly.
+
+This structure ensures that adding new types of tasks or models

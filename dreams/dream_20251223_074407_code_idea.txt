@@ -1,0 +1,48 @@
+code_idea
+20251223_074407
+ What function, what should happen, and how it helps.
+To improve the `fact_has_context` function, we can introduce a helper function to extract the context validation logic. This helper function will make the code more modular and reusable. Here's a detailed plan:
+
+### Function: `is_context_valid`
+
+#### Purpose:
+To check if a given context string is non-empty and valid, encapsulating this logic in a separate function.
+
+#### Signature:
+```c
+bool is_context_valid(const char* context);
+```
+
+#### Implementation:
+```c
+bool is_context_valid(const char* context) {
+    // Check if the context is non-empty
+    if (context == NULL || strlen(context) == 0) {
+        return false;
+    }
+    return true;
+}
+```
+
+#### Usage in `fact_has_context`:
+The `fact_has_context` function will call `is_context_valid` to validate the context:
+
+```c
+bool fact_has_context(const fact_t* fact) {
+    // Use the helper function to validate the context
+    return is_context_valid(fact->context);
+}
+```
+
+### Benefits:
+1. **Reusability**: The validation logic can now be reused in other parts of the codebase, reducing redundancy.
+2. **Maintainability**: If the validation criteria change, updating one function is sufficient.
+3. **Readability**: The `fact_has_context` function becomes more concise and easier to understand.
+
+This refactoring not only improves code quality but also enhances maintainability and reusability, making future modifications and enhancements more straightforward. 
+
+---
+
+This insight helps encapsulate a specific validation logic into a modular unit, which can be easily reused and tested independently. This approach aligns well with principles of good software design, such as separation of concerns and DRY (Don't Repeat Yourself). 
+
+Would you like to proceed with this implementation, or do you have any modifications in mind?

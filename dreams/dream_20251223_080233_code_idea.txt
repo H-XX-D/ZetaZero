@@ -1,0 +1,70 @@
+code_idea
+20251223_080233
+ class name, function name, and code if applicable. Prioritize code maintainability and performance. Focus on the dual context management and the initialization of ZetaHRM.
+
+### Insight and Improvement Idea:
+
+#### Class: `ZetaContextManager`
+
+To ensure the dual context is managed effectively and to improve code maintainability, we can introduce a `ZetaContextManager` class that encapsulates the management of dual contexts. This class can provide methods for initializing, validating, and using the dual context in a more structured manner.
+
+#### Functions:
+
+1. **`InitializeDualContext`**: Initializes the dual context and ensures it is valid before proceeding.
+2. **`ValidateDualContext`**: Validates the dual context pointer to ensure it is not `nullptr` and points to a valid memory location.
+3. **`GetDualContextPointer`**: Provides a safe method to access the dual context pointer, ensuring it is valid.
+4. **`CleanupDualContext`**: Cleans up resources associated with the dual context, if necessary.
+
+#### Code Implementation:
+
+```cpp
+class ZetaContextManager {
+public:
+    // Initialize the dual context and validate it
+    bool InitializeDualContext(zeta_dual_ctx_t* dual_ctx) {
+        if (!ValidateDualContext(dual_ctx)) {
+            return false;
+        }
+        dual_context_ptr_ = dual_ctx;
+        return true;
+    }
+
+    // Validate the dual context pointer
+    bool ValidateDualContext(zeta_dual_ctx_t* dual_ctx) {
+        if (dual_ctx == nullptr) {
+            return false;
+        }
+        // Additional validation logic if needed (e.g., checking internal state)
+        return true;
+    }
+
+    // Get a safe pointer to the dual context
+    zeta_dual_ctx_t* GetDualContextPointer() const {
+        return dual_context_ptr_;
+    }
+
+    // Cleanup resources associated with the dual context
+    void CleanupDualContext() {
+        // Cleanup logic if any
+        // e.g., delete dual_context_ptr_ if it was allocated dynamically
+    }
+
+private:
+    zeta_dual_ctx_t* dual_context_ptr_ = nullptr;
+};
+
+// Usage Example
+class ZetaHRM {
+public:
+    void Initialize(const ZetaContextManager& context_manager) {
+        if (!context_manager.InitializeDualContext()) {
+            // Handle initialization failure
+        }
+        // Proceed with ZetaHRM initialization
+    }
+};
+```
+
+### Explanation:
+
+- **`InitializeDualContext`**: This function ensures that the dual context pointer is valid before setting it

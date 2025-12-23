@@ -1,0 +1,52 @@
+code_idea
+20251223_083752
+ reference class names, variable names, functions, etc. To improve the efficiency and flexibility of the ZetaDynamicRouter system, we can implement a dynamic model selection mechanism based on query characteristics. This can be achieved by creating a `QueryProfiler` class that analyzes the input query and returns a recommended model size based on its complexity and type.
+
+For example, the `QueryProfiler` class could have a method like `getRecommendedModelSize(query: str) -> int` which returns the most suitable model size (e.g., 4B for embedding tasks, 7B for coding tasks, or 14B for complex reasoning tasks).
+
+To incorporate this feature into the ZetaDynamicRouter system, we can modify the `routeQuery` function to include a step where it calls the `QueryProfiler` to determine the appropriate model size before routing the query to the corresponding model.
+
+Here's an example implementation outline:
+
+```python
+class QueryProfiler:
+    def __init__(self):
+        pass
+    
+    def getRecommendedModelSize(self, query: str) -> int:
+        # Analyze the query and return the recommended model size
+        pass
+
+class ZetaDynamicRouter:
+    def __init__(self):
+        self.query_profiler = QueryProfiler()
+        self.models = {
+            "embedding": 4B,
+            "coding": 7B,
+            "reasoning": 14B
+        }
+
+    def routeQuery(self, query: str) -> str:
+        # Step 1: Profile the query
+        recommended_model_size = self.query_profiler.getRecommendedModelSize(query)
+        
+        # Step 2: Determine the appropriate model based on query complexity and type
+        model_type = self.determineModelType(query)
+        
+        # Step 3: Route the query to the appropriate model
+        if model_type in self.models:
+            return f"Routing query to {self.models[model_type]} model"
+        else:
+            return "Invalid model type"
+    
+    def determineModelType(self, query: str) -> str:
+        # Determine if the query is for embedding, coding, or reasoning
+        pass
+
+# Example usage
+router = ZetaDynamicRouter()
+query = "Generate an efficient code snippet for sorting an array."
+print(router.routeQuery(query))
+```
+
+This enhancement allows the ZetaDynamicRouter system to adaptively select the most appropriate model based on the specific characteristics of each query, improving overall performance and resource utilization. The `QueryProfiler` class provides a modular and extensible

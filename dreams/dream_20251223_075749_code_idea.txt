@@ -1,0 +1,71 @@
+code_idea
+20251223_075749
+ suggest code changes, propose a new function, or recommend a design pattern. Aim to enhance efficiency, readability, or functionality.
+
+A useful insight would be to refactor the `fact_has_context` function by incorporating a design pattern to improve its maintainability and readability. Specifically, the Strategy pattern can be employed to encapsulate different context-checking strategies.
+
+**Refactoring `fact_has_context` with the Strategy Pattern:**
+
+1. **Create an Interface for Context Check Strategy:**
+
+   Define an interface (or abstract base class) that specifies the method for checking context validity.
+
+   ```cpp
+   class ContextCheckStrategy {
+   public:
+       virtual bool checkContext(const char* context) const = 0;
+       virtual ~ContextCheckStrategy() {}
+   };
+   ```
+
+2. **Implement Concrete Strategies:**
+
+   Create concrete strategies that implement the `ContextCheckStrategy` interface.
+
+   ```cpp
+   class NonEmptyContextCheck : public ContextCheckStrategy {
+   public:
+       bool checkContext(const char* context) const override {
+           return context != nullptr && strlen(context) > 0;
+       }
+   };
+
+   class OtherContextCheck : public ContextCheckStrategy {
+   public:
+       bool checkContext(const char* context) const override {
+           // Define other logic for checking context here.
+           return true; // Placeholder implementation
+       }
+   };
+   ```
+
+3. **Modify `fact_has_context` to Use a Strategy:**
+
+   Update the `fact_has_context` function to accept a `ContextCheckStrategy` and delegate the context validation to it.
+
+   ```cpp
+   bool fact_has_context(const fact_t* fact, const ContextCheckStrategy& strategy) {
+       return strategy.checkContext(fact->context);
+   }
+   ```
+
+4. **Usage Example:**
+
+   Utilize the modified function with a specific strategy.
+
+   ```cpp
+   fact_t fact = { /* initialize your fact here */ };
+   NonEmptyContextCheck nonEmptyChecker;
+   
+   if (fact_has_context(&fact, nonEmptyChecker)) {
+       // Fact has valid context.
+   }
+   ```
+
+**Why This Refactoring Helps:**
+
+- **Flexibility**: It allows you to add new context-checking strategies without changing existing code.
+- **Encapsulation**: The validation logic is encapsulated within the strategy objects, making the main function cleaner and easier to read.
+- **Maintainability**: Adding or modifying context-checking behavior can be done by extending the strategy class hierarchy rather than altering core functions.
+
+By adopting this approach,

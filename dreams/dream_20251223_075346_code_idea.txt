@@ -1,0 +1,40 @@
+code_idea
+20251223_075346
+ names, parameters, actions, and results. Aim for a high impact with limited complexity. Ensure the generated item integrates well with the existing context and does not introduce unnecessary complexity. ```markdown
+### Insight: Implement Contextual Awareness in Function Decision Making
+
+**Action:**
+1. **Update `fact_has_context` Function:**
+   - Add an optional `context_type` parameter to `fact_has_context` to differentiate between different types of contexts (e.g., user context, system context).
+   - Example:
+     ```c
+     bool fact_has_context(const fact_t *fact, const char *context_type);
+     ```
+
+2. **Enhance Routing Logic:**
+   - Introduce a new function `route_decision` that uses the `context_type` from `fact_has_context` to determine the best route for processing based on the context.
+   - Example:
+     ```c
+     void route_decision(const fact_t *fact, routing_t *routing);
+     ```
+
+**Results:**
+- **Improved Contextual Handling:** This enhancement allows the system to make more informed decisions based on the type of context available.
+- **Enhanced Routing:** The routing logic can now be context-aware, leading to more efficient and effective processing paths.
+
+**Example Usage:**
+
+```c
+// Check if a fact has a non-empty context and specify the type
+bool has_user_context = fact_has_context(&fact, "user");
+
+// Route decision based on context type
+if (has_user_context) {
+    route_decision(&fact, &user_routing);
+} else {
+    route_decision(&fact, &system_routing);
+}
+```
+
+This approach integrates well with existing functions and introduces minimal complexity while significantly improving the system's ability to handle different contexts efficiently.
+```

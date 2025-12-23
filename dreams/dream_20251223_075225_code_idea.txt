@@ -1,0 +1,62 @@
+code_idea
+20251223_075225
+ names of variables/functions, parameters, and return values. This should enhance the system, making it more efficient, maintainable, or innovative.
+Given the recent interactions, one useful insight to enhance the system is to implement a hybrid model selection mechanism that dynamically selects between the 7B and 14B model types based on the context and input data. This can be achieved by introducing a function `select_model` that evaluates the complexity and size of the input data to determine which model type is more appropriate.
+
+Here's a detailed breakdown of the proposed enhancement:
+
+### Function Specification
+```cpp
+// Selects between 7B and 14B model types based on input data characteristics.
+// Returns a pointer to the selected model instance.
+zeta_model_t* select_model(size_t input_size);
+```
+
+### Function Implementation
+```cpp
+zeta_model_t* select_model(size_t input_size) {
+    if (input_size < THRESHOLD_SMALL_DATA) {
+        // Use 7B model for smaller datasets
+        return initialize_7B_model();
+    } else {
+        // Use 14B model for larger datasets
+        return initialize_14B_model();
+    }
+}
+```
+
+### Contextual Awareness for Routing
+In addition to model selection, we can enhance contextual awareness for routing decisions within the system. This can be implemented by modifying or extending the `fact_has_context` function to evaluate the context more comprehensively and route requests to the most suitable model.
+
+```cpp
+bool fact_has_enough_context(const fact_t* fact) {
+    if (fact->context.size() < MIN_CONTEXT_SIZE) {
+        return false;
+    }
+    // Additional checks based on context complexity
+    if (is_complex_context(fact->context)) {
+        // Route to a more powerful model
+        return true;
+    }
+    return true;
+}
+
+// Example of is_complex_context function
+bool is_complex_context(const std::string& context) {
+    // Implement logic to determine if context is complex enough
+    // For simplicity, consider any context with special characters as complex
+    for (char c : context) {
+        if (!isalnum(c)) {
+            return true;
+        }
+    }
+    return false;
+}
+```
+
+### Integration into the System
+To integrate these enhancements, you would call `select_model` when initializing the system and use `fact_has_enough_context` to decide whether to route a request to a specific model type.
+
+```cpp
+int main() {
+    zeta_model_t

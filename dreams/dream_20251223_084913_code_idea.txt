@@ -1,0 +1,44 @@
+code_idea
+20251223_084913
+ include names, values, and details. A new project codename is not necessary.
+
+**Insight:**
+The repetitive entries in the **raw_memory** indicate a potential issue with redundancy in data logging or processing. Specifically, the repeated statement about the **ZetaDynamicRouter** routing queries to the best model and directing code tasks to the 7B Coder suggests that there might be an inefficiency or an unnecessary loop in how updates are being recorded or broadcasted across the system. 
+
+To improve this, a more intelligent caching mechanism could be implemented to recognize when similar information has already been logged and prevent redundant entries. For instance, setting up a cache that stores the last known state of the routing rules and only updates the log if there is a change could significantly reduce redundant logging.
+
+**Code Improvement:**
+Here’s a potential piece of code to implement this caching mechanism:
+
+```python
+class ZetaDynamicRouter:
+    def __init__(self):
+        self.router_cache = {"code_tasks": "7B Coder", "embedding_tasks": "4B", "complex_reasoning": "14B"}
+        self.last_logged_state = {}
+
+    def route_query(self, task_type, query):
+        if task_type == "code_tasks":
+            target_model = self.router_cache["code_tasks"]
+        elif task_type == "embedding_tasks":
+            target_model = self.router_cache["embedding_tasks"]
+        elif task_type == "complex_reasoning":
+            target_model = self.router_cache["complex_reasoning"]
+        
+        # Check if the current state is different from the last logged state
+        if self.last_logged_state != self.router_cache:
+            self.last_logged_state = self.router_cache.copy()
+            print(f"Updated routing rules: {self.router_cache}")
+        
+        return f"Routing {query} to {target_model}"
+
+# Example usage
+router = ZetaDynamicRouter()
+print(router.route_query("code_tasks", "Some code task"))
+print(router.route_query("complex_reasoning", "Some complex reasoning"))
+print(router.route_query("code_tasks", "Another code task"))  # This should not trigger another print of updated rules
+```
+
+In this updated version, the `ZetaDynamicRouter` class includes a `router_cache` dictionary that stores the routing rules and a `last_logged_state` dictionary to keep track of the last logged state. If the routing rules have changed since the last log, it updates and prints the new state. Otherwise, it avoids unnecessary logging of redundant information.
+
+**Creative Idea:**
+To

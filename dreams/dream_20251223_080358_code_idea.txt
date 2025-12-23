@@ -1,0 +1,48 @@
+code_idea
+20251223_080358
+ class name, function name, parameters, etc.
+
+**Insight:**
+Introducing a **context-aware routing mechanism** for the ZetaHRM and ZetaTRM systems can significantly enhance their performance and adaptability. This mechanism would dynamically route tasks to the most appropriate context based on current system load and task requirements, improving efficiency and responsiveness.
+
+**Code Improvement:**
+To implement the context-aware routing mechanism, a new class named **`ContextRouter`** can be introduced. This class would manage the routing logic between different contexts (e.g., ZetaHRM and ZetaTRM) based on real-time data and system state.
+
+```python
+class ContextRouter:
+    def __init__(self, hr_context: zeta_dual_ctx_t, trm_context: zeta_trm_ctx_t):
+        self.hr_context = hr_context
+        self.trm_context = trm_context
+
+    def route_task(self, task: str, lambda_param: float = TRM_DEFAULT_LAMBDA) -> None:
+        if self._is_hrm_relevant(task):
+            self.hr_context.process_task(task)
+        else:
+            self.trm_context.process_task(task, lambda_param)
+
+    def _is_hrm_relevant(self, task: str) -> bool:
+        # Placeholder for logic to determine if the task is relevant to HRM
+        return "HR-related" in task.lower()
+```
+
+**Creative Idea:**
+To further enhance the system's adaptability, introduce a **hybrid model selection mechanism** that dynamically selects between different model types (14B and 7B) based on the specific context and task requirements. This can be encapsulated within the `ContextRouter` class.
+
+```python
+class HybridModelSelector:
+    def __init__(self, model_7b, model_14b):
+        self.model_7b = model_7b
+        self.model_14b = model_14b
+
+    def select_model(self, task: str) -> Any:
+        # Placeholder for logic to select the appropriate model based on task complexity
+        if len(task) > 1000:
+            return self.model_14b
+        else:
+            return self.model_7b
+```
+
+This mechanism would allow the system to leverage the strengths of both models, providing optimal performance for different task complexities.
+
+**Implementation Example:**
+Combining these elements, the `ContextRouter` could integrate the `HybridModelSelector` to dynamically choose the best

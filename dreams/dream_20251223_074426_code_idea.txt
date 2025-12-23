@@ -1,0 +1,60 @@
+code_idea
+20251223_074426
+ What would you do differently or add? Why?
+Based on the recent interactions, one useful insight is to introduce a unified interface for handling different types of contexts and parameters. This can streamline the codebase and make it more modular and maintainable.
+
+### Insight and Suggestion:
+
+#### Introduce a Unified Context Interface
+
+**Why?**
+- **Consistency**: Having a unified interface for contexts (e.g., `zeta_dual_ctx_t`, `fact_t`) can help maintain consistency across different parts of the code.
+- **Flexibility**: A unified context interface can make it easier to add new types of contexts or modify existing ones without changing multiple parts of the codebase.
+- **Encapsulation**: Encapsulating context handling within a class or struct can help manage dependencies and simplify function signatures.
+
+**Implementation Idea:**
+
+1. **Unified Context Struct:**
+
+   Define a generic context structure that can encapsulate different types of context data. For example:
+
+   ```c
+   typedef struct {
+       void* data; // Pointer to the actual context data
+       size_t size; // Size of the context data
+       void (*cleanup)(void*); // Optional cleanup function
+   } zeta_context_t;
+
+   // Example initialization functions
+   zeta_context_t* zeta_init_dual_ctx(void);
+   zeta_context_t* zeta_init_fact_ctx(const char* context);
+   ```
+
+2. **Function Overloading/Dispatching:**
+
+   Use function pointers or dispatch tables to handle different types of contexts. This allows you to define specialized functions for each type of context while maintaining a common interface:
+
+   ```c
+   typedef struct {
+       zeta_context_t* (*init_func)(void);
+       int (*find_branch)(zeta_context_t*, const char*);
+       bool (*has_context)(zeta_context_t*);
+       // Add more specialized functions here
+   } zeta_context_dispatch_t;
+
+   extern const zeta_context_dispatch_t dual_ctx_dispatch;
+   extern const zeta_context_dispatch_t fact_ctx_dispatch;
+
+   // Example usage
+   zeta_context_t* ctx = dual_ctx_dispatch.init_func();
+   int branch_index = dual_ctx_dispatch.find_branch(ctx, "branch_name");
+   bool has_valid_context = fact_ctx_dispatch.has_context(fact_ctx);
+   ```
+
+3. **Context Cleanup:**
+
+   Ensure that any allocated context data is properly cleaned up when no longer needed:
+
+   ```c
+   void zeta_cleanup_ctx(zeta_context_t* ctx) {
+       if (ctx->cleanup)

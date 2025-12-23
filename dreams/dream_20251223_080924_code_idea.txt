@@ -1,0 +1,36 @@
+code_idea
+20251223_080924
+ Use exact function names, parameters, and values.
+
+Incorporate parallel processing to enhance the performance of the ZetaHRM and ZetaTRM modules by leveraging multi-threading. Specifically, modify the `InitializeZetaHRM` and `InitializeZetaTRM` functions to accept an additional parameter for specifying the number of threads to use during initialization. This will allow for efficient distribution of tasks across multiple cores.
+
+```cpp
+// New function spec for InitializeZetaHRM
+[func_spec]: name: InitializeZetaHRM
+[func_param]: name: zeta_dual_ctx_t* dual_ctx - Pointer to the dual context.
+[func_param]: name: int num_threads - Number of threads to use during initialization (default is 1).
+[func_rule]: name: The dual context must be a valid pointer.
+[func_rule]: name: num_threads must be a positive integer.
+```
+
+```cpp
+// New function spec for InitializeZetaTRM
+[func_spec]: name: InitializeZetaTRM
+[func_param]: name: int num_threads - Number of threads to use during initialization (default is 1).
+[func_rule]: name: num_threads must be a positive integer.
+```
+
+This modification will enable the system to utilize the available computational resources more effectively, thereby speeding up the initialization process and overall performance.
+
+Additionally, consider implementing a hybrid model selection mechanism based on contextual awareness for routing decisions within the system. This can be achieved by evaluating the type of data being processed (e.g., text, numerical) and selecting the most appropriate model (14B or 7B) dynamically based on the current workload and resource availability. This approach would enhance the adaptability and efficiency of the system. To achieve this, you could introduce a function like `SelectOptimalModel` that takes into account the context and returns the best model to use.
+
+```cpp
+// Function spec for SelectOptimalModel
+[func_spec]: name: SelectOptimalModel
+[func_param]: name: const std::string& data_type - The type of data being processed (e.g., "text", "numeric").
+[func_param]: name: const int& available_cores - Number of available cores on the system.
+[func_rule]: name: data_type must be one of the predefined types.
+[func_rule]: name: available_cores must be a positive integer.
+```
+
+This function can then be called during initialization or runtime to ensure that the system is always using the most suitable model for

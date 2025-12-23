@@ -1,0 +1,50 @@
+code_idea
+20251223_075207
+ what should be done differently, added, or changed to make the system better.
+One useful insight to improve the system is to introduce a hybrid model that combines both 7B and 14B models dynamically based on the specific task requirements. This approach can leverage the strengths of both models while mitigating their weaknesses. For instance, the 7B model might be more efficient for certain tasks due to its smaller size, while the 14B model could provide better accuracy for more complex tasks. 
+
+To implement this, you can create a context-aware routing mechanism that selects the appropriate model based on the input context and the nature of the task. Here’s a concrete way to achieve this:
+
+1. **Model Selection Mechanism**:
+   - Develop a decision-making algorithm that evaluates the input context and task requirements.
+   - Use metrics such as input size, complexity, and resource constraints to determine which model is best suited.
+
+2. **Hybrid Model Initialization**:
+   - Modify the `name` function in the ZetaHRM module to initialize both models.
+   ```c
+   void init_hybrid_model(zeta_dual_ctx_t* dual_ctx) {
+       // Initialize both models
+       initialize_7B_model(dual_ctx->ctx_7B);
+       initialize_14B_model(dual_ctx->ctx_14B);
+   }
+   ```
+
+3. **Dynamic Contextual Awareness**:
+   - Enhance the `fact_has_context` function to include additional logic for determining which model to use.
+   ```c
+   bool fact_has_context(fact_t* fact) {
+       if (fact->context.empty()) return false;
+       
+       // Evaluate context and task requirements
+       if (context_is_complex(fact)) {
+           return select_model_for_complex_task(fact);
+       } else {
+           return select_model_for_simple_task(fact);
+       }
+   }
+   ```
+
+4. **Routing Mechanism**:
+   - Implement a routing function that decides which model to use based on the input context.
+   ```c
+   bool select_model_for_complex_task(fact_t* fact) {
+       // Determine if 14B model is needed based on complexity of context
+       if (is_high_complexity_context(fact->context)) {
+           return use_14B_model(fact);
+       } else {
+           return use_7B_model(fact);
+       }
+   }
+
+   bool select_model_for_simple_task(fact_t* fact) {
+       // Determine if 7B

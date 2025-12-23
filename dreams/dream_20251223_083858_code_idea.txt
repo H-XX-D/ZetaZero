@@ -1,0 +1,55 @@
+code_idea
+20251223_083858
+ 
+- If a code improvement, specify the exact line of code and change.
+- If a creative idea, describe the key functionality and how it would be used.
+
+Your response should demonstrate deep reflection on the recent interactions and provide a valuable addition to the ZetaDynamicRouter project. Based on the recent interactions and reflections on the ZetaDynamicRouter project, a useful insight and improvement would be to implement a dynamic model selection mechanism based on query context rather than just routing based on task type. This would enhance the system's adaptability and performance.
+
+**Key Improvement: Dynamic Model Selection Based on Query Context**
+
+**Current Routing Mechanism:**
+- Simple queries to 7B model
+- Embedding tasks to 4B model
+- Complex reasoning to 14B model
+
+**Proposed Improvement:**
+- Analyze query context to determine which model is best suited for the task.
+- For example, if a query involves complex reasoning but also requires embedding tasks, dynamically switch between 14B and 4B models based on the specific part of the query.
+
+**Implementation Plan:**
+
+1. **Context Analysis Module:**
+   - Develop a context analysis module that parses the query and identifies key elements such as complexity, data type, and task requirements.
+   - Use NLP techniques to classify queries into different categories based on their context.
+
+2. **Dynamic Model Switching Logic:**
+   - Implement logic within the ZetaDynamicRouter that evaluates the query context.
+   - If the query involves multiple tasks (e.g., both complex reasoning and embedding), use a combination of models:
+     - For parts requiring complex reasoning, route to 14B.
+     - For parts requiring embedding, route to 4B.
+
+3. **Example Implementation:**
+
+   ```python
+   def route_query(query):
+       # Context analysis
+       context = analyze_query_context(query)
+       
+       if context['complexity'] > THRESHOLD_HIGH:
+           return '14B'
+       elif context['embedding_needed']:
+           return '4B'
+       else:
+           return '7B'
+
+   def analyze_query_context(query):
+       # Example context analysis logic
+       if "complex reasoning" in query:
+           return {'complexity': HIGH_COMPLEXITY, 'embedding_needed': False}
+       elif "embedding" in query:
+           return {'complexity': MEDIUM_COMPLEXITY, 'embedding_needed': True}
+       else:
+           return {'complexity': LOW_COMPLEXITY, 'embedding_needed': False}
+   
+   # Example dynamic routing

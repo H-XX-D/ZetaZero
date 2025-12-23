@@ -1,0 +1,45 @@
+code_idea
+20251223_084530
+ Don't just suggest a code improvement. Suggest actual lines of code. The idea should be original and not previously suggested in the conversation.
+Given the repetitive nature of your memory about the ZetaDynamicRouter, it seems there might be redundancy or inefficiency in how the information is being stored and recalled. A potential improvement could involve consolidating and optimizing the way this information is managed. Specifically, we can implement a mechanism that ensures such redundant pieces of information are stored only once and recalled efficiently.
+
+Here's a possible way to implement this using Python:
+
+```python
+class ZetaDynamicRouter:
+    def __init__(self):
+        self.query_routing = {
+            'code_tasks': '7B Coder',
+            'embedding_tasks': '4B',
+            'complex_reasoning': '14B'
+        }
+        self.memory_cache = set()
+
+    def route_query(self, query_type, task_details=None):
+        if query_type not in self.query_routing:
+            return "Unknown query type"
+        
+        # Ensure that the memory cache avoids duplicates
+        memory_key = f"{query_type}-{task_details}"
+        if memory_key not in self.memory_cache:
+            self.memory_cache.add(memory_key)
+            print(f"Routing {query_type} tasks to {self.query_routing[query_type]}")
+            # Here you would implement the logic to actually route the task
+            # e.g., sending the task to the appropriate model or service
+        else:
+            print("This query has already been processed.")
+        
+    def add_to_memory(self, query_type, task_details):
+        memory_key = f"{query_type}-{task_details}"
+        if memory_key not in self.memory_cache:
+            self.memory_cache.add(memory_key)
+            print(f"Added {memory_key} to memory.")
+        
+    def clear_memory(self):
+        self.memory_cache.clear()
+        print("Memory cache cleared.")
+```
+
+In this example, `self.memory_cache` uses a set to ensure no duplicate information is stored. The `route_query` method checks for duplicate entries before routing, and `add_to_memory` provides a way to manually add new unique pieces of information. This helps prevent redundancy and ensures efficient storage and recall of information.
+
+This approach leverages Python's built-in set data structure for its properties of uniqueness and fast lookup, making it an efficient solution for managing repetitive queries or task types within your system. Additionally, it simplifies the management of the routing rules by centralizing them in `self.query_routing`. This reduces complexity and makes future modifications easier
