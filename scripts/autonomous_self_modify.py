@@ -34,6 +34,7 @@ Z6_HOST = "z6"
 REMOTE_SOURCE_DIR = "/home/xx/ZetaZero/llama.cpp/tools/zeta-demo"
 REMOTE_BUILD_DIR = "/home/xx/ZetaZero/llama.cpp/build"
 LOCAL_SOURCE_DIR = "/Users/hendrixx./ZetaZero/llama.cpp/tools/zeta-demo"
+REMOTE_DREAMS_DIR = "/mnt/HoloGit/dreams/pending"
 LOG_FILE = "/tmp/zeta_autonomous.log"
 
 # Limits
@@ -98,29 +99,59 @@ def ssh_run(cmd: str, capture: bool = True) -> Tuple[bool, str]:
         return False, str(e)
 
 
-def fetch_pending_dreams() -> List[str]:
-    """Fetch pending dreams from Z.E.T.A."""
+def fetch_pending_dreams(cpp_only: bool = True) -> List[str]:
+    """Fetch pending dreams from Z.E.T.A.'s dream directory.
+
+    Args:
+        cpp_only: If True, only return dreams containing C++ code
+    """
     try:
-        # Read dreams from z6
-        success, output = ssh_run(f"cat /tmp/zeta_dreams.txt 2>/dev/null || echo ''")
+        # First, find dreams that contain C++ code blocks
+        if cpp_only:
+            # Search for dreams with actual cpp code blocks
+            success, output = ssh_run(
+                f'grep -l "```cpp\\|class Zeta\\|struct Zeta\\|void zeta_" {REMOTE_DREAMS_DIR}/*.txt 2>/dev/null | head -30'
+            )
+        else:
+            success, output = ssh_run(f"ls -t {REMOTE_DREAMS_DIR}/*.txt 2>/dev/null | head -50")
+
         if not success or not output.strip():
-            # Try fetching via API
-            resp = requests.get(f"{ZETA_URL}/health", timeout=10)
-            if resp.status_code == 200:
-                log("Server running but no dreams file found")
+            log("No dream files found")
             return []
 
-        # Parse dreams (one per line, JSON format)
-        dreams = []
-        for line in output.strip().split("\n"):
-            line = line.strip()
-            if line and not line.startswith("#"):
-                try:
-                    dream_data = json.loads(line)
-                    dreams.append(dream_data.get("content", line))
-                except json.JSONDecodeError:
-                    dreams.append(line)
+        dream_files = output.strip().split("\n")
+        log(f"Found {len(dream_files)} dream files with C++ code" if cpp_only else f"Found {len(dream_files)} dream files")
 
+        dreams = []
+        for filepath in dream_files:
+            filepath = filepath.strip()
+            if not filepath:
+                continue
+
+            # Read dream content
+            success, content = ssh_run(f"cat '{filepath}'")
+            if not success or not content:
+                continue
+
+            # Filter for C++ code if requested
+            if cpp_only:
+                # Check for C++ indicators
+                has_cpp = any(indicator in content for indicator in [
+                    '```cpp', '```c++', 'class Zeta', 'struct Zeta',
+                    'void zeta_', 'bool zeta_', 'std::', '#include',
+                    'namespace zeta', 'inline ', 'const char*'
+                ])
+                if not has_cpp:
+                    continue
+
+            # Extract just the content (skip category and timestamp lines)
+            lines = content.split('\n')
+            if len(lines) > 2:
+                # First line is category, second is timestamp, rest is content
+                dream_content = '\n'.join(lines[2:])
+                dreams.append(dream_content)
+
+        log(f"Filtered to {len(dreams)} C++ dreams" if cpp_only else f"Loaded {len(dreams)} dreams")
         return dreams
 
     except Exception as e:
@@ -132,8 +163,8 @@ def extract_patches_from_dream(dream: str, dream_id: str) -> List[CodePatch]:
     """Extract actionable C++ patches from dream content."""
     patches = []
 
-    # Look for code blocks
-    code_block_pattern = r"```(?:cpp|c\+\+)?\s*(?://\s*FILE:\s*(\S+))?\n([\s\S]*?)```"
+    # Look for code blocks - must be explicitly marked as cpp/c++
+    code_block_pattern = r"```(?:cpp|c\+\+)\s*(?://\s*FILE:\s*(\S+))?\n([\s\S]*?)```"
     matches = re.finditer(code_block_pattern, dream, re.IGNORECASE)
 
     patch_num = 0
@@ -206,8 +237,31 @@ def infer_patch_type(dream: str) -> PatchType:
     return PatchType.INSERT
 
 
+def is_valid_cpp(code: str) -> bool:
+    """Check if code looks like valid C++."""
+    # Must have basic C++ syntax
+    has_braces = "{" in code and "}" in code
+    has_semicolons = ";" in code
+    has_cpp_keywords = any(kw in code for kw in [
+        'void ', 'int ', 'bool ', 'float ', 'double ', 'char ',
+        'class ', 'struct ', 'enum ', 'template', 'namespace ',
+        'return ', 'if (', 'for (', 'while (', 'switch (',
+        'std::', 'const ', 'static ', 'inline '
+    ])
+
+    # Must NOT look like markdown or prose
+    has_markdown = code.strip().startswith('#') or '####' in code
+    is_mostly_prose = len(re.findall(r'[a-zA-Z]{10,}', code)) > 10  # Too many long words
+
+    return has_braces and has_semicolons and has_cpp_keywords and not has_markdown and not is_mostly_prose
+
+
 def calculate_confidence(code: str, dream: str) -> float:
     """Calculate confidence score for a patch."""
+    # Start with validity check
+    if not is_valid_cpp(code):
+        return 0.0
+
     confidence = 0.5
 
     # Boost for complete definitions
@@ -215,6 +269,10 @@ def calculate_confidence(code: str, dream: str) -> float:
         confidence += 0.2
     if "{" in code and "}" in code:
         confidence += 0.1
+
+    # Boost for function definitions
+    if re.search(r'\w+\s+\w+\s*\([^)]*\)\s*{', code):
+        confidence += 0.15
 
     # Boost for actionable keywords
     lower = dream.lower()
@@ -224,6 +282,10 @@ def calculate_confidence(code: str, dream: str) -> float:
     # Penalty for short code
     if len(code) < 50:
         confidence -= 0.2
+
+    # Penalty for very long code (might be incomplete)
+    if len(code) > 2000:
+        confidence -= 0.1
 
     return max(0.0, min(1.0, confidence))
 
@@ -291,6 +353,89 @@ def compile_on_z6() -> Tuple[bool, str, List[str]]:
     return success, output, errors
 
 
+def restart_server_on_z6() -> Tuple[bool, str]:
+    """Stop and restart zeta-server on z6."""
+    log("Restarting zeta-server...")
+
+    # Kill existing server
+    kill_cmd = "pkill -f 'zeta-server' || true"
+    ssh_run(kill_cmd)
+
+    time.sleep(2)
+
+    # Start new server in background using the existing config
+    start_cmd = """cd /home/xx/ZetaZero && source ./zeta.conf && \
+        nohup ./llama.cpp/build/bin/zeta-server \
+        --model "$MODEL_14B" \
+        --model-coder "$MODEL_7B" \
+        --model-embed "$MODEL_4B" \
+        -ngl 99 -c 4096 --host 0.0.0.0 --port 8080 \
+        > /tmp/zeta.log 2>&1 &"""
+
+    success, output = ssh_run(start_cmd)
+
+    # Wait for server to start
+    time.sleep(5)
+
+    # Check if server is responding
+    try:
+        resp = requests.get(f"{ZETA_URL}/health", timeout=10)
+        if resp.status_code == 200:
+            log("Server restarted successfully")
+            return True, "Server running"
+    except:
+        pass
+
+    return False, "Server failed to restart"
+
+
+def update_self_graph(modified_files: List[str]) -> bool:
+    """Feed modified source files back into Z.E.T.A.'s memory graph.
+
+    This maintains self-awareness by updating the graph with the new code.
+    """
+    log(f"Updating self-graph with {len(modified_files)} modified files...")
+
+    for filename in modified_files:
+        filepath = f"{REMOTE_SOURCE_DIR}/{filename}"
+
+        # Read file content
+        success, content = ssh_run(f"cat '{filepath}' 2>/dev/null | head -100")
+        if not success or not content:
+            continue
+
+        # Extract key structures for context
+        structures = []
+        for line in content.split('\n'):
+            if 'class ' in line or 'struct ' in line or 'void ' in line:
+                structures.append(line.strip()[:80])
+
+        prompt = f"""I just modified my own source file: {filename}
+
+Key structures in this file:
+{chr(10).join(structures[:10])}
+
+Remember: This is part of my own codebase. I modified it through autonomous self-improvement.
+Update my understanding of what this file does and how it connects to my other components."""
+
+        try:
+            resp = requests.post(
+                f"{ZETA_URL}/generate",
+                json={"prompt": prompt, "max_tokens": 200},
+                timeout=60
+            )
+            if resp.status_code == 200:
+                log(f"  Updated graph with {filename}")
+            else:
+                log(f"  Failed to update graph with {filename}", "WARN")
+        except Exception as e:
+            log(f"  Error updating graph: {e}", "ERROR")
+
+        time.sleep(1)  # Rate limit
+
+    return True
+
+
 def revert_patch(patch: CodePatch) -> bool:
     """Revert a patch by restoring from backup."""
     filepath = f"{REMOTE_SOURCE_DIR}/{patch.target_file}"
@@ -347,6 +492,7 @@ def try_fix_error(error: str) -> Optional[CodePatch]:
 def run_cycle(dreams: List[str]) -> CycleResult:
     """Run one self-modification cycle."""
     result = CycleResult()
+    compiled_files = []  # Track successfully compiled files
 
     log("=== Self-Modification Cycle Started ===")
     log(f"Processing {len(dreams)} dreams")
@@ -388,6 +534,7 @@ def run_cycle(dreams: List[str]) -> CycleResult:
 
         if success:
             result.patches_compiled += 1
+            compiled_files.append(patch.target_file)
             log("  COMPILED OK")
 
             # Commit
@@ -424,6 +571,26 @@ def run_cycle(dreams: List[str]) -> CycleResult:
                 revert_patch(patch)
 
     log(f"=== Cycle Complete: {result.patches_compiled}/{result.patches_attempted} successful ===")
+
+    # Restart server if we had successful patches
+    if result.patches_compiled > 0:
+        # Get unique modified files
+        modified_files = list(set(compiled_files))
+
+        log(f"Restarting server to apply {result.patches_compiled} new patches...")
+        restart_success, restart_msg = restart_server_on_z6()
+        if restart_success:
+            log("Server restarted with new code!")
+            result.messages.append("Server restarted successfully")
+
+            # Update self-graph with modified files
+            if modified_files:
+                update_self_graph(modified_files)
+                result.messages.append(f"Updated graph with {len(modified_files)} files")
+        else:
+            log(f"Server restart failed: {restart_msg}", "WARN")
+            result.messages.append(f"Restart failed: {restart_msg}")
+
     return result
 
 
