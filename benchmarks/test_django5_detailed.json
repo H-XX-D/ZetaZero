@@ -1,0 +1,17 @@
+[
+  {
+    "instance_id": "django__django-11099",
+    "model_name_or_path": "zeta-14b-7b-4b",
+    "model_patch": "diff --git a/django/contrib/auth/validators.py b/django/contrib/auth/validators.py\ndiff --git a/django/contrib/auth/validators.py b/django/contrib/auth/validators.py\n--- a/django/contrib/auth/validators.py\n+++ b/django/contrib/auth/validators.py\n@@ -12,7 +12,7 @@ from django.utils.translation import gettext_lazy as _\n \n \n @deconstructible\n-class ASCIIUsernameValidator(validators.RegexValidator):\n+class ASCIIUsernameValidator(validators.RegexValidator, deconstructible=True):\n     regex = r'^[\\w.@+-]+\\Z'\n     message = _(\n         'Enter a valid username. This value may contain only letters, '\n@@ -23,7 +23,7 @@ class ASCIIUsernameValidator(validators.RegexValidator):\n \n \n @deconstructible\n-class UnicodeUsernameValidator(validators.RegexValidator):\n+class UnicodeUsernameValidator(validators.RegexValidator, deconstructible=True):\n     regex = r'^[\\w.@+-]+\\Z'\n     message = _(\n         'Enter a valid username. This value may contain only letters, '\n@@ -34,7 +34,6 @@ class UnicodeUsernameValidator(validators.RegexValidator):\n \n ASCIIUsernameValidator.flags = re.ASCII\n-UnicodeUsernameValidator.flags = 0\n",
+    "patch_valid": false,
+    "validation_msg": "error: corrupt patch at line 28",
+    "elapsed_time": 94.72820591926575,
+    "chunks_indexed": 12,
+    "graph_hits": 5,
+    "full_response": "diff --git a/django/contrib/auth/validators.py b/django/contrib/auth/validators.py\ndiff --git a/django/contrib/auth/validators.py b/django/contrib/auth/validators.py\n--- a/django/contrib/auth/validators.py\n+++ b/django/contrib/auth/validators.py\n@@ -12,7 +12,7 @@ from django.utils.translation import gettext_lazy as _\n \n \n @deconstructible\n-class ASCIIUsernameValidator(validators.RegexValidator):\n+class ASCIIUsernameValidator(validators.RegexValidator, deconstructible=True):\n     regex = r'^[\\w.@+-]+\\Z'\n     message = _(\n         'Enter a valid username. This value may contain only letters, '\n@@ -23,7 +23,7 @@ class ASCIIUsernameValidator(validators.RegexValidator):\n \n \n @deconstructible\n-class UnicodeUsernameValidator(validators.RegexValidator):\n+class UnicodeUsernameValidator(validators.RegexValidator, deconstructible=True):\n     regex = r'^[\\w.@+-]+\\Z'\n     message = _(\n         'Enter a valid username. This value may contain only letters, '\n@@ -34,7 +34,6 @@ class UnicodeUsernameValidator(validators.RegexValidator):\n \n ASCIIUsernameValidator.flags = re.ASCII\n-UnicodeUsernameValidator.flags = 0",
+    "target_file": "django/contrib/auth/validators.py",
+    "scratch_content": "",
+    "discovered_format": "unified_diff",
+    "format_valid": true
+  }
+]

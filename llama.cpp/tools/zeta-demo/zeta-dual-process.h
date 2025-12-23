@@ -89,8 +89,15 @@ typedef enum {
 // Source tag for trust hierarchy
 typedef enum {
     SOURCE_USER,    // Ground truth from user input
-    SOURCE_MODEL    // Inferred from model output  
+    SOURCE_MODEL    // Inferred from model output
 } zeta_source_t;
+
+// Epistemic scope - separates facts from fiction
+typedef enum {
+    SCOPE_GLOBAL,   // Real-world facts, always surfaced
+    SCOPE_FICTION,  // Creative/dream content, separate layer
+    SCOPE_SESSION   // Temporary session-only content
+} zeta_epistemic_scope_t;
 
 // Memory graph node
 typedef struct {
@@ -121,6 +128,9 @@ typedef struct {
     bool is_hypothetical;
     float hypothetical_decay;
     int64_t hypothetical_parent;
+
+    // Epistemic scoping - keeps dreams separate from facts
+    zeta_epistemic_scope_t scope;  // GLOBAL=facts, FICTION=dreams
 } zeta_graph_node_t;
 
 // Memory graph edge
@@ -416,6 +426,33 @@ static inline int64_t zeta_commit_fact(
     }
     // Fallback to direct storage
     return zeta_create_node_with_source(ctx, type, label, value, salience, source);
+}
+
+// Scoped commit: allows fiction/dream content to be saved in separate layer
+// Fiction content can be recalled but won't interfere with factual queries
+static inline int64_t zeta_commit_scoped(
+    zeta_dual_ctx_t* ctx,
+    zeta_node_type_t type,
+    const char* label,
+    const char* value,
+    float salience,
+    zeta_source_t source,
+    zeta_epistemic_scope_t scope
+) {
+    int64_t node_id = zeta_commit_fact(ctx, type, label, value, salience, source);
+    if (node_id >= 0 && ctx) {
+        // Find the node and set its scope
+        for (int i = 0; i < ctx->num_nodes; i++) {
+            if (ctx->nodes[i].node_id == node_id) {
+                ctx->nodes[i].scope = scope;
+                if (scope == SCOPE_FICTION) {
+                    fprintf(stderr, "[DREAM] Stored in fiction layer: %s = %.40s...\n", label, value);
+                }
+                break;
+            }
+        }
+    }
+    return node_id;
 }
 
 // Create edge between nodes
@@ -960,14 +997,38 @@ static inline int zeta_subconscious_extract_facts(
     
     // DEBUG: What text arrives?
     fprintf(stderr, "[EXTRACT DEBUG] Text starts with: %.40s...\n", text);
-    
+
     // ===== REMEMBER SHORT-CIRCUIT =====
-    // "Remember:" prefix stores EXACTLY what follows
-    if (strncasecmp(text, "remember:", 9) == 0) {
-        const char* content = text + 9;
-        while (*content == ' ') content++;  // Skip spaces
-        
-        if (strlen(content) > 5) {
+    // Find "Remember:" or "Remember this:" anywhere in text (case-insensitive)
+    const char* remember_ptr = NULL;
+    const char* content = NULL;
+
+    // Build lowercase copy for searching
+    char lower_text[4096];
+    size_t tlen = strlen(text);
+    if (tlen >= sizeof(lower_text)) tlen = sizeof(lower_text) - 1;
+    for (size_t i = 0; i < tlen; i++) lower_text[i] = tolower(text[i]);
+    lower_text[tlen] = '\0';
+
+    // Search for "remember this:" first (more specific)
+    const char* match = strstr(lower_text, "remember this:");
+    if (match) {
+        size_t offset = match - lower_text;
+        remember_ptr = text + offset;
+        content = remember_ptr + 14; // strlen("remember this:")
+        while (*content == ' ') content++;
+    } else {
+        // Search for just "remember:"
+        match = strstr(lower_text, "remember:");
+        if (match) {
+            size_t offset = match - lower_text;
+            remember_ptr = text + offset;
+            content = remember_ptr + 9; // strlen("remember:")
+            while (*content == ' ') content++;
+        }
+    }
+
+    if (content && strlen(content) > 5) {
             // Store as raw_memory with high salience (routes through GitGraph if enabled)
             zeta_commit_fact(ctx, NODE_FACT, "raw_memory", content, 0.95f, SOURCE_USER);
             facts_created++;
@@ -1045,8 +1106,8 @@ static inline int zeta_subconscious_extract_facts(
             }
 
             return facts_created;  // Skip full 3B extraction but kept causal edges
-        }
     }
+
     // DETECT CODE IN TEXT
     bool has_code = (strstr(text, "```") != NULL ||
                      strstr(text, "def ") != NULL ||
@@ -1704,6 +1765,201 @@ static inline int zeta_extract_from_generation(
     }
 
     return facts;
+}
+
+// ============================================================================
+// DREAM SUGGESTION: Cognitive Merge - 3B/14B Parallel Branch Processing
+// ============================================================================
+// The 3B subconscious and 14B conscious can work on problems in parallel
+// branches, then merge their insights for more creative solutions.
+
+typedef struct {
+    int64_t branch_id;
+    char branch_name[64];
+    int64_t node_ids[256];      // Nodes created in this branch
+    int num_nodes;
+    float insights[1024];        // Accumulated insight vector
+    int insight_dim;
+    time_t created_at;
+    bool is_conscious;           // true = 14B, false = 3B
+} zeta_cognitive_branch_t;
+
+typedef struct {
+    zeta_cognitive_branch_t branches[8];  // Max 8 parallel branches
+    int num_branches;
+    int64_t next_branch_id;
+    char merge_log[4096];        // Log of merge operations
+} zeta_cognitive_merge_ctx_t;
+
+// Initialize cognitive merge context
+static inline void zeta_cognitive_merge_init(zeta_cognitive_merge_ctx_t* ctx) {
+    if (!ctx) return;
+    memset(ctx, 0, sizeof(*ctx));
+    ctx->next_branch_id = 1;
+    snprintf(ctx->merge_log, sizeof(ctx->merge_log), "[COGNITIVE-MERGE] Initialized\n");
+}
+
+// Create a new cognitive branch for parallel processing
+static inline int64_t zeta_cognitive_branch_create(
+    zeta_cognitive_merge_ctx_t* ctx,
+    const char* name,
+    bool is_conscious  // true = 14B conscious branch, false = 3B subconscious
+) {
+    if (!ctx || ctx->num_branches >= 8) return -1;
+
+    zeta_cognitive_branch_t* branch = &ctx->branches[ctx->num_branches++];
+    branch->branch_id = ctx->next_branch_id++;
+    strncpy(branch->branch_name, name, sizeof(branch->branch_name) - 1);
+    branch->num_nodes = 0;
+    branch->insight_dim = 0;
+    branch->created_at = time(NULL);
+    branch->is_conscious = is_conscious;
+
+    char log_entry[256];
+    snprintf(log_entry, sizeof(log_entry),
+             "[COGNITIVE-MERGE] Created %s branch '%s' (id=%ld)\n",
+             is_conscious ? "conscious" : "subconscious",
+             name, (long)branch->branch_id);
+    strncat(ctx->merge_log, log_entry, sizeof(ctx->merge_log) - strlen(ctx->merge_log) - 1);
+
+    fprintf(stderr, "%s", log_entry);
+    return branch->branch_id;
+}
+
+// Record a node as belonging to a cognitive branch
+static inline void zeta_cognitive_branch_record(
+    zeta_cognitive_merge_ctx_t* ctx,
+    int64_t branch_id,
+    int64_t node_id
+) {
+    if (!ctx) return;
+
+    for (int i = 0; i < ctx->num_branches; i++) {
+        if (ctx->branches[i].branch_id == branch_id) {
+            if (ctx->branches[i].num_nodes < 256) {
+                ctx->branches[i].node_ids[ctx->branches[i].num_nodes++] = node_id;
+            }
+            return;
+        }
+    }
+}
+
+// Add insight embedding to a branch
+static inline void zeta_cognitive_branch_add_insight(
+    zeta_cognitive_merge_ctx_t* ctx,
+    int64_t branch_id,
+    const float* embedding,
+    int dim
+) {
+    if (!ctx || !embedding || dim <= 0) return;
+
+    for (int i = 0; i < ctx->num_branches; i++) {
+        if (ctx->branches[i].branch_id == branch_id) {
+            zeta_cognitive_branch_t* branch = &ctx->branches[i];
+            if (branch->insight_dim == 0) {
+                // First insight - copy directly
+                int copy_dim = (dim < 1024) ? dim : 1024;
+                memcpy(branch->insights, embedding, copy_dim * sizeof(float));
+                branch->insight_dim = copy_dim;
+            } else {
+                // Accumulate (weighted average)
+                int merge_dim = (dim < branch->insight_dim) ? dim : branch->insight_dim;
+                for (int d = 0; d < merge_dim; d++) {
+                    branch->insights[d] = (branch->insights[d] + embedding[d]) / 2.0f;
+                }
+            }
+            return;
+        }
+    }
+}
+
+// DREAM SUGGESTION: Cognitive Merge - combine insights from 3B and 14B branches
+static inline int zeta_cognitive_merge(
+    zeta_cognitive_merge_ctx_t* ctx,
+    zeta_dual_ctx_t* dual_ctx,
+    int64_t conscious_branch_id,      // 14B branch (structured reasoning)
+    int64_t subconscious_branch_id,   // 3B branch (creative associations)
+    float conscious_weight            // Weight for conscious branch (0-1)
+) {
+    if (!ctx || !dual_ctx) return -1;
+
+    zeta_cognitive_branch_t* conscious = NULL;
+    zeta_cognitive_branch_t* subconscious = NULL;
+
+    // Find the branches
+    for (int i = 0; i < ctx->num_branches; i++) {
+        if (ctx->branches[i].branch_id == conscious_branch_id) {
+            conscious = &ctx->branches[i];
+        }
+        if (ctx->branches[i].branch_id == subconscious_branch_id) {
+            subconscious = &ctx->branches[i];
+        }
+    }
+
+    if (!conscious || !subconscious) {
+        fprintf(stderr, "[COGNITIVE-MERGE] Branch not found\n");
+        return -1;
+    }
+
+    float subconscious_weight = 1.0f - conscious_weight;
+    int merged_insights = 0;
+
+    // Merge insight embeddings
+    if (conscious->insight_dim > 0 && subconscious->insight_dim > 0) {
+        int merge_dim = (conscious->insight_dim < subconscious->insight_dim)
+                        ? conscious->insight_dim : subconscious->insight_dim;
+
+        float merged[1024];
+        for (int d = 0; d < merge_dim; d++) {
+            merged[d] = conscious->insights[d] * conscious_weight +
+                        subconscious->insights[d] * subconscious_weight;
+        }
+
+        // Create a merge node in the graph
+        char merge_label[128];
+        snprintf(merge_label, sizeof(merge_label), "cognitive_merge_%ld_%ld",
+                 (long)conscious_branch_id, (long)subconscious_branch_id);
+
+        int64_t merge_node = zeta_create_node(dual_ctx, NODE_EVENT, merge_label,
+                                              "Merged conscious/subconscious insights", 0.95f);
+
+        // Copy merged embedding to the node
+        if (merge_node >= 0 && merge_node < ZETA_MAX_GRAPH_NODES) {
+            memcpy(dual_ctx->nodes[merge_node].embedding, merged,
+                   merge_dim * sizeof(float));
+        }
+
+        merged_insights++;
+    }
+
+    // Link all nodes from both branches to each other (cross-pollination)
+    for (int c = 0; c < conscious->num_nodes; c++) {
+        for (int s = 0; s < subconscious->num_nodes; s++) {
+            // Create weak association edges between conscious and subconscious nodes
+            zeta_create_edge(dual_ctx,
+                            conscious->node_ids[c],
+                            subconscious->node_ids[s],
+                            EDGE_RELATED,
+                            0.3f * subconscious_weight);
+        }
+    }
+
+    char log_entry[256];
+    snprintf(log_entry, sizeof(log_entry),
+             "[COGNITIVE-MERGE] Merged '%s' (14B, %d nodes) + '%s' (3B, %d nodes) = %d insights\n",
+             conscious->branch_name, conscious->num_nodes,
+             subconscious->branch_name, subconscious->num_nodes,
+             merged_insights);
+    strncat(ctx->merge_log, log_entry, sizeof(ctx->merge_log) - strlen(ctx->merge_log) - 1);
+
+    fprintf(stderr, "%s", log_entry);
+
+    return merged_insights;
+}
+
+// Get the merge log for Dream State analysis
+static inline const char* zeta_cognitive_merge_get_log(zeta_cognitive_merge_ctx_t* ctx) {
+    return ctx ? ctx->merge_log : "";
 }
 
 #ifdef __cplusplus

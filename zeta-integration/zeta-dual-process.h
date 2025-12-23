@@ -960,14 +960,38 @@ static inline int zeta_subconscious_extract_facts(
     
     // DEBUG: What text arrives?
     fprintf(stderr, "[EXTRACT DEBUG] Text starts with: %.40s...\n", text);
-    
+
     // ===== REMEMBER SHORT-CIRCUIT =====
-    // "Remember:" prefix stores EXACTLY what follows
-    if (strncasecmp(text, "remember:", 9) == 0) {
-        const char* content = text + 9;
-        while (*content == ' ') content++;  // Skip spaces
-        
-        if (strlen(content) > 5) {
+    // Find "Remember:" or "Remember this:" anywhere in text (case-insensitive)
+    const char* remember_ptr = NULL;
+    const char* content = NULL;
+
+    // Build lowercase copy for searching
+    char lower_text[4096];
+    size_t tlen = strlen(text);
+    if (tlen >= sizeof(lower_text)) tlen = sizeof(lower_text) - 1;
+    for (size_t i = 0; i < tlen; i++) lower_text[i] = tolower(text[i]);
+    lower_text[tlen] = '\0';
+
+    // Search for "remember this:" first (more specific)
+    const char* match = strstr(lower_text, "remember this:");
+    if (match) {
+        size_t offset = match - lower_text;
+        remember_ptr = text + offset;
+        content = remember_ptr + 14; // strlen("remember this:")
+        while (*content == ' ') content++;
+    } else {
+        // Search for just "remember:"
+        match = strstr(lower_text, "remember:");
+        if (match) {
+            size_t offset = match - lower_text;
+            remember_ptr = text + offset;
+            content = remember_ptr + 9; // strlen("remember:")
+            while (*content == ' ') content++;
+        }
+    }
+
+    if (content && strlen(content) > 5) {
             // Store as raw_memory with high salience (routes through GitGraph if enabled)
             zeta_commit_fact(ctx, NODE_FACT, "raw_memory", content, 0.95f, SOURCE_USER);
             facts_created++;
@@ -1045,8 +1069,8 @@ static inline int zeta_subconscious_extract_facts(
             }
 
             return facts_created;  // Skip full 3B extraction but kept causal edges
-        }
     }
+
     // DETECT CODE IN TEXT
     bool has_code = (strstr(text, "```") != NULL ||
                      strstr(text, "def ") != NULL ||

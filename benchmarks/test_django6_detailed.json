@@ -1,0 +1,17 @@
+[
+  {
+    "instance_id": "django__django-11099",
+    "model_name_or_path": "zeta-14b-7b-4b",
+    "model_patch": "diff --git a/django/contrib/auth/validators.py b/django/contrib/auth/validators.py\n--- a/django/contrib/auth/validators.py\n+++ b/django/contrib/auth/validators.py\n@@ -14,7 +14,7 @@\n from django.utils.translation import gettext_lazy as _\n \n \n-class ASCIIUsernameValidator(validators.RegexValidator):\n+class ASCIIUsernameValidator(validators.RegexValidator, deconstructible=True):\n     regex = r'^[\\w.@+-]+\\Z'\n     message = _('Enter a valid username. This value may contain only letters, '\n                 'numbers, and @/./+/-/_ characters.')\n@@ -25,7 +25,7 @@\n     flags = re.UNICODE\n \n \n-class UnicodeUsernameValidator(validators.RegexValidator):\n+class UnicodeUsernameValidator(validators.RegexValidator, deconstructible=True):\n     regex = r'^[\\w.@+-]+\\Z'\n     message = _('Enter a valid username. This value may contain only letters, '\n                 'numbers, and @/./+/-/_ characters.')\n",
+    "patch_valid": false,
+    "validation_msg": "error: patch failed: django/contrib/auth/validators.py:14\nerror: django/contrib/auth/validators.py: patch does not apply",
+    "elapsed_time": 95.45876026153564,
+    "chunks_indexed": 12,
+    "graph_hits": 5,
+    "full_response": "diff --git a/django/contrib/auth/validators.py b/django/contrib/auth/validators.py\n--- a/django/contrib/auth/validators.py\n+++ b/django/contrib/auth/validators.py\n@@ -14,7 +14,7 @@\n from django.utils.translation import gettext_lazy as _\n \n \n-class ASCIIUsernameValidator(validators.RegexValidator):\n+class ASCIIUsernameValidator(validators.RegexValidator, deconstructible=True):\n     regex = r'^[\\w.@+-]+\\Z'\n     message = _('Enter a valid username. This value may contain only letters, '\n                 'numbers, and @/./+/-/_ characters.')\n@@ -25,7 +25,7 @@\n     flags = re.UNICODE\n \n \n-class UnicodeUsernameValidator(validators.RegexValidator):\n+class UnicodeUsernameValidator(validators.RegexValidator, deconstructible=True):\n     regex = r'^[\\w.@+-]+\\Z'\n     message = _('Enter a valid username. This value may contain only letters, '\n                 'numbers, and @/./+/-/_ characters.')",
+    "target_file": "django/contrib/auth/validators.py",
+    "scratch_content": "",
+    "discovered_format": "unified_diff",
+    "format_valid": true
+  }
+]

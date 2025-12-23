@@ -58,6 +58,8 @@ static bool zeta_embed_init(const char* model_path) {
     cparams.n_ctx = 512;           // Small context for embedding queries
     cparams.n_batch = 512;
     cparams.embeddings = true;     // CRITICAL: Enable embeddings output
+    cparams.n_threads = 20;        // Use 20 of 24 Xeon cores (leave 4 for system/GPU driver)
+    cparams.n_threads_batch = 20;  // Parallel batch processing
     // flash_attn not needed for embedding models
 
     g_embed_ctx->ctx = llama_init_from_model(g_embed_ctx->model, cparams);
