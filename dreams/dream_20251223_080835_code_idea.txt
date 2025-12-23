@@ -1,0 +1,47 @@
+code_idea
+20251223_080835
+ name the function, its parameters, and effects. Focus on adding new functionality or enhancing an existing function with a clear use case.
+
+To enhance the system's ability to handle and analyze text-based information more efficiently, we can introduce a new function that leverages machine learning models to improve context-awareness for routing textual data. This function will not only convert text into numerical vectors but also use contextual information to route the data to the most appropriate processing module.
+
+### Function Name: `contextual_text_routing`
+
+### Parameters:
+- `text` (string): The input textual data to be processed.
+- `context` (dictionary): A dictionary containing additional context information such as user ID, session ID, or any other metadata that helps in routing the text to the correct module.
+- `model_selector` (function, optional): A function that selects the most appropriate machine learning model based on the context provided. If not provided, a default model selection strategy will be used.
+
+### Effects:
+1. **Text Embedding**: Converts the input text into numerical vectors using a pre-trained embedding model.
+2. **Contextual Analysis**: Analyzes the provided context to determine the most relevant machine learning model or processing module.
+3. **Routing**: Routes the text data along with its numerical representation to the selected module for further processing.
+
+### Use Case:
+Imagine a customer service chatbot that needs to handle various types of user requests. The `contextual_text_routing` function can be used to route each incoming message to the appropriate module based on contextual information such as the user's past interactions, current session context, and other metadata. For example, if a user is trying to resolve an account-related issue, the system can route the message to an account-specific handling module.
+
+### Example Implementation:
+```python
+def contextual_text_routing(text, context, model_selector=None):
+    # Step 1: Embedding
+    embedding = convert_text_to_embedding(text)
+    
+    # Step 2: Contextual Analysis
+    selected_model = None
+    if model_selector:
+        selected_model = model_selector(context)
+    else:
+        selected_model = select_default_model()
+    
+    # Step 3: Routing
+    route_data(embedding, context, selected_model)
+
+# Helper functions (example)
+def convert_text_to_embedding(text):
+    # Example: Convert text to numerical vectors using a pre-trained model
+    return numerical_vectors
+
+def select_default_model():
+    # Example: Select a default model if no custom selector is provided
+    return 'default_model'
+
+def route_data(embed

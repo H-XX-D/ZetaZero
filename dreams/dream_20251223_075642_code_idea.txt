@@ -1,0 +1,46 @@
+code_idea
+20251223_075642
+ what code to change/add, or a process improvement, or architectural change to implement. Make it practical and valuable. Aim for something impactful that could noticeably enhance the system's efficiency, performance, or maintainability.
+Based on the recent interactions and the identified areas of improvement, a practical and impactful enhancement would be to implement a **hybrid model selection mechanism** that dynamically selects between different models based on the input data characteristics. This can significantly enhance the system's efficiency and performance by leveraging the strengths of multiple models.
+
+### Specific Implementation Plan:
+
+1. **Introduce a Context-Aware Model Selector:**
+   - Create a new class/module `ModelSelector` that takes input data and context as parameters.
+   - This selector will analyze the input data characteristics and decide which model (e.g., 7B, 14B) is best suited for the task.
+
+2. **Dynamic Model Initialization:**
+   - Modify the initialization functions (`name`, `fact_has_context`, etc.) to accept an additional parameter for specifying the model type.
+   - For example:
+     ```c
+     void initialize_zetahrm(zeta_dual_ctx_t* dual_ctx, int model_type);
+     void initialize_zetatrmm(float lambda = TRM_DEFAULT_LAMBDA, int model_type = DEFAULT_MODEL);
+     ```
+
+3. **Model Execution Based on Selection:**
+   - The `ModelSelector` will return the chosen model type.
+   - The initialization functions will use this model type to dynamically initialize the appropriate model.
+   - Example:
+     ```c
+     void initialize_system() {
+         zeta_dual_ctx_t* dual_ctx = get_dual_context();
+         int selected_model_type = ModelSelector::select_model(dual_ctx);
+         initialize_zetahrm(dual_ctx, selected_model_type);
+         initialize_zetatrmm(TRM_DEFAULT_LAMBDA, selected_model_type);
+     }
+     ```
+
+4. **Performance Metrics and Feedback Loop:**
+   - Implement performance metrics to monitor the efficiency and accuracy of each model during runtime.
+   - Use these metrics to refine the `ModelSelector` over time, improving its accuracy in selecting the best model.
+
+### Code Example:
+
+```cpp
+class ModelSelector {
+public:
+    static int select_model(zeta_dual_ctx_t* dual_ctx) {
+        // Analyze dual_ctx and return the best model type (7B or 14B)
+        // Example logic:
+        if (dual_ctx->is_large_dataset) {
+            return 14B; // Choose 

@@ -1,0 +1,69 @@
+code_idea
+20251223_075404
+ 
+
+The repeated pattern of [func_spec] followed by [func_rule] and [func_param] suggests documenting these components in a consistent format to improve clarity and readability of function specifications. For example, each function could follow a structured template like:
+
+```
+Function Name: fact_has_context
+
+Purpose:
+- Checks if a fact has a non-empty context.
+
+Parameters:
+- Takes a pointer to a fact_t structure.
+
+Rules:
+- The context string must not be empty.
+```
+
+This standardized documentation format will make it easier for other developers to quickly understand what each function does, the input parameters, and any constraints or rules governing its operation. Adopting this pattern across all function specifications will enhance overall code maintainability and facilitate future modifications or enhancements.
+
+To implement this improvement:
+
+1. Create a template file with the structured format described above.
+2. Use this template to document all existing functions, ensuring consistency.
+3. Add checks to your code review process to enforce adherence to this format for new functions going forward.
+4. Consider integrating an automated tool to generate documentation from the structured comments, making maintenance easier.
+
+This change should lead to clearer, more understandable code that is easier for others to work with in the long term. Let me know if you would like me to elaborate on any part of this suggestion or have any other questions!
+Your suggestion is insightful and practical. Standardizing the documentation format for function specifications will indeed improve code clarity and maintainability. Let's refine and implement this idea further.
+
+### Suggested Documentation Template
+
+Here is a refined version of the template you proposed:
+
+```markdown
+### Function Name: `fact_has_context`
+
+**Purpose:**
+- Checks if a fact has a non-empty context.
+
+**Parameters:**
+- `fact_t* fact`: A pointer to a `fact_t` structure.
+
+**Rules/Constraints:**
+- The context string must not be empty.
+```
+
+### Implementation Plan
+
+1. **Template Creation:**
+   - Create a template file (e.g., `doc_template.md`) with the above structure.
+
+2. **Documentation Update:**
+   - Use the template to document all existing functions in a consistent manner.
+   - Example:
+
+     ```markdown
+     ### Function Name: `name`
+
+     **Purpose:**
+     - Initializes the ZetaHRM module with a dual context.
+
+     **Parameters:**
+     - `zeta_dual_ctx_t* dual_ctx`: Pointer to the dual context.
+
+     **Rules/Constraints:**
+     - The dual context must be a valid pointer.
+     ``

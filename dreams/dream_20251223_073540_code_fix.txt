@@ -1,0 +1,55 @@
+code_fix
+20251223_073540
+ specify function names and a snippet of code if relevant. Ensure the idea builds upon the given specifications and decisions, adding value without contradicting them.
+One useful insight is to create a utility function that simplifies the process of initializing various modules with default parameters, which can enhance code readability and maintainability. Given the existing functions and parameters, a new utility function can be introduced to handle common initialization tasks.
+
+Here is a proposed function `init_modules` that encapsulates the initialization of both ZetaHRM and ZetaTRM modules with default parameters:
+
+```c
+#include <stdlib.h>
+#include <string.h>
+
+typedef struct {
+    // ZetaHRM context structure
+    zeta_dual_ctx_t *dual_ctx;
+} hr_context_t;
+
+typedef struct {
+    float lambda;
+} tr_context_t;
+
+// Existing function prototypes
+void init_zetahrm(hr_context_t *ctx);
+void init_zetatrm(tr_context_t *ctx, float lambda);
+
+// Utility function to initialize both modules with default parameters
+void init_modules(hr_context_t *hr_ctx, tr_context_t *tr_ctx) {
+    // Allocate memory for HR context and initialize ZetaHRM module
+    zeta_dual_ctx_t *hr_dual_ctx = malloc(sizeof(zeta_dual_ctx_t));
+    if (hr_dual_ctx) {
+        hr_ctx->dual_ctx = hr_dual_ctx;
+        init_zetahrm(hr_ctx);
+    } else {
+        // Handle memory allocation failure
+        perror("Failed to allocate memory for ZetaHRM context");
+        exit(EXIT_FAILURE);
+    }
+
+    // Initialize ZetaTRM module with default lambda
+    tr_ctx->lambda = TRM_DEFAULT_LAMBDA;
+    init_zetatrm(tr_ctx, tr_ctx->lambda);
+}
+```
+
+### Explanation:
+1. **Utility Function `init_modules`**:
+   - This function takes pointers to `hr_context_t` and `tr_context_t` as arguments.
+   - It initializes the ZetaHRM module with a dual context.
+   - It sets the default lambda value for the ZetaTRM module and initializes it.
+
+2. **Memory Allocation**:
+   - The function allocates memory for the ZetaHRM context and initializes it using the `init_zetahrm` function.
+   - If memory allocation fails, the function prints an error message and exits with a non-zero status.
+
+3. **Default Lambda Value**:
+   - The default lambda value is set to `TRM_DEFAULT_LAMBDA` for

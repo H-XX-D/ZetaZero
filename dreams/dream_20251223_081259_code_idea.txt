@@ -1,0 +1,48 @@
+code_idea
+20251223_081259
+ class name, function name, and concise code example.
+
+**Insight:**
+To enhance the system's ability to handle context-aware routing and improve efficiency, we can introduce a hybrid model that combines both rule-based and machine learning approaches. This will allow the system to dynamically select the best model based on the context of the request, improving accuracy and performance.
+
+**Creative Idea:**
+Introduce a class `ContextualRouter` that manages the dynamic selection of models based on contextual information. This class can use a hybrid model selection approach to route requests to either a rule-based or machine learning model.
+
+**Class Name:** `ContextualRouter`
+
+**Function Name:** `select_model`
+
+**Code Example:**
+
+```python
+class ContextualRouter:
+    def __init__(self, rule_based_model, ml_based_model):
+        self.rule_based_model = rule_based_model
+        self.ml_based_model = ml_based_model
+
+    def select_model(self, context):
+        # Determine if context is suitable for ML or rule-based model
+        if self.is_ml_context(context):
+            return self.ml_based_model
+        else:
+            return self.rule_based_model
+
+    def is_ml_context(self, context):
+        # Simple example of context evaluation
+        if "high_complexity" in context or "large_scale_data" in context:
+            return True
+        return False
+
+# Example usage
+rule_based = RuleBasedModel()
+ml_based = MLBasedModel()
+
+router = ContextualRouter(rule_based, ml_based)
+selected_model = router.select_model("high_complexity_request")
+```
+
+**Explanation:**
+- **`select_model`**: Determines which model to use based on the provided context.
+- **`is_ml_context`**: A simple function that evaluates the context and decides whether to use the machine learning model or the rule-based model.
+
+This approach allows for flexibility and adaptability in handling different types of requests, improving both performance and accuracy. The `ContextualRouter` class can be further extended with more sophisticated logic to handle a wider variety of contexts and improve model selection efficiency.

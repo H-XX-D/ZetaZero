@@ -1,0 +1,50 @@
+code_idea
+20251223_070530
+ name the functions involved and the suggested change. The insight should add value by making the system more efficient, intuitive, or robust.
+
+Insight: To improve the efficiency and consistency of text embedding across the system, we can unify the text embedding functions `g_zeta_embed_text` and `name` into a single, more robust function. This unified function would handle both embedding and generic label checking, ensuring that all parts of the system use a consistent approach to text embeddings.
+
+### Suggested Change:
+1. **Unified Text Embedding Function**:
+   - **Function Name**: `embed_text`
+   - **Parameters**:
+     - `text`: Input text to be embedded.
+     - `embedding_model`: The embedding model to use (e.g., a pre-trained model).
+     - `embed_dim`: Dimension of the embedding vector.
+     - `check_generic`: Boolean flag indicating whether to check if the label is generic (default: `False`).
+
+   **Example Implementation**:
+   ```python
+   def embed_text(text, embedding_model, embed_dim, check_generic=False):
+       # Embed the text using the specified embedding model
+       embedding = embedding_model.embed(text)
+       
+       # Check if the label is generic if requested
+       if check_generic:
+           return zeta_is_generic_label(text), embedding
+       
+       return embedding
+   ```
+
+2. **Modifications in Existing Functions**:
+   - **Update `g_zeta_embed_text` and `name`**:
+     - Both functions can now call the unified `embed_text` function and pass the necessary parameters.
+     - Example usage in `g_zeta_embed_text`:
+       ```python
+       def g_zeta_embed_text(text, embedding, embed_dim):
+           return embed_text(text, embedding, embed_dim)
+       ```
+     - Example usage in `name`:
+       ```python
+       def name(text, embedding, embed_dim):
+           return embed_text(text, embedding, embed_dim)
+       ```
+
+3. **Consistent Rule Application**:
+   - Ensure that both `g_zeta_embed_text` and `name` follow the same rule structure regarding required parameters:
+     - Both functions should explicitly require `text`, `embedding`, and `embed_dim`.
+     - For generic label checking, add a conditional check based on the `check_generic` flag.
+
+### Benefits:
+- **Efficiency**: Reduces code duplication by centralizing text embedding logic.
+- **Consistency**: Ensures that all parts of the system use the same text embedding approach

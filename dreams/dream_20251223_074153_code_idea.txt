@@ -1,0 +1,63 @@
+code_idea
+20251223_074153
+ class, function, or parameter name; a snippet; or a clear, actionable suggestion. Aim for something that would make the code cleaner, more efficient, or more maintainable.
+To enhance the maintainability and readability of your code, consider introducing a utility function to handle string length calculations and context validation. This can help in centralizing repetitive logic and making the code more modular.
+
+### Suggestion:
+Create a utility function `str_len` that wraps `strlen` and validates the input string is not null. This ensures that any function needing string length calculations can rely on a single, consistent utility function.
+
+#### Utility Function:
+```c
+size_t str_len(const char *str) {
+    if (str == NULL) {
+        return 0; // Handle null input gracefully
+    }
+    return strlen(str);
+}
+```
+
+### Example Usage:
+```c
+size_t get_branch_index(ctx_t *ctx, const char *branch_name) {
+    if (str_len(branch_name) == 0) {
+        // Handle empty string case here
+        return -1;
+    }
+    // Existing logic to find index
+    // ...
+}
+
+int fact_has_context(fact_t *fact) {
+    if (fact->context == NULL || str_len(fact->context) == 0) {
+        return 0; // Return false if context is empty or null
+    }
+    return 1; // Context is non-empty
+}
+```
+
+### Additional Improvement:
+To further encapsulate logic, consider introducing a context validation macro or inline function to ensure consistency across your codebase.
+
+#### Macro/Inline Function for Context Validation:
+```c
+#define IS_VALID_CONTEXT(ctx) (ctx != NULL && ctx->context != NULL && str_len(ctx->context) > 0)
+```
+
+### Example Usage:
+```c
+int zeta_dual_ctx_valid(zeta_dual_ctx_t *dual_ctx) {
+    return IS_VALID_CONTEXT(dual_ctx);
+}
+
+int zeta_trm_init(zeta_trm_t *trm, float lambda) {
+    if (!IS_VALID_CONTEXT(trm)) {
+        return -1; // Handle invalid context gracefully
+    }
+    // Existing initialization logic
+    // ...
+}
+```
+
+This approach not only centralizes string length calculations but also ensures that context validations are consistent and easily maintainable across your codebase. It also makes your code more readable by reducing boilerplate and focusing on business logic within your functions. 
+
+Would you like to proceed with implementing this utility function and validation checks? Or

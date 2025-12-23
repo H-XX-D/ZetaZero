@@ -1,0 +1,72 @@
+code_idea
+20251223_063752
+ provide exact function or class names. Aim to enhance performance, maintainability, or functionality.
+
+To enhance the performance and maintainability of the `TRM temporal branching` project, we can introduce a caching mechanism for frequently accessed data within the `zeta_dual_ctx_t` context. This will help reduce the overhead of repeated lookups and improve the efficiency of recursive state maintenance.
+
+Here's an example of how we can implement this:
+
+1. **Introduce a Cache Class:**
+
+   ```cpp
+   class DualCtxCache {
+   public:
+       DualCtxCache(zeta_dual_ctx_t* ctx);
+       ~DualCtxCache();
+
+       // Add data to cache
+       void AddToCache(const std::string& key, const std::shared_ptr<void>& data);
+
+       // Retrieve data from cache
+       std::shared_ptr<void> GetFromCache(const std::string& key) const;
+
+   private:
+       zeta_dual_ctx_t* ctx_;
+       std::unordered_map<std::string, std::shared_ptr<void>> cache_;
+   };
+   ```
+
+2. **Update the `zeta_dual_ctx_t` Class:**
+
+   ```cpp
+   class zeta_dual_ctx_t {
+   public:
+       // Existing methods and members...
+
+       // New method to get or create a cache instance
+       DualCtxCache& GetCache() {
+           if (!cache_) {
+               cache_ = std::make_unique<DualCtxCache>(this);
+           }
+           return *cache_;
+       }
+
+   private:
+       std::unique_ptr<DualCtxCache> cache_;
+   };
+   ```
+
+3. **Use the Cache in Recursive State Maintenance:**
+
+   In the method responsible for managing recursive state maintenance, we can use the cache to store and retrieve frequently accessed data:
+
+   ```cpp
+   void ManageRecursiveState(zeta_dual_ctx_t* dual_ctx, double lambda, const char* branch_name, const char* from_commit) {
+       DualCtxCache& cache = dual_ctx->GetCache();
+
+       // Example of using the cache
+       std::string key = "some_data_key";
+       if (auto cached_data = cache.GetFromCache(key)) {
+           // Use cached data
+           // ...
+       } else {
+           // Fetch data and add to cache
+           auto data = FetchDataFromContext(dual_ctx);
+           cache.AddToCache(key, std::make_shared<void>(data));
+       }
+
+       // Continue with recursive state maintenance logic...
+   }
+   ```
+
+By introducing this caching mechanism, we can

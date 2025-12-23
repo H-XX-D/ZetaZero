@@ -1,0 +1,68 @@
+code_idea
+20251223_074528
+ name the functions or objects involved. Focus on efficiency, encapsulation, or reducing complexity. Make your suggestion actionable with a concise code snippet or clear plan of action.
+
+**Insight:**
+The current implementation uses separate functions and rules for different tasks, but there are opportunities to improve encapsulation and reduce redundancy. Specifically, the `strlen()` function call can be optimized and encapsulated within a utility class to handle common string operations efficiently.
+
+**Action Plan:**
+
+1. **Create a String Utility Class**:
+   - This class will encapsulate common string operations such as length calculation and validation.
+   - Example functions:
+     - `getLength(const char* str)`: Returns the length of the string.
+     - `isNonEmpty(const char* str)`: Checks if the string is non-empty.
+
+2. **Refactor Existing Functions**:
+   - Replace direct calls to `strlen()` with calls to the utility class methods.
+   - Ensure that context validation and initialization logic are consistent across modules.
+
+**Code Snippet:**
+
+```cpp
+#include <string.h>
+#include <assert.h>
+
+class StringUtility {
+public:
+    // Get length of the string
+    static size_t getLength(const char* str) {
+        return strlen(str);
+    }
+
+    // Check if string is non-empty
+    static bool isNonEmpty(const char* str) {
+        return getLength(str) > 0;
+    }
+};
+
+// Example usage in existing functions
+
+// Function to find branch index by name
+int findBranchIndex(const char* name) {
+    assert(StringUtility::isNonEmpty(name));
+    // Continue with logic to find branch index
+}
+
+// Function to check if fact has a non-empty context
+bool factHasContext(const fact_t* fact) {
+    assert(StringUtility::isNonEmpty(fact->context));
+    return true;
+}
+
+// Initialize ZetaHRM module with dual context
+void initZetaHRM(zeta_dual_ctx_t* dual_ctx) {
+    assert(dual_ctx != nullptr && StringUtility::isNonEmpty(dual_ctx->name));
+    // Continue with initialization logic
+}
+
+// Initialize ZetaTRM system with optional lambda parameter
+void initZetaTRM(float lambda = TRM_DEFAULT_LAMBDA) {
+    // Ensure lambda is within acceptable range
+    assert(lambda >= 0.0f);
+    // Continue with initialization logic
+}
+```
+
+**Benefits:**
+- **Encapsulation**: All string-related operations are now encapsulated in the `StringUtility`

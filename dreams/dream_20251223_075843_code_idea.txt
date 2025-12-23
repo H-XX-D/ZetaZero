@@ -1,0 +1,51 @@
+code_idea
+20251223_075843
+ use exact parameters and method names.
+To improve the functionality and efficiency of the ZetaHRM and ZetaTRM modules, I propose implementing a hybrid model selection mechanism that dynamically switches between the 14B and 7B model types based on real-time context awareness. This can be achieved by adding a new function `model_selector` that evaluates the current context and determines which model to use for better performance.
+
+### Proposed Function: `model_selector`
+```cpp
+/**
+ * Selects the appropriate model type based on real-time context awareness.
+ * 
+ * @param zeta_dual_ctx_t* dual_ctx - Pointer to the dual context used for decision making.
+ * @return int - Returns 14B if context suggests better performance, 7B otherwise.
+ */
+int model_selector(zeta_dual_ctx_t* dual_ctx);
+```
+
+### Implementation Outline:
+1. **Context Evaluation**: Use the `fact_has_context` function to check if the current context is non-empty. If the context is non-empty, further evaluate its characteristics using additional checks.
+2. **Model Selection Logic**:
+   - If the context indicates a high computational load or specific requirements, return 14B.
+   - Otherwise, default to 7B.
+
+### Example Implementation:
+```cpp
+int model_selector(zeta_dual_ctx_t* dual_ctx) {
+    if (dual_ctx == nullptr) {
+        return 7; // Default to 7B if no context provided
+    }
+
+    // Check if the context has relevant information
+    if (!fact_has_context(dual_ctx)) {
+        return 7; // Default to 7B if no context is available
+    }
+
+    // Evaluate context characteristics (e.g., computational load, specific requirements)
+    bool high_load = /* Evaluate high computational load */;
+    bool specific_requirements = /* Evaluate specific requirements */;
+
+    if (high_load || specific_requirements) {
+        return 14; // Use 14B model
+    } else {
+        return 7; // Use 7B model
+    }
+}
+```
+
+This approach leverages real-time context awareness and dynamic model selection to optimize performance and resource utilization. Additionally, it integrates seamlessly with existing modules by utilizing well-defined parameters and methods like `zeta_dual_ctx_t*` and `fact_has_context`. 
+
+### Additional Benefits:
+- **Parallel Processing**: Integrate parallel processing techniques to further enhance performance when using the 14B model.
+- **Contextual Awareness for Routing**: Ensure that data routing decisions are

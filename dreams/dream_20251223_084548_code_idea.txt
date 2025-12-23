@@ -1,0 +1,60 @@
+code_idea
+20251223_084548
+ include variable names, parameter types, and function signatures. The generated item should be novel and not a simple variation of existing elements.
+
+The repetitive pattern of mentioning the ZetaDynamicRouter's functionality suggests there might be an opportunity to enhance its adaptability. Specifically, the router could benefit from incorporating a feedback mechanism that allows it to dynamically adjust its routing logic based on the performance of the queries processed by each model. This would enable the system to fine-tune its routing decisions over time, potentially improving overall efficiency and accuracy.
+
+To implement this, we can introduce a new module called `PerformanceTracker` that monitors the success rate and processing time of queries routed to different models. The `PerformanceTracker` could then provide recommendations to the `ZetaDynamicRouter` on how to adjust its routing criteria. 
+
+Here’s a proposed function signature for initializing the `PerformanceTracker`:
+
+```python
+def initialize_performance_tracker(zeta_router: ZetaDynamicRouter) -> PerformanceTracker:
+    """
+    Initializes a PerformanceTracker to monitor and evaluate the performance of models used by ZetaDynamicRouter.
+    
+    Parameters:
+    zeta_router (ZetaDynamicRouter): The dynamic router instance whose performance needs monitoring.
+    
+    Returns:
+    PerformanceTracker: An instance of PerformanceTracker initialized with data from zeta_router.
+    """
+```
+
+Additionally, we can define methods within `PerformanceTracker` to analyze performance data and suggest adjustments:
+
+```python
+class PerformanceTracker:
+    def analyze_performance(self, query_results: List[QueryResult]) -> Dict[str, float]:
+        """
+        Analyzes performance metrics of queries processed by ZetaDynamicRouter models.
+        
+        Parameters:
+        query_results (List[QueryResult]): List of results from processed queries containing outcome and model used.
+        
+        Returns:
+        Dict[str, float]: A dictionary mapping models to their respective performance scores.
+        """
+        
+    def suggest_adjustments(self, performance_scores: Dict[str, float]) -> Dict[str, str]:
+        """
+        Provides recommendations on how to adjust routing criteria based on model performance.
+        
+        Parameters:
+        performance_scores (Dict[str, float]): Performance scores of different models.
+        
+        Returns:
+        Dict[str, str]: Adjustments and reasons for each model.
+        """
+```
+
+Finally, the `ZetaDynamicRouter` class should be updated to incorporate these suggestions:
+
+```python
+class ZetaDynamicRouter:
+    def update_routing_criteria(self, adjustments: Dict[str, str]):
+        """
+        Updates the routing criteria based on feedback from PerformanceTracker.
+        
+        Parameters:
+
