@@ -57,6 +57,7 @@ typedef struct {
     int max_dream_tokens;          // Tokens per dream (default: 512)
     float compression_confidence;  // Min confidence to save (default: 0.7)
     std::string dreams_dir;        // Base directory for dreams
+    int plateau_threshold;         // Consecutive discards before graph jump (default: 3)
 } zeta_dream_config_t;
 
 // Default dream configuration
@@ -67,7 +68,8 @@ static zeta_dream_config_t g_dream_config = {
     .max_dream_iterations = 5,
     .max_dream_tokens = 512,
     .compression_confidence = 0.7f,
-    .dreams_dir = "/mnt/HoloGit/dreams"
+    .dreams_dir = "/mnt/HoloGit/dreams",
+    .plateau_threshold = 3         // Jump to random graph node after 3 discards
 };
 
 // ============================================================================
@@ -521,14 +523,62 @@ private:
         // Get avoidance prompt from repetition tracker
         std::string avoidance = g_dream_repetition.get_avoidance_prompt();
 
-        for (int i = 0; i < config.max_dream_iterations && current_state == ZETA_STATE_DREAMING; i++) {
-            fprintf(stderr, "[DREAM] Iteration %d/%d\n", i+1, config.max_dream_iterations);
+        int consecutive_discards = 0;  // Track plateau
+        bool using_graph_jump = false;
 
-            std::string dream_prompt =
-                "You are in a reflective dream state. Review these recent interactions:\n\n" +
-                context + "\n\n"
-                "Generate ONE useful insight, code improvement, or creative idea. Be specific and NOVEL." +
-                avoidance;
+        // DEEP DIVE: When we find a novel theme, drill down to code
+        std::string current_theme = "";
+        int drill_depth = 0;  // 0=discover, 1=framework, 2=implementation, 3=code
+        std::string last_saved_dream = "";
+
+        // Drilling prompts - each level gets more concrete
+        const char* drill_prompts[] = {
+            "Generate ONE useful insight or creative idea. Be specific and NOVEL.",  // Level 0: Discovery
+            "Take this concept and design a concrete FRAMEWORK or ARCHITECTURE. Include specific components, data flows, and interfaces.",  // Level 1: Framework
+            "Now create a detailed IMPLEMENTATION PLAN with specific functions, structs, and algorithms. Be technical. Target C++.",  // Level 2: Implementation
+            "Write actual C++ CODE. Include function signatures, structs, and core logic. Use modern C++ (C++17/20). No Python."  // Level 3: Code
+        };
+
+        for (int i = 0; i < config.max_dream_iterations && current_state == ZETA_STATE_DREAMING; i++) {
+            const char* mode_str = using_graph_jump ? "GRAPH JUMP" :
+                                   (drill_depth > 0 ? "DEEP DIVE" : "");
+            fprintf(stderr, "[DREAM] Iteration %d/%d %s (depth=%d)\n",
+                    i+1, config.max_dream_iterations, mode_str, drill_depth);
+
+            // Check if we've hit plateau - switch to random graph node
+            if (consecutive_discards >= config.plateau_threshold) {
+                fprintf(stderr, "[DREAM] Plateau detected (%d discards) - jumping to random graph node\n",
+                        consecutive_discards);
+                context = get_random_graph_context();
+                if (context.empty()) {
+                    context = gather_recent_memories();  // Fallback
+                } else {
+                    using_graph_jump = true;
+                    // Reset deep dive state for new context
+                    current_theme = "";
+                    drill_depth = 0;
+                    last_saved_dream = "";
+                }
+                consecutive_discards = 0;
+            }
+
+            // Build prompt based on drill depth
+            std::string dream_prompt;
+            if (drill_depth > 0 && !last_saved_dream.empty()) {
+                // Deep dive mode - build on previous insight
+                dream_prompt =
+                    "You are in a DEEP DIVE dream state, drilling down on a specific idea.\n\n"
+                    "PREVIOUS INSIGHT:\n" + last_saved_dream.substr(0, 500) + "\n\n"
+                    "TASK: " + std::string(drill_prompts[std::min(drill_depth, 3)]) + "\n\n"
+                    "Build DIRECTLY on the previous insight. Make it MORE CONCRETE and ACTIONABLE." +
+                    avoidance;
+            } else {
+                // Discovery mode - free association
+                dream_prompt =
+                    "You are in a reflective dream state. Review these recent interactions:\n\n" +
+                    context + "\n\n" +
+                    std::string(drill_prompts[0]) + avoidance;
+            }
 
             std::string dream = generate_fn(
                 dream_prompt,
@@ -543,12 +593,26 @@ private:
             float novelty = g_dream_repetition.calculate_novelty(dream);
             if (novelty < 0.3f) {
                 fprintf(stderr, "[DREAM] Discarded (too repetitive, novelty=%.2f)\n", novelty);
-                continue;  // Skip this dream, try again
+                consecutive_discards++;
+
+                // If we're in deep dive mode and plateau, reset to discovery
+                if (drill_depth > 0 && consecutive_discards >= 2) {
+                    fprintf(stderr, "[DREAM] Deep dive exhausted at depth %d - resetting\n", drill_depth);
+                    drill_depth = 0;
+                    last_saved_dream = "";
+                    current_theme = "";
+                }
+                continue;
             }
 
+            // Reset discard counter on success
+            consecutive_discards = 0;
+
             // Phase 3: LUCID CHECK - Self-validate before saving
+            // Skip lucid check during deep dive (we're deliberately drilling)
             current_state = ZETA_STATE_LUCID;
-            if (lucid_validate(dream)) {
+            bool passes_lucid = (drill_depth > 0) ? true : lucid_validate(dream);
+            if (passes_lucid) {
                 // Categorize and save
                 std::string category = categorize_dream(dream);
                 save_dream(dream, category);
@@ -558,8 +622,33 @@ private:
                 // Record in repetition tracker
                 g_dream_repetition.record_dream(dream);
 
-                fprintf(stderr, "[DREAM] Saved: [%s] novelty=%.2f %s...\n",
-                        category.c_str(), novelty, dream.substr(0, 50).c_str());
+                // DEEP DIVE: Drill down on actionable categories (insight, code_idea, code_fix)
+                // or any dream with decent novelty
+                bool is_drillable = (category == "insight" || category == "code_idea" ||
+                                    category == "code_fix" || novelty >= 0.5f);
+
+                if (is_drillable && drill_depth < 3) {
+                    last_saved_dream = dream;
+                    drill_depth++;
+                    fprintf(stderr, "[DREAM] Saved: [%s] novelty=%.2f -> DRILLING to depth %d\n",
+                            category.c_str(), novelty, drill_depth);
+                } else if (drill_depth >= 3) {
+                    // Reached code level - reset for new discovery
+                    fprintf(stderr, "[DREAM] Saved: [%s] novelty=%.2f -> CODE REACHED, resetting\n",
+                            category.c_str(), novelty);
+                    drill_depth = 0;
+                    last_saved_dream = "";
+                    current_theme = "";
+                } else {
+                    // Story or low novelty - just save and continue
+                    fprintf(stderr, "[DREAM] Saved: [%s] novelty=%.2f %s...\n",
+                            category.c_str(), novelty, dream.substr(0, 50).c_str());
+                    // Reset drill state for fresh discovery
+                    if (drill_depth > 0) {
+                        drill_depth = 0;
+                        last_saved_dream = "";
+                    }
+                }
             } else {
                 fprintf(stderr, "[DREAM] Discarded (failed lucid check)\n");
             }
@@ -678,6 +767,63 @@ private:
         }
 
         return memories;
+    }
+
+    // ========================================================================
+    // RANDOM GRAPH NODE: Jump to distant part of graph when plateau detected
+    // ========================================================================
+    std::string get_random_graph_context() {
+        if (!ctx || ctx->num_nodes == 0) return "";
+
+        // Pick a random node from the ENTIRE graph (not just recent)
+        int random_idx = rand() % ctx->num_nodes;
+        zeta_graph_node_t* seed_node = &ctx->nodes[random_idx];
+
+        std::string context = "GRAPH JUMP: Exploring a different part of your knowledge:\n\n";
+        context += "SEED NODE: [" + std::string(seed_node->label) + "]: " +
+                   std::string(seed_node->value) + "\n\n";
+
+        // Find connected nodes via edges (edges stored separately)
+        context += "RELATED NODES:\n";
+        int neighbor_count = 0;
+        for (int e = 0; e < ctx->num_edges && neighbor_count < 5; e++) {
+            zeta_graph_edge_t* edge = &ctx->edges[e];
+            int64_t neighbor_id = -1;
+
+            if (edge->source_id == seed_node->node_id) {
+                neighbor_id = edge->target_id;
+            } else if (edge->target_id == seed_node->node_id) {
+                neighbor_id = edge->source_id;
+            }
+
+            if (neighbor_id >= 0) {
+                // Find the neighbor node
+                for (int i = 0; i < ctx->num_nodes; i++) {
+                    if (ctx->nodes[i].node_id == neighbor_id && ctx->nodes[i].is_active) {
+                        context += "- [" + std::string(ctx->nodes[i].label) + "]: " +
+                                   std::string(ctx->nodes[i].value).substr(0, 80) + "\n";
+                        neighbor_count++;
+                        break;
+                    }
+                }
+            }
+        }
+
+        // If no edges found, grab random distant nodes for diversity
+        if (neighbor_count == 0) {
+            for (int j = 0; j < 3 && ctx->num_nodes > 1; j++) {
+                int idx = rand() % ctx->num_nodes;
+                if (idx != random_idx && ctx->nodes[idx].is_active) {
+                    context += "- [" + std::string(ctx->nodes[idx].label) + "]: " +
+                               std::string(ctx->nodes[idx].value).substr(0, 80) + "\n";
+                }
+            }
+        }
+
+        fprintf(stderr, "[DREAM] Graph jump to node %d: %s\n",
+                random_idx, seed_node->label);
+
+        return context;
     }
 
     // ========================================================================
