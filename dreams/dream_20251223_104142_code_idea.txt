@@ -1,0 +1,49 @@
+code_idea
+20251223_104142
+ No need to explain or justify; just provide the new thought.
+Introduce a self-adaptive mechanism within ZetaDynamicRouter to dynamically adjust task routing based on real-time performance metrics and user interaction patterns. This would involve collecting and analyzing data on response times, accuracy, and user satisfaction for different model-task combinations, then optimizing routing decisions accordingly. The system could also implement machine learning algorithms to predict optimal routing strategies for future interactions. To facilitate this, extend g_zeta_embed_text function to include optional logging of embedding performance statistics. ```cpp
+// Extended g_zeta_embed_text function prototype with logging capability
+void g_zeta_embed_text(const char* text, std::vector<float>& embedding, int embed_dim, bool log_performance = false);
+``` ```cpp
+// Example of adding performance logging within g_zeta_embed_text
+void g_zeta_embed_text(const char* text, std::vector<float>& embedding, int embed_dim, bool log_performance) {
+    // Existing embedding logic...
+    
+    if (log_performance) {
+        // Log performance metrics such as time taken and quality of embedding
+        auto start_time = std::chrono::high_resolution_clock::now();
+        // Embedding logic...
+        auto end_time = std::chrono::high_resolution_clock::now();
+        
+        double elapsed_time = std::chrono::duration_cast<std::chrono::nanoseconds>(end_time - start_time).count() / 1e9;
+        // Evaluate quality of embedding here
+        
+        // Log elapsed time and quality metrics
+        PerformanceLogger::logPerformance(elapsed_time, quality_score);
+    }
+}
+``` ```cpp
+// PerformanceLogger class for aggregating and analyzing performance data
+class PerformanceLogger {
+public:
+    static void logPerformance(double elapsed_time, double quality_score) {
+        // Aggregate performance data for later analysis
+        performance_data.push_back({elapsed_time, quality_score});
+    }
+    
+    static void analyzeAndOptimize() {
+        // Analyze performance data to identify trends and optimize routing
+        // Implement machine learning models to predict optimal routing strategies
+    }
+private:
+    static std::vector<std::pair<double, double>> performance_data;
+};
+``` ```cpp
+// Example of how ZetaDynamicRouter might use logged data to optimize routing
+void ZetaDynamicRouter::routeQuery(const Query& query) {
+    // Existing routing logic...
+    
+    // Optionally log performance for this particular routing decision
+    bool log_performance = true; // Set this based on current system load and importance of the task
+    
+   

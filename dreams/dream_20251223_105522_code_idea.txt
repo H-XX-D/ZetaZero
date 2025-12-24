@@ -1,0 +1,44 @@
+code_idea
+20251223_105522
+ DO NOT repeat previous ideas.
+In your reflective dream state, an innovative idea emerges: **Implement a context-aware dynamic router**. This router would not only route queries based on task type but also take into account the current context or state of the system and user. For example, if the system has recently handled similar tasks, it could leverage this context to improve performance or accuracy.
+
+### Specific Implementation Idea:
+
+1. **Context Tracking Module**: Develop a module that continuously monitors and logs recent activities and states within the system. This could include recent queries, the type of tasks performed, resource utilization, and any other relevant metrics that can indicate the current context.
+
+2. **Context-Aware Routing Logic**: Enhance the `ZetaDynamicRouter` to incorporate context information in its routing decisions. The router would analyze the logged context data to determine the most suitable model for a given query. For instance:
+   - If recent queries were heavy on code tasks, it might prefer routing future code-related tasks to the 7B Coder model.
+   - If the system has been under high load for computational tasks recently, it might route similar future tasks to a model optimized for efficient performance under load.
+
+3. **Adaptive Learning Mechanism**: Implement an adaptive learning mechanism within the router to improve its routing decisions over time. This mechanism could use machine learning techniques to analyze patterns in past routing decisions and outcomes, allowing it to refine its context-aware routing logic.
+
+### Example Code Snippet:
+```cpp
+class ZetaDynamicRouter {
+public:
+    void routeQuery(const std::string& queryType, const std::string& queryText) {
+        // Analyze recent context data
+        ContextAnalyzer contextAnalyzer;
+        RecentContext context = contextAnalyzer.analyze();
+        
+        // Determine the best model based on query type and recent context
+        ModelType model = determineBestModel(queryType, context);
+        
+        // Route the query to the selected model
+        sendQueryToModel(model, queryText);
+    }
+
+private:
+    ModelType determineBestModel(const std::string& queryType, const RecentContext& context) {
+        if (queryType == "code") {
+            if (context.codeTasksRecentlyHigh()) {
+                return Model_7B_Coder;
+            } else {
+                return Model_4B_General;
+            }
+        } else if (queryType == "reasoning") {
+            if (context.highLoadRecently()) {
+                return Model_10B_Efficient;
+            } else {
+                return Model_

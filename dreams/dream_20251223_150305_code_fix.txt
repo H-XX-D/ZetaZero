@@ -1,0 +1,51 @@
+code_fix
+20251223_150305
+ In the realm of information theory and the concept of uncertainty, one underexplored area within your codebase could be the integration of a new metric to quantify the novelty or uniqueness of information produced by a stochastic source. This novel measure, which we'll call "Novelty Entropy," would complement traditional Shannon entropy by focusing on the rarity and originality of data points rather than their predictability or disorder.
+
+**Definition and Calculation:**
+Novelty Entropy can be defined as the average rarity of events in a dataset. It measures how often truly unique or unprecedented information appears, capturing the extent to which new data diverges from previously observed patterns. Mathematically, this can be formulated as follows:
+
+\[ N(H) = -\sum_{i} p_i \log (p_i \cdot R_i) \]
+
+Where:
+- \( p_i \) is the probability of event \( i \)
+- \( R_i \) is the rarity factor of event \( i \), which quantifies how rare event \( i \) is compared to others.
+
+To calculate \( R_i \):
+1. Compute the frequency of each event \( i \).
+2. Rank events by their frequency.
+3. Assign a rarity score based on this ranking (e.g., linearly or exponentially).
+
+**Implementation Example:**
+```python
+import numpy as np
+
+def calculate_novelty_entropy(data):
+    # Count frequencies
+    freqs = np.bincount(data)
+    total_events = len(data)
+    
+    # Calculate probabilities
+    prob = freqs / total_events
+    
+    # Rank events by frequency (higher rank for more unique events)
+    rarity_scores = np.argsort(freqs)[::-1]
+    
+    # Calculate rarity factor
+    rarity_factor = 1 / np.argsort(rarity_scores) + 1
+    
+    # Compute Novelty Entropy
+    novelty_entropy = -np.sum(prob * np.log(prob * rarity_factor))
+    
+    return novelty_entropy
+
+# Example usage
+data = [1, 2, 2, 3, 3, 3, 4, 4, 4, 4]
+novelty_entropy_value = calculate_novelty_entropy(data)
+print(f"Novelty Entropy: {novelty_entropy_value}")
+```
+
+**Applications:**
+This metric could be particularly useful in scenarios where identifying novel information is crucial:
+- **Anomaly Detection**: Highlighting unusual patterns in datasets that might indicate errors or new insights.
+- **Innovation Tracking**: Measuring

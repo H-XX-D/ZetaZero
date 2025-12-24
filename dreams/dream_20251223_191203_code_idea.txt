@@ -1,0 +1,77 @@
+code_idea
+20251223_191203
+ Dive into the technical details.
+
+Here's a more detailed and concrete implementation of the onboarding and tutorial functionalities for the Apollo 11 AR app in C++. This includes function signatures, struct definitions, and core logic using modern C++ (C++17/20).
+
+### User Experience (UX) Design Implementation
+
+#### 1.1 Onboarding
+
+##### Welcome Screen
+
+We'll start by defining a `WelcomeScreen` struct to hold the welcome message and any additional elements we want to display, such as an image or logo. Then, we'll create a function to display this screen.
+
+```cpp
+#include <iostream>
+#include <string>
+
+// Define the WelcomeScreen struct
+struct WelcomeScreen {
+    std::string title;
+    std::string message;
+    // Additional elements can be added here (e.g., logo, background image)
+};
+
+// Function to display the welcome screen
+void displayWelcomeScreen(const WelcomeScreen& screen) {
+    // Display the title
+    std::cout << screen.title << std::endl;
+
+    // Display the message
+    std::cout << screen.message << std::endl;
+}
+
+// Example usage
+int main() {
+    WelcomeScreen welcome = {"Apollo 11 AR Experience", "Welcome to our augmented reality experience! Get ready to explore the moon."};
+    displayWelcomeScreen(welcome);
+    return 0;
+}
+```
+
+##### Tutorial
+
+Next, we'll define a `TutorialStep` struct to represent individual steps in the tutorial, and a `Tutorial` struct to manage the sequence of steps. We'll also create a function to guide users through the tutorial with AR overlays.
+
+```cpp
+#include <iostream>
+#include <string>
+#include <vector>
+
+// Define the TutorialStep struct
+struct TutorialStep {
+    std::string title;
+    std::string description;
+    // Additional elements can be added here (e.g., AR overlay instructions, images)
+};
+
+// Define the Tutorial struct
+struct Tutorial {
+    std::vector<TutorialStep> steps;
+};
+
+// Function to display a single step in the tutorial
+void displayTutorialStep(const TutorialStep& step) {
+    // Display the title
+    std::cout << step.title << std::endl;
+
+    // Display the description
+    std::cout << step.description << std::endl;
+}
+
+// Function to guide users through the tutorial
+void guideThroughTutorial(const Tutorial& tutorial) {
+    for (const auto& step : tutorial.steps) {
+        displayTutorialStep(step);
+        // Simulate waiting for user
