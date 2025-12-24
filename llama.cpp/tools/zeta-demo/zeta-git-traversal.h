@@ -460,6 +460,257 @@ static inline int zeta_git_walk_history(
     return visited;
 }
 
+// =============================================================================
+// COSINE-GUIDED PROBABILISTIC GRAPH EXPLORATION
+// =============================================================================
+// Dreamed by Z.E.T.A. on 2024-12-24: Uses cosine similarity as an active guide
+// for dynamic graph exploration rather than just static comparisons.
+// Key insight: Probabilistic branching weighted by similarity enables discovery
+// of distant but semantically related nodes.
+
+typedef struct {
+    float initial_temperature;    // Starting exploration randomness (default: 1.0)
+    float cooling_rate;           // How fast to reduce randomness (default: 0.9)
+    float min_temperature;        // Floor for temperature (default: 0.1)
+    int max_steps;                // Maximum exploration steps (default: 50)
+    float similarity_threshold;   // Minimum similarity to consider (default: 0.3)
+} zeta_explore_config_t;
+
+static zeta_explore_config_t g_explore_config = {
+    .initial_temperature = 1.0f,
+    .cooling_rate = 0.9f,
+    .min_temperature = 0.1f,
+    .max_steps = 50,
+    .similarity_threshold = 0.3f
+};
+
+typedef struct {
+    int64_t node_id;
+    float similarity;
+    float cumulative_score;       // Path score to reach this node
+    int depth;                    // How many hops from query
+} zeta_explore_hit_t;
+
+#define ZETA_MAX_EXPLORE_HITS 128
+
+typedef struct {
+    zeta_explore_hit_t hits[ZETA_MAX_EXPLORE_HITS];
+    int num_hits;
+    int steps_taken;
+    float final_temperature;
+    int nodes_visited;
+    int distant_discoveries;      // Nodes found via probabilistic branching
+} zeta_explore_result_t;
+
+// Priority queue entry for exploration frontier
+typedef struct {
+    int64_t node_id;
+    float priority;               // Similarity * temperature factor
+    int depth;
+} zeta_frontier_entry_t;
+
+// Simple max-heap operations for priority queue
+static inline void zeta_heap_push(zeta_frontier_entry_t* heap, int* size,
+                                  int64_t node_id, float priority, int depth) {
+    if (*size >= 256) return;  // Heap capacity
+
+    int i = (*size)++;
+    heap[i] = (zeta_frontier_entry_t){node_id, priority, depth};
+
+    // Bubble up
+    while (i > 0) {
+        int parent = (i - 1) / 2;
+        if (heap[parent].priority >= heap[i].priority) break;
+        zeta_frontier_entry_t tmp = heap[parent];
+        heap[parent] = heap[i];
+        heap[i] = tmp;
+        i = parent;
+    }
+}
+
+static inline zeta_frontier_entry_t zeta_heap_pop(zeta_frontier_entry_t* heap, int* size) {
+    if (*size <= 0) return (zeta_frontier_entry_t){-1, 0, 0};
+
+    zeta_frontier_entry_t top = heap[0];
+    heap[0] = heap[--(*size)];
+
+    // Bubble down
+    int i = 0;
+    while (true) {
+        int left = 2 * i + 1;
+        int right = 2 * i + 2;
+        int largest = i;
+
+        if (left < *size && heap[left].priority > heap[largest].priority)
+            largest = left;
+        if (right < *size && heap[right].priority > heap[largest].priority)
+            largest = right;
+
+        if (largest == i) break;
+
+        zeta_frontier_entry_t tmp = heap[i];
+        heap[i] = heap[largest];
+        heap[largest] = tmp;
+        i = largest;
+    }
+
+    return top;
+}
+
+// Cosine-guided probabilistic graph exploration
+// Returns semantically related nodes through intelligent traversal
+static inline zeta_explore_result_t zeta_git_explore_probabilistic(
+    zeta_git_ctx_t* git,
+    const float* query_embedding,
+    int embed_dim,
+    const zeta_explore_config_t* config  // NULL for defaults
+) {
+    zeta_explore_result_t result = {0};
+    if (!git || !git->graph || !query_embedding) return result;
+
+    const zeta_explore_config_t* cfg = config ? config : &g_explore_config;
+
+    // Track visited nodes
+    bool visited[4096] = {false};
+    int visited_count = 0;
+
+    // Priority queue (max-heap by similarity-weighted priority)
+    zeta_frontier_entry_t frontier[256];
+    int frontier_size = 0;
+
+    float temperature = cfg->initial_temperature;
+
+    // Seed frontier with all nodes above similarity threshold
+    for (int i = 0; i < git->graph->num_nodes && i < 4096; i++) {
+        zeta_graph_node_t* node = &git->graph->nodes[i];
+        if (!node->is_active) continue;
+
+        float sim = zeta_cosine_sim(query_embedding, node->embedding, embed_dim);
+        if (sim >= cfg->similarity_threshold) {
+            zeta_heap_push(frontier, &frontier_size, node->node_id, sim, 0);
+        }
+    }
+
+    fprintf(stderr, "[EXPLORE] Starting probabilistic exploration (frontier=%d, temp=%.2f)\n",
+            frontier_size, temperature);
+
+    // Main exploration loop
+    while (frontier_size > 0 && result.steps_taken < cfg->max_steps) {
+        // Pop highest priority node
+        zeta_frontier_entry_t current = zeta_heap_pop(frontier, &frontier_size);
+        if (current.node_id < 0) break;
+
+        // Skip if already visited
+        int node_idx = -1;
+        for (int i = 0; i < git->graph->num_nodes; i++) {
+            if (git->graph->nodes[i].node_id == current.node_id) {
+                node_idx = i;
+                break;
+            }
+        }
+        if (node_idx < 0 || node_idx >= 4096 || visited[node_idx]) continue;
+
+        visited[node_idx] = true;
+        visited_count++;
+        result.steps_taken++;
+
+        zeta_graph_node_t* node = &git->graph->nodes[node_idx];
+
+        // Record this hit
+        if (result.num_hits < ZETA_MAX_EXPLORE_HITS) {
+            zeta_explore_hit_t* hit = &result.hits[result.num_hits++];
+            hit->node_id = current.node_id;
+            hit->similarity = current.priority;
+            hit->depth = current.depth;
+            hit->cumulative_score = current.priority * node->salience;
+
+            // Track distant discoveries (depth > 2 indicates probabilistic find)
+            if (current.depth > 2) {
+                result.distant_discoveries++;
+            }
+        }
+
+        // Probabilistic branching: explore neighbors with probability ~ similarity * temperature
+        for (int e = 0; e < git->graph->num_edges; e++) {
+            zeta_graph_edge_t* edge = &git->graph->edges[e];
+            int64_t neighbor_id = -1;
+
+            if (edge->source_id == current.node_id) {
+                neighbor_id = edge->target_id;
+            } else if (edge->target_id == current.node_id) {
+                neighbor_id = edge->source_id;
+            }
+
+            if (neighbor_id < 0) continue;
+
+            // Find neighbor node
+            zeta_graph_node_t* neighbor = zeta_find_node_by_id(git->graph, neighbor_id);
+            if (!neighbor || !neighbor->is_active) continue;
+
+            // Calculate similarity to query
+            float neighbor_sim = zeta_cosine_sim(query_embedding, neighbor->embedding, embed_dim);
+
+            // Probabilistic decision: explore based on similarity and temperature
+            // Higher temperature = more likely to explore lower-similarity nodes
+            float explore_prob = neighbor_sim + (temperature * (1.0f - neighbor_sim) * 0.5f);
+
+            // Simple probabilistic check using salience as pseudo-random
+            float pseudo_random = ((float)((int)(neighbor->salience * 1000) % 100)) / 100.0f;
+
+            if (pseudo_random < explore_prob) {
+                float priority = neighbor_sim * (1.0f + temperature * 0.2f);
+                zeta_heap_push(frontier, &frontier_size, neighbor_id, priority, current.depth + 1);
+            }
+        }
+
+        // Apply cooling schedule
+        temperature *= cfg->cooling_rate;
+        if (temperature < cfg->min_temperature) {
+            temperature = cfg->min_temperature;
+        }
+    }
+
+    result.nodes_visited = visited_count;
+    result.final_temperature = temperature;
+
+    fprintf(stderr, "[EXPLORE] Completed: %d hits, %d visited, %d distant discoveries, final_temp=%.2f\n",
+            result.num_hits, result.nodes_visited, result.distant_discoveries, result.final_temperature);
+
+    return result;
+}
+
+// Convenience wrapper: explore and return top-k most relevant nodes
+static inline int zeta_git_explore_topk(
+    zeta_git_ctx_t* git,
+    const float* query_embedding,
+    int embed_dim,
+    int64_t* result_ids,
+    float* result_scores,
+    int max_results
+) {
+    zeta_explore_result_t explore = zeta_git_explore_probabilistic(git, query_embedding, embed_dim, NULL);
+
+    // Sort hits by cumulative score
+    for (int i = 0; i < explore.num_hits - 1; i++) {
+        for (int j = i + 1; j < explore.num_hits; j++) {
+            if (explore.hits[j].cumulative_score > explore.hits[i].cumulative_score) {
+                zeta_explore_hit_t tmp = explore.hits[i];
+                explore.hits[i] = explore.hits[j];
+                explore.hits[j] = tmp;
+            }
+        }
+    }
+
+    int count = 0;
+    for (int i = 0; i < explore.num_hits && count < max_results; i++) {
+        result_ids[count] = explore.hits[i].node_id;
+        result_scores[count] = explore.hits[i].cumulative_score;
+        count++;
+    }
+
+    return count;
+}
+
 #ifdef __cplusplus
 }
 #endif
