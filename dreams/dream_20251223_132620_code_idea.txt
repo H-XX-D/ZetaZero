@@ -1,0 +1,40 @@
+code_idea
+20251223_132620
+ Imagine you're a dream architect designing a unique feature. Let's explore the possibility of enhancing Manacher's algorithm to not only find the longest palindromic substring but also to identify the starting positions of all maximal palindromes of any length within the given string. This could provide a richer set of information and offer more granular insights into the structure of the input string. The idea would be to modify the existing algorithm to maintain a list or dictionary of starting positions and their corresponding lengths for each maximal palindrome found during the process.
+
+Here's a conceptual outline for how this could work:
+
+```python
+def enhanced_manacher(s: str):
+    # Transform the input string to handle even-length palindromes
+    transformed_s = '#'.join('^{}$'.format(s))
+    n = len(transformed_s)
+    p = [0] * n  # Array holding the length of the palindrome at each center
+
+    center = right = 0
+    max_palindromes = []
+
+    for i in range(1, n - 1):
+        if right > i:
+            p[i] = min(right - i, p[2 * center - i])  # Mirror symmetry property
+        # Attempt to expand around center i
+        while transformed_s[i + p[i] + 1] == transformed_s[i - p[i] - 1]:
+            p[i] += 1
+
+        # Update if this palindrome is the new farthest right boundary
+        if i + p[i] > right:
+            center, right = i, i + p[i]
+
+        # If the palindrome length is at least 3 (skipping single characters and '#'), record it
+        if p[i] >= 2:
+            start = (i - p[i]) // 2  # Un-transform the index back to the original string
+            max_palindromes.append((start, start + p[i] // 2))  # Store starting position and length
+
+    return max_palindromes
+
+# Example usage:
+result = enhanced_manacher("abcba")
+print(result)  # Expected: [(0, 2), (1, 1), (2, 2)] representing positions and lengths of maximal palindromes
+```
+
+This approach would significantly extend the utility of Manacher's algorithm by providing a detailed breakdown of all maximal palindromic substrings in the input string, beyond just identifying the longest one. This can be particularly useful in applications such

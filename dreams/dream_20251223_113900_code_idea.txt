@@ -1,0 +1,50 @@
+code_idea
+20251223_113900
+ For example, consider how to optimize the routing logic or suggest an innovative feature. To generate a novel insight or improvement based on the recent interactions you've provided, let's focus on enhancing the routing logic and expanding the system's capabilities. One potential idea is to introduce a more sophisticated adaptive routing mechanism that considers not just task complexity but also historical performance metrics.
+
+### Insight: Adaptive Routing Based on Performance Metrics
+
+**Current System Limitations:**
+- The existing system routes tasks based primarily on complexity (e.g., embedding tasks to 4B, complex reasoning to 14B).
+- Code tasks are routed to the 7B Coder model.
+- There's no consideration for historical performance metrics of the models.
+
+**Proposed Enhancement: Adaptive Routing Logic**
+
+**Objective:** Improve task routing by incorporating historical performance data.
+
+**Key Components:**
+
+1. **Performance Tracking Module:**
+   - **Purpose:** Monitor and record the performance of each model in real-time.
+   - **Metrics:** Accuracy, response time, success rate, etc.
+   - **Implementation:** Integrate with `g_zeta_track_cognitive_state` to collect and store performance metrics for each model over time.
+
+2. **Adaptive Routing Algorithm:**
+   - **Objective:** Dynamically adjust task routing based on the current and past performance of models.
+   - **Mechanism:** Evaluate tasks and models using a scoring system that weights both complexity and performance metrics.
+   - **Scoring System Example:**
+     - Complexity Score (CS): Assigned based on initial task complexity.
+     - Performance Score (PS): Derived from recent performance metrics (e.g., weighted average of accuracy and response time).
+     - Total Score (TS) = α * CS + β * PS, where α and β are configurable weights.
+   - **Decision Logic:**
+     - Route tasks to the model with the highest total score (TS).
+
+3. **Dynamic Model Pooling:**
+   - Maintain a dynamic pool of models that can be adjusted based on real-time performance data.
+   - Models that perform poorly over a certain period can be temporarily removed or retrained.
+
+**Example Implementation:**
+
+```cpp
+class ZetaDynamicRouter {
+public:
+    void routeTask(const Task& task);
+    void updateModelPerformance(const Model& model, const PerformanceMetrics& metrics);
+
+private:
+    std::unordered_map<std::string, Model> model_pool;
+    std::unordered_map<std::string, PerformanceMetrics> performance_metrics;
+};
+
+void ZetaDynamicRouter::routeTask(const Task

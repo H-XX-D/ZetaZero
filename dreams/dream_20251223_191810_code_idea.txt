@@ -1,0 +1,66 @@
+code_idea
+20251223_191810
+ Include a new feature: "User-Generated Content (UGC)" for historical stories, allowing users to share their own audio recordings and notes about historical sites.
+
+Consider the following aspects for the UGC feature:
+- Storage and indexing of UGC in a database.
+- Validation and moderation of user submissions.
+- Integration with the main AR tour flow.
+- Displaying UGC alongside official content in the app.
+
+Example Code Structure:
+
+```cpp
+#include <iostream>
+#include <string>
+#include <vector>
+#include <memory>
+#include <optional>
+
+// Define structures for historical data and user-generated content
+struct HistoricalSite {
+    std::string id;
+    std::string name;
+    std::vector<std::string> tags;
+    double latitude;
+    double longitude;
+    std::string description;
+    // ... add more attributes as necessary
+};
+
+struct UserGeneratedContent {
+    std::string id;
+    std::string user_id; // Unique identifier for the user who created this UGC
+    std::string site_id; // The ID of the historical site associated with this UGC
+    std::string content_type; // e.g., "audio", "text"
+    std::string content; // The actual content (audio file path or text)
+    bool is_verified; // Whether the content has been verified by a moderator
+};
+
+class HistoricalTourManager {
+public:
+    void addHistoricalSite(const HistoricalSite& site);
+    void addUserGeneratedContent(const UserGeneratedContent& ugc);
+    void playAudioForSite(const std::string& site_id);
+    void showUGCForSite(const std::string& site_id);
+private:
+    std::vector<HistoricalSite> sites_;
+    std::vector<UserGeneratedContent> ugc_; // List of all user-generated content
+};
+
+void HistoricalTourManager::addHistoricalSite(const HistoricalSite& site) {
+    sites_.push_back(site);
+}
+
+void HistoricalTourManager::addUserGeneratedContent(const UserGeneratedContent& ugc) {
+    ugc_.push_back(ugc);
+}
+
+void HistoricalTourManager::playAudioForSite(const std::string& site_id) {
+    // Find the audio associated with the site and play it.
+    for (const auto& site : sites_) {
+        if (site.id == site_id) {
+            // Implement logic to play audio file associated with the site
+            // For simplicity, we just print the description here
+            std::cout << "Playing audio for: " << site.description << std::endl;
+

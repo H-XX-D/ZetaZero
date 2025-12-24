@@ -1,0 +1,37 @@
+code_idea
+20251223_105805
+ Your insight should be relevant and practical for future development. NO REPEATS of previous ideas.
+
+Reflect and synthesize the data points above to generate a unique idea or enhancement. Be creative.
+Sure, let's take a step back and look at the interactions and functionalities you've described. One area that stands out is the modular approach taken with your systems, specifically how tasks are routed based on their nature (e.g., code tasks going to the 7B Coder). Given this modular structure, an interesting enhancement could be to introduce a dynamic feedback loop for model selection based on user satisfaction and task complexity.
+
+### Idea: User Feedback-Driven Model Selection
+
+**Problem Statement:**
+Currently, tasks are routed to models based on predefined criteria (e.g., complex reasoning to 14B). However, this static approach might not always yield the best results for every user or every task. Different users might have varying preferences or needs that aren't captured in the initial routing logic.
+
+**Solution:**
+Introduce a mechanism where users can provide feedback on the quality of the model's output after completing a task. This feedback could be binary (positive/negative) or on a scale (1-5 stars). This feedback would then be used to dynamically adjust which model handles similar types of tasks in the future.
+
+### Implementation:
+
+1. **Feedback Collection:** 
+   - Implement a function `g_zeta_collect_user_feedback` that collects user ratings after a task is completed.
+   - This function could be integrated with `g_zeta_embed_text` and other core functionalities, allowing for feedback collection post-task completion.
+
+2. **Feedback Aggregation:**
+   - Store the feedback in a database or a similar persistent storage solution.
+   - Aggregate this feedback over time for each model and task type combination.
+
+3. **Dynamic Routing Adjustment:**
+   - Periodically analyze the aggregated feedback data.
+   - Adjust the routing logic to favor models that receive higher ratings for specific types of tasks.
+   - For example, if users consistently rate the output of 7B Coder as higher than 4B for certain complex coding tasks, dynamically route more similar tasks to 7B Coder.
+
+### Example Code Snippet:
+
+```cpp
+void g_zeta_collect_user_feedback(const char* task_id, const char* model_id, int rating) {
+    // Store the task ID, model ID, and user rating in a database or file
+    // This could be done using SQL, NoSQL, or a simple file-based system
+    std

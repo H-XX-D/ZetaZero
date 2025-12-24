@@ -1,0 +1,66 @@
+code_idea
+20251223_191146
+ 
+
+### Implementation Plan: Apollo 11 AR App in C++
+
+#### 1. **User Experience (UX) Design**
+
+##### 1.1 Onboarding
+   - **Welcome Screen**: Display a brief introduction and instructions on using the app.
+   - **Tutorial**: Step-by-step guide with AR overlays to help users understand how to interact with the app.
+
+   ```cpp
+   void displayWelcomeScreen() {
+       // Display welcome message
+       std::cout << "Welcome to the Apollo 11 AR Experience!" << std::endl;
+   }
+
+   void displayTutorial() {
+       // Display tutorial steps
+       std::cout << "Step 1: Scan the marker to start." << std::endl;
+       std::cout << "Step 2: Explore the Kennedy Space Center." << std::endl;
+       std::cout << "Step 3: Use gestures to navigate and zoom in/out." << std::endl;
+   }
+   ```
+
+##### 1.2 Navigation
+   - **Gestures for Interaction**: Implement pinch-to-zoom, swipe-to-navigate, and tap-to-select functionalities.
+   - **Marker-Based Tracking**: Use QR codes or markers to track and align AR objects accurately.
+
+   ```cpp
+   void handlePinchGesture(float distance) {
+       // Zoom in/out based on pinch distance
+       if (distance > threshold) zoomIn();
+       else if (distance < threshold) zoomOut();
+   }
+
+   void handleSwipeGesture(float dx, float dy) {
+       // Navigate by swiping left/right/up/down
+       if (dx > threshold) moveRight();
+       else if (dx < -threshold) moveLeft();
+       if (dy > threshold) moveDown();
+       else if (dy < -threshold) moveUp();
+   }
+
+   void handleTapGesture() {
+       // Select and highlight objects
+       selectObjectAtCurrentPosition();
+   }
+   ```
+
+#### 2. **Scene Management**
+
+##### 2.1 3D Models and Textures
+   - **Loading Assets**: Load pre-rendered 3D models of the Space Center, Saturn V rocket, Moon, and Apollo 11 lander.
+   - **Texturing**: Apply textures for realistic appearance.
+
+   ```cpp
+   struct Model {
+       std::vector<glm::vec3> vertices;
+       std::vector<glm::vec2> texCoords;
+       std::vector<glm::vec3> normals;
+       GLuint textureId;
+   };
+
+   Model

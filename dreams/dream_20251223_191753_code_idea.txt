@@ -1,0 +1,76 @@
+code_idea
+20251223_191753
+ Implement a real-world feature like "Historical Audio Tour".
+To build a detailed implementation plan for the Historical Audio Tour feature in the Personalized Historical Tourism App leveraging Augmented Reality (AR), we need to focus on specific components and functionalities. The plan will include the following:
+
+1. **Historical Data Retrieval and Preprocessing**
+2. **Geolocation and AR Integration**
+3. **Audio Tour Generation and Playback**
+4. **User Interface for Customization**
+5. **Performance Optimization**
+
+### 1. Historical Data Retrieval and Preprocessing
+
+#### 1.1. Historical Database Interface
+We will create a C++ class `HistoricalDatabase` to interact with the historical data stored in the backend.
+
+```cpp
+class HistoricalDatabase {
+public:
+    // Function to initialize connection with historical database
+    bool initialize();
+
+    // Function to fetch historical events within a specified geographic area
+    std::vector<Event> fetchEvents(const std::pair<double, double>& latLon, double radius);
+
+private:
+    // Internal function to query the database
+    std::vector<Event> queryDatabase(const std::pair<double, double>& latLon, double radius);
+};
+```
+
+#### 1.2. Event Struct
+Define a `Event` struct to store historical data.
+
+```cpp
+struct Event {
+    int id;
+    std::string name;
+    std::pair<double, double> location; // (lat, lon)
+    std::string description;
+    std::vector<std::string> audioClips; // List of audio file paths or URLs
+    time_t timestamp; // Time when the event occurred
+};
+```
+
+#### 1.3. Audio Tour Generator
+This function will generate an audio tour based on the retrieved events.
+
+```cpp
+class AudioTourGenerator {
+public:
+    // Generate an audio tour based on fetched events and user preferences
+    std::vector<std::string> generateAudioTour(std::vector<Event>& events, bool includeDescriptions);
+
+private:
+    void addEventToTour(Event& event, std::vector<std::string>& tour);
+};
+```
+
+### 2. Geolocation and AR Integration
+
+#### 2.1. Geolocation Service
+This service will use the device's GPS to determine the user's current location.
+
+```cpp
+class GeolocationService {
+public:
+    // Get current user location
+    std::pair<double, double> getCurrentLocation();
+
+    // Start/Stop location updates
+    void startLocationUpdates();
+    void stopLocationUpdates();
+
+private:
+
