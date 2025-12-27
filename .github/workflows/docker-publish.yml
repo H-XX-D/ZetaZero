@@ -73,8 +73,8 @@ jobs:
           file: ./Dockerfile.jetson
           push: true
           tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:jetson-latest
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:jetson-${{ github.sha }}
+            ghcr.io/h-xx-d/zetazero:jetson-latest
+            ghcr.io/h-xx-d/zetazero:jetson-${{ github.sha }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
