@@ -53,33 +53,43 @@ fi
 case $MODEL_CHOICE in
     1)
         echo -e "${GREEN}Downloading 14B main model...${NC}"
-        if [ ! -f "qwen2.5-14b-instruct-q4_k_m.gguf" ]; then
-            huggingface-cli download Qwen/Qwen2.5-14B-Instruct-GGUF qwen2.5-14b-instruct-q4_k_m.gguf --local-dir .
+        # 14B model is split into multiple files - download all parts
+        if [ ! -f "qwen2.5-14b-instruct-q4_k_m-00001-of-00002.gguf" ]; then
+            huggingface-cli download Qwen/Qwen2.5-14B-Instruct-GGUF \
+                --include "qwen2.5-14b-instruct-q4_k_m*.gguf" \
+                --local-dir .
         else
             echo "  Already exists, skipping."
         fi
 
         echo -e "${GREEN}Downloading 7B coder model...${NC}"
         if [ ! -f "qwen2.5-coder-7b-instruct-q4_k_m.gguf" ]; then
-            huggingface-cli download Qwen/Qwen2.5-Coder-7B-Instruct-GGUF qwen2.5-coder-7b-instruct-q4_k_m.gguf --local-dir .
+            huggingface-cli download Qwen/Qwen2.5-Coder-7B-Instruct-GGUF \
+                --include "qwen2.5-coder-7b-instruct-q4_k_m*.gguf" \
+                --local-dir .
         else
             echo "  Already exists, skipping."
         fi
 
-        export MODEL_MAIN="$MODELS_DIR/qwen2.5-14b-instruct-q4_k_m.gguf"
+        # llama.cpp auto-loads split files from the first part
+        export MODEL_MAIN="$MODELS_DIR/qwen2.5-14b-instruct-q4_k_m-00001-of-00002.gguf"
         export MODEL_CODER="$MODELS_DIR/qwen2.5-coder-7b-instruct-q4_k_m.gguf"
         ;;
     2)
         echo -e "${GREEN}Downloading 7B main model...${NC}"
         if [ ! -f "qwen2.5-7b-instruct-q4_k_m.gguf" ]; then
-            huggingface-cli download Qwen/Qwen2.5-7B-Instruct-GGUF qwen2.5-7b-instruct-q4_k_m.gguf --local-dir .
+            huggingface-cli download Qwen/Qwen2.5-7B-Instruct-GGUF \
+                --include "qwen2.5-7b-instruct-q4_k_m*.gguf" \
+                --local-dir .
         else
             echo "  Already exists, skipping."
         fi
 
         echo -e "${GREEN}Downloading 3B coder model...${NC}"
         if [ ! -f "qwen2.5-coder-3b-instruct-q4_k_m.gguf" ]; then
-            huggingface-cli download Qwen/Qwen2.5-Coder-3B-Instruct-GGUF qwen2.5-coder-3b-instruct-q4_k_m.gguf --local-dir .
+            huggingface-cli download Qwen/Qwen2.5-Coder-3B-Instruct-GGUF \
+                --include "qwen2.5-coder-3b-instruct-q4_k_m*.gguf" \
+                --local-dir .
         else
             echo "  Already exists, skipping."
         fi
@@ -90,14 +100,18 @@ case $MODEL_CHOICE in
     3)
         echo -e "${GREEN}Downloading 3B main model...${NC}"
         if [ ! -f "qwen2.5-3b-instruct-q4_k_m.gguf" ]; then
-            huggingface-cli download Qwen/Qwen2.5-3B-Instruct-GGUF qwen2.5-3b-instruct-q4_k_m.gguf --local-dir .
+            huggingface-cli download Qwen/Qwen2.5-3B-Instruct-GGUF \
+                --include "qwen2.5-3b-instruct-q4_k_m*.gguf" \
+                --local-dir .
         else
             echo "  Already exists, skipping."
         fi
 
         echo -e "${GREEN}Downloading 3B coder model...${NC}"
         if [ ! -f "qwen2.5-coder-3b-instruct-q4_k_m.gguf" ]; then
-            huggingface-cli download Qwen/Qwen2.5-Coder-3B-Instruct-GGUF qwen2.5-coder-3b-instruct-q4_k_m.gguf --local-dir .
+            huggingface-cli download Qwen/Qwen2.5-Coder-3B-Instruct-GGUF \
+                --include "qwen2.5-coder-3b-instruct-q4_k_m*.gguf" \
+                --local-dir .
         else
             echo "  Already exists, skipping."
         fi
