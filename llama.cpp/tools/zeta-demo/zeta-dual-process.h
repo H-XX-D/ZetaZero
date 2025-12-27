@@ -12,6 +12,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <algorithm>  // std::transform, std::min
+#include <string>     // std::string
 
 // Global vocab for tokenization (set by server)
 static const llama_vocab* g_zeta_vocab = NULL;
@@ -1590,6 +1592,9 @@ static inline int zeta_subconscious_extract_facts(
 
 // Build context injection string from graph for a given query/prompt
 // This is the CORE mechanism for maintaining coherence across all input types
+//
+// v5.2: FIXED - Context was overwhelming user prompts (e.g. MT-Bench Q12 Turn 2)
+//       Now: strict limits, relevance filtering, no self-referential noise
 static inline size_t zeta_build_context_injection(
     zeta_dual_ctx_t* ctx,
     const char* prompt,
@@ -1601,6 +1606,31 @@ static inline size_t zeta_build_context_injection(
         return 0;
     }
 
+    // === CONTEXT INJECTION LIMITS ===
+    // These prevent context from overwhelming user prompts
+    #define MAX_CONTEXT_CHARS 800       // Hard limit on injected context
+    #define MAX_CONTEXT_NODES 5         // Max nodes to inject
+    #define MIN_RELEVANCE_THRESHOLD 0.6f // Ignore low-relevance nodes
+
+    // === SELF-REFERENTIAL FILTER ===
+    // Skip these terms unless prompt explicitly asks about Z.E.T.A.
+    const char* self_ref_terms[] = {
+        "ZetaDynamic", "Router", "TernaryMem", "HRM", "TRM",
+        "dual-process", "subconscious", "14B", "7B", "3B",
+        "llama.cpp", "server.cpp", "embedding", "pipeline",
+        "CUDA", "tensor", "GGUF", "quantiz", NULL
+    };
+
+    // Check if prompt is asking about Z.E.T.A. itself
+    std::string prompt_lower(prompt);
+    std::transform(prompt_lower.begin(), prompt_lower.end(), prompt_lower.begin(), ::tolower);
+    bool asking_about_self = (
+        prompt_lower.find("zeta") != std::string::npos ||
+        prompt_lower.find("your architecture") != std::string::npos ||
+        prompt_lower.find("how do you work") != std::string::npos ||
+        prompt_lower.find("your memory") != std::string::npos
+    );
+
     // Surface relevant context from graph
     zeta_surfaced_context_t surfaced;
     zeta_surface_context(ctx, prompt, &surfaced);
@@ -1610,70 +1640,76 @@ static inline size_t zeta_build_context_injection(
         return 0;
     }
 
+    // Filter nodes: relevance threshold + self-referential filter
+    zeta_graph_node_t* filtered_nodes[MAX_CONTEXT_NODES];
+    float filtered_scores[MAX_CONTEXT_NODES];
+    int filtered_count = 0;
+
+    for (int i = 0; i < surfaced.num_nodes && filtered_count < MAX_CONTEXT_NODES; i++) {
+        zeta_graph_node_t* node = surfaced.nodes[i];
+        float score = surfaced.relevance_scores[i];
+
+        // Skip low relevance
+        if (score < MIN_RELEVANCE_THRESHOLD) continue;
+
+        // Skip self-referential content unless prompt asks about it
+        if (!asking_about_self) {
+            bool is_self_ref = false;
+            for (int j = 0; self_ref_terms[j] != NULL; j++) {
+                if (strstr(node->value, self_ref_terms[j]) ||
+                    strstr(node->label, self_ref_terms[j])) {
+                    is_self_ref = true;
+                    break;
+                }
+            }
+            if (is_self_ref) {
+                fprintf(stderr, "[CONTEXT-INJECT] Skipping self-ref: %s\n", node->label);
+                continue;
+            }
+        }
+
+        filtered_nodes[filtered_count] = node;
+        filtered_scores[filtered_count] = score;
+        filtered_count++;
+    }
+
+    if (filtered_count == 0) {
+        out_context[0] = '\0';
+        fprintf(stderr, "[CONTEXT-INJECT] All nodes filtered out (not relevant enough)\n");
+        return 0;
+    }
+
     char* p = out_context;
-    size_t remaining = max_len - 1;
+    size_t remaining = std::min(max_len - 1, (size_t)MAX_CONTEXT_CHARS);
     int n;
 
-    // Header
+    // Clearer header that emphasizes user question priority
     n = snprintf(p, remaining,
-        "[RELEVANT CONTEXT - Use these facts for consistency]\n");
-    p += n; remaining -= n;
+        "[Background - answer the USER'S QUESTION, these are only for reference]\n");
+    if (n > 0 && (size_t)n < remaining) { p += n; remaining -= n; }
 
-    // Group nodes by type for better organization
-    // Facts first (most important for coherence)
-    bool has_facts = false;
-    for (int i = 0; i < surfaced.num_nodes && remaining > 100; i++) {
-        zeta_graph_node_t* node = surfaced.nodes[i];
-        if (node->type == NODE_FACT ||
-            strstr(node->label, "relation") ||
-            strstr(node->label, "raw_memory")) {
-            if (!has_facts) {
-                n = snprintf(p, remaining, "FACTS:\n");
-                p += n; remaining -= n;
-                has_facts = true;
-            }
-            n = snprintf(p, remaining, "- %s\n", node->value);
-            p += n; remaining -= n;
+    // Inject filtered nodes (compact format)
+    for (int i = 0; i < filtered_count && remaining > 50; i++) {
+        zeta_graph_node_t* node = filtered_nodes[i];
+
+        // Truncate long values to keep context compact
+        char value_truncated[150];
+        strncpy(value_truncated, node->value, sizeof(value_truncated) - 1);
+        value_truncated[sizeof(value_truncated) - 1] = '\0';
+        if (strlen(node->value) > 140) {
+            strcpy(value_truncated + 137, "...");
         }
+
+        n = snprintf(p, remaining, "- %s\n", value_truncated);
+        if (n > 0 && (size_t)n < remaining) { p += n; remaining -= n; }
     }
 
-    // Entities (characters, locations, etc.)
-    bool has_entities = false;
-    for (int i = 0; i < surfaced.num_nodes && remaining > 100; i++) {
-        zeta_graph_node_t* node = surfaced.nodes[i];
-        if (node->type == NODE_ENTITY) {
-            if (!has_entities) {
-                n = snprintf(p, remaining, "ENTITIES:\n");
-                p += n; remaining -= n;
-                has_entities = true;
-            }
-            n = snprintf(p, remaining, "- %s: %s\n", node->label, node->value);
-            p += n; remaining -= n;
-        }
-    }
+    // No footer needed - keep it minimal
+    *p = '\0';
 
-    // Events (plot points, temporal)
-    bool has_events = false;
-    for (int i = 0; i < surfaced.num_nodes && remaining > 100; i++) {
-        zeta_graph_node_t* node = surfaced.nodes[i];
-        if (node->type == NODE_EVENT) {
-            if (!has_events) {
-                n = snprintf(p, remaining, "EVENTS:\n");
-                p += n; remaining -= n;
-                has_events = true;
-            }
-            n = snprintf(p, remaining, "- %s\n", node->value);
-            p += n; remaining -= n;
-        }
-    }
-
-    // Footer
-    n = snprintf(p, remaining, "[END CONTEXT]\n\n");
-    p += n; remaining -= n;
-
-    size_t total_len = max_len - remaining - 1;
-    fprintf(stderr, "[CONTEXT-INJECT] Surfaced %d nodes (%zu chars) for prompt\n",
-            surfaced.num_nodes, total_len);
+    size_t total_len = p - out_context;
+    fprintf(stderr, "[CONTEXT-INJECT] Injected %d/%d nodes (%zu chars, max=%d)\n",
+            filtered_count, surfaced.num_nodes, total_len, MAX_CONTEXT_CHARS);
 
     return total_len;
 }

@@ -199,6 +199,10 @@ def generate_response(prompt: str, conversation_history: List[Dict] = None) -> s
     # Add semantic override
     final_prompt = f"{SEMANTIC_OVERRIDE} | {full_prompt}"
 
+    # Debug: show prompt length for Turn 2 (when history exists)
+    if conversation_history:
+        print(f"    [DEBUG] Prompt with history: {len(final_prompt)} chars")
+
     try:
         resp = requests.post(
             f"{ZETA_URL}/generate",

@@ -135,14 +135,29 @@ def log(msg: str, level: str = "INFO"):
 
 
 def ssh_run(cmd: str, capture: bool = True) -> Tuple[bool, str]:
-    """Run command on z6 via SSH."""
+    """Run command - locally if on z6, via SSH otherwise."""
     try:
-        result = subprocess.run(
-            ["ssh", Z6_HOST, cmd],
-            capture_output=capture,
-            text=True,
-            timeout=300
-        )
+        # Check if we're already on z6 (Linux with the ZetaZero path)
+        import platform
+        is_local = platform.system() == "Linux" and os.path.exists("/home/xx/ZetaZero")
+
+        if is_local:
+            # Run locally
+            result = subprocess.run(
+                cmd,
+                shell=True,
+                capture_output=capture,
+                text=True,
+                timeout=300
+            )
+        else:
+            # Run via SSH
+            result = subprocess.run(
+                ["ssh", Z6_HOST, cmd],
+                capture_output=capture,
+                text=True,
+                timeout=300
+            )
         return result.returncode == 0, result.stdout + result.stderr
     except Exception as e:
         return False, str(e)
@@ -157,9 +172,9 @@ def fetch_pending_dreams(cpp_only: bool = True) -> List[str]:
     try:
         # First, find dreams that contain C++ code blocks
         if cpp_only:
-            # Search for dreams with actual cpp code blocks
+            # Search for dreams with actual cpp code blocks (avoid backticks in grep)
             success, output = ssh_run(
-                f'grep -l "```cpp\\|class Zeta\\|struct Zeta\\|void zeta_" {REMOTE_DREAMS_DIR}/*.txt 2>/dev/null | head -30'
+                "grep -l 'class Zeta\\|struct Zeta\\|void zeta_\\|std::' " + REMOTE_DREAMS_DIR + "/*.txt 2>/dev/null | head -30"
             )
         else:
             success, output = ssh_run(f"ls -t {REMOTE_DREAMS_DIR}/*.txt 2>/dev/null | head -50")
@@ -287,7 +302,7 @@ def infer_patch_type(dream: str) -> PatchType:
 
 
 def is_valid_cpp(code: str) -> bool:
-    """Check if code looks like valid C++."""
+    """Check if code looks like valid C++, NOT Python."""
     # Must have basic C++ syntax
     has_braces = "{" in code and "}" in code
     has_semicolons = ";" in code
@@ -295,12 +310,24 @@ def is_valid_cpp(code: str) -> bool:
         'void ', 'int ', 'bool ', 'float ', 'double ', 'char ',
         'class ', 'struct ', 'enum ', 'template', 'namespace ',
         'return ', 'if (', 'for (', 'while (', 'switch (',
-        'std::', 'const ', 'static ', 'inline '
+        'std::', 'const ', 'static ', 'inline ', 'nullptr',
+        '#include', '#define', '#ifndef', '#endif'
     ])
 
     # Must NOT look like markdown or prose
-    has_markdown = code.strip().startswith('#') or '####' in code
+    has_markdown = code.strip().startswith('#') and not code.strip().startswith('#include') and not code.strip().startswith('#define')
     is_mostly_prose = len(re.findall(r'[a-zA-Z]{10,}', code)) > 10  # Too many long words
+
+    # REJECT Python code patterns
+    is_python = any(py_pattern in code for py_pattern in [
+        'def ', 'import ', 'from ', 'self.', 'self,', '__init__',
+        'print(', 'lambda ', ':' + '\n', 'elif ', 'except:',
+        '    def ', '    class ', 'async def', 'await ',
+        "'''", '"""', 'True', 'False', 'None'  # Python literals
+    ])
+
+    if is_python:
+        return False
 
     return has_braces and has_semicolons and has_cpp_keywords and not has_markdown and not is_mostly_prose
 
@@ -357,30 +384,35 @@ def extract_search_pattern(dream: str) -> str:
 
 def apply_patch(patch: CodePatch) -> Tuple[bool, str]:
     """Apply a patch to the source file on z6."""
-    filepath = f"{REMOTE_SOURCE_DIR}/{patch.target_file}"
+    filepath = REMOTE_SOURCE_DIR + "/" + patch.target_file
+
+    # DEDUPLICATION: Check if this code already exists in the file
+    # Extract a unique signature from the patch (first non-empty line with code)
+    code_lines = [l.strip() for l in patch.new_code.split('\n') if l.strip() and not l.strip().startswith('//')]
+    if code_lines:
+        # Use the first substantive line as a signature
+        signature = code_lines[0][:60].replace("'", "'\\''").replace('"', '\\"')
+        check_cmd = f"grep -F '{signature}' '{filepath}' 2>/dev/null"
+        exists, _ = ssh_run(check_cmd)
+        if exists:
+            return False, f"DUPLICATE: Code signature already exists in {patch.target_file}"
 
     # Create backup
-    ssh_run(f"cp {filepath} {filepath}.bak")
+    ssh_run("cp " + filepath + " " + filepath + ".bak")
 
     if patch.patch_type == PatchType.INSERT:
-        # Insert before #endif or append
-        cmd = f"""
-        if grep -q '#endif' {filepath}; then
-            sed -i '/#endif/i\\
-// === Auto-inserted by self-modify (dream: {patch.id}) ===\\
-{patch.new_code.replace("'", "'\"'\"'")}
-' {filepath}
-        else
-            echo '// === Auto-inserted ===
-{patch.new_code}' >> {filepath}
-        fi
-        """
+        # Simpler approach: append to file with comment header
+        escaped_code = patch.new_code.replace("'", "'\\''")
+        header = "// === Auto-inserted by self-modify (dream: " + patch.id + ") ==="
+        cmd = "echo '" + header + "\n" + escaped_code + "' >> " + filepath
     elif patch.patch_type == PatchType.APPEND:
-        cmd = f"echo '{patch.new_code}' >> {filepath}"
+        escaped_code = patch.new_code.replace("'", "'\\''")
+        cmd = "echo '" + escaped_code + "' >> " + filepath
     elif patch.patch_type == PatchType.REPLACE and patch.search_pattern:
-        escaped_pattern = patch.search_pattern.replace("/", "\\/")
-        escaped_new = patch.new_code.replace("/", "\\/")
-        cmd = f"sed -i 's/{escaped_pattern}/{escaped_new}/g' {filepath}"
+        # Use a temp file approach for complex replacements
+        escaped_pattern = patch.search_pattern.replace("/", "\\/").replace("'", "'\\''")
+        escaped_new = patch.new_code.replace("/", "\\/").replace("'", "'\\''")
+        cmd = "sed -i 's/" + escaped_pattern + "/" + escaped_new + "/g' " + filepath
     else:
         return False, "Unknown patch type or missing pattern"
 
@@ -410,32 +442,29 @@ def restart_server_on_z6() -> Tuple[bool, str]:
     kill_cmd = "pkill -f 'zeta-server' || true"
     ssh_run(kill_cmd)
 
-    time.sleep(2)
+    time.sleep(3)
 
-    # Start new server in background using the existing config
-    start_cmd = """cd /home/xx/ZetaZero && source ./zeta.conf && \
-        nohup ./llama.cpp/build/bin/zeta-server \
-        --model "$MODEL_14B" \
-        --model-coder "$MODEL_7B" \
-        --model-embed "$MODEL_4B" \
-        -ngl 99 -c 4096 --host 0.0.0.0 --port 8080 \
-        > /tmp/zeta.log 2>&1 &"""
+    # Start new server in background using bash explicitly
+    # Use bash -c to ensure source works properly
+    start_cmd = """bash -c 'cd /home/xx/ZetaZero && source ./zeta.conf && nohup ./llama.cpp/build/bin/zeta-server --model "$MODEL_14B" --model-coder "$MODEL_7B" --model-embed "$MODEL_4B" -ngl 99 -c 4096 --host 0.0.0.0 --port 8080 > /tmp/zeta.log 2>&1 &'"""
 
     success, output = ssh_run(start_cmd)
 
-    # Wait for server to start
-    time.sleep(5)
+    # Wait for server to load models (14B takes ~30-45 seconds with GPU)
+    log("Waiting for models to load...")
+    for attempt in range(12):  # Up to 60 seconds
+        time.sleep(5)
+        try:
+            resp = requests.get(f"{ZETA_URL}/health", timeout=10)
+            if resp.status_code == 200:
+                health = resp.json()
+                log(f"Server restarted successfully (nodes: {health.get('graph_nodes', 0)})")
+                return True, "Server running"
+        except:
+            if attempt % 3 == 2:  # Only log every 3rd attempt
+                log(f"  Attempt {attempt + 1}/12 - still loading...")
 
-    # Check if server is responding
-    try:
-        resp = requests.get(f"{ZETA_URL}/health", timeout=10)
-        if resp.status_code == 200:
-            log("Server restarted successfully")
-            return True, "Server running"
-    except:
-        pass
-
-    return False, "Server failed to restart"
+    return False, "Server failed to restart after 60 seconds"
 
 
 def update_self_graph(modified_files: List[str]) -> bool:
@@ -654,19 +683,22 @@ def run_cycle(dreams: List[str]) -> CycleResult:
 
 def generate_dream_from_errors(errors: List[str]) -> str:
     """Ask Z.E.T.A. to generate a fix for compilation errors."""
+    error_text = chr(10).join(errors[:5])
     prompt = f"""You are Z.E.T.A., analyzing your own compilation errors.
 These errors occurred while trying to compile your source code:
 
-{chr(10).join(errors[:5])}
+{error_text}
 
 Generate a C++ code fix for these errors. Include the target file and exact code.
+
+IMPORTANT: You are a C++ system. Generate ONLY valid C++ code, NOT Python.
 Use this format:
 ```cpp
 // FILE: zeta-xxx.h
 // Your fix code here
 ```
 
-Be specific and provide complete, compilable C++ code."""
+Be specific and provide complete, compilable C++ code with proper headers, namespaces, and semicolons."""
 
     try:
         resp = requests.post(
@@ -725,14 +757,38 @@ def run_autonomous_loop():
         else:
             log("No dreams to process")
 
-        # Trigger a dream cycle on Z.E.T.A.
+        # Trigger a dream cycle on Z.E.T.A. - with actual header context
         try:
+            # Fetch real type definitions to prevent hallucinated types
+            header_context = ""
+            for header in ["zeta-config.h", "zeta-utils.h", "zeta-dual-process.h"]:
+                success, content = ssh_run(f"head -100 {REMOTE_SOURCE_DIR}/{header} 2>/dev/null | grep -E 'struct |class |enum |typedef |#define ' | head -20")
+                if success and content:
+                    header_context += f"\n// From {header}:\n{content}"
+
+            dream_prompt = f"""Dream about improvements to your own C++ codebase.
+You are Z.E.T.A., a C++ system. Generate ONLY C++ code, never Python.
+
+IMPORTANT: Here are your ACTUAL type definitions. Only use these types:
+{header_context}
+
+Focus on: optimization, bug fixes, new features for your core modules.
+
+Format your code suggestions as:
+```cpp
+// FILE: zeta-xxx.h
+// Use ONLY types defined above (zeta_dual_ctx_t, ZetaTask, etc.)
+class YourNewClass {{
+    // C++ code with proper syntax
+}};
+```
+
+Remember: Use C++ syntax (std::, ->, ::, semicolons, braces).
+Do NOT invent new types - only use existing ones from the definitions above."""
+
             requests.post(
                 f"{ZETA_URL}/generate",
-                json={
-                    "prompt": "Dream about improvements to your own codebase. Focus on: optimization, bug fixes, new features. Generate concrete C++ code suggestions.",
-                    "max_tokens": 300
-                },
+                json={"prompt": dream_prompt, "max_tokens": 400},
                 timeout=60
             )
         except:
