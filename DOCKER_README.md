@@ -5,8 +5,11 @@
 Z.E.T.A. indexes your code, builds a memory graph, and runs autonomous "dream cycles" that generate novel insights, refactors, and feature ideas - all while you sleep.
 
 ```bash
-# Point it at your codebase
-python3 scripts/index_codebase.py --path ./your-project/src
+# Point it at your codebase (edit docker-compose.yml)
+volumes:
+  - /path/to/your/project:/codebase:ro
+environment:
+  - INDEX_PATH=/codebase
 
 # Check back tomorrow
 ls ~/.zetazero/storage/dreams/pending/
@@ -19,13 +22,24 @@ Each dream is a markdown file with concrete code suggestions based on YOUR archi
 ## Quick Start
 
 ```bash
-# Option 1: Pull pre-built image (fastest)
+# 1. Pull pre-built image
 docker pull ghcr.io/h-xx-d/zetazero:latest
-./scripts/setup.sh          # Download models
-docker-compose up -d         # Start Z.E.T.A.
 
-# Option 2: Build from source
-./scripts/setup.sh          # Download models
+# 2. Download models
+./scripts/setup.sh
+
+# 3. Edit docker-compose.yml to point at YOUR codebase:
+#    - Uncomment INDEX_PATH and volume mount
+#    - Set your project path
+
+# 4. Start Z.E.T.A.
+docker-compose up -d
+```
+
+### Build from Source (Alternative)
+
+```bash
+./scripts/setup.sh
 docker build -t zetazero:latest .
 docker-compose up -d
 ```
