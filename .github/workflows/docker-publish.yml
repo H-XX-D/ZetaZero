@@ -66,16 +66,3 @@ jobs:
           cache-to: type=gha,mode=max
           platforms: linux/amd64
 
-      - name: Build and push Jetson image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./Dockerfile.jetson
-          push: true
-          tags: |
-            ghcr.io/h-xx-d/zetazero:jetson-latest
-            ghcr.io/h-xx-d/zetazero:jetson-${{ github.sha }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          platforms: linux/arm64
