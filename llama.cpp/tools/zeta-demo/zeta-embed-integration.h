@@ -12,6 +12,7 @@
 #include <cmath>
 #include <vector>
 #include <mutex>
+#include <thread>
 #include <map>
 #include <string>
 
@@ -224,8 +225,13 @@ static bool zeta_embed_init(const char* model_path) {
     cparams.n_ctx = 512;           // Small context for embedding queries
     cparams.n_batch = 512;
     cparams.embeddings = true;     // CRITICAL: Enable embeddings output
-    cparams.n_threads = 20;        // Use 20 of 24 Xeon cores (leave 4 for system/GPU driver)
-    cparams.n_threads_batch = 20;  // Parallel batch processing
+
+    // Adaptive thread count: use 80% of available cores, minimum 1
+    int n_cores = std::thread::hardware_concurrency();
+    int n_threads = std::max(1, (int)(n_cores * 0.8));
+    cparams.n_threads = n_threads;
+    cparams.n_threads_batch = n_threads;
+    fprintf(stderr, "[EMBED] Using %d threads (detected %d cores)\n", n_threads, n_cores);
     // flash_attn not needed for embedding models
 
     g_embed_ctx->ctx = llama_init_from_model(g_embed_ctx->model, cparams);
