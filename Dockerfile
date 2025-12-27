@@ -62,8 +62,9 @@ ENV GPU_LAYERS_CODER="35"
 # Expose the port
 EXPOSE 8080
 
-# Copy entrypoint script
+# Copy entrypoint script and utilities
 COPY docker-entrypoint.sh /app/
+COPY scripts/index_codebase.py /app/scripts/
 RUN chmod +x /app/docker-entrypoint.sh
 
 # Health check

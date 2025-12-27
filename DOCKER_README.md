@@ -2,35 +2,45 @@
 
 Run Z.E.T.A. in Docker with full CUDA support, dream system, and persistent memory.
 
-## Quick Start
+## Quick Start (One Command)
 
 ```bash
-# Build and run (16GB+ VRAM)
-docker-compose up -d
+# Download models + create directories
+./scripts/setup.sh
 
-# For 8GB VRAM GPUs
-docker-compose --profile lite up -d
+# Build and run
+docker-compose up -d
 ```
+
+That's it. You now have Z.E.T.A. running at `http://localhost:8080`.
 
 ## Prerequisites
 
 - NVIDIA GPU with CUDA 12.x
 - Docker with nvidia-container-toolkit
-- Models downloaded to `~/models/`
+- ~20GB disk space for models
 
-### Required Models
+## Setup Script
+
+The setup script handles everything:
 
 ```bash
-# 14B + 7B Production (16GB VRAM)
-~/models/qwen2.5-14b-instruct-q4_k_m.gguf
-~/models/qwen2.5-coder-7b-instruct-q4_k_m.gguf
-~/models/nomic-embed-text-v1.5.f16.gguf
-
-# 7B + 3B Lite (8GB VRAM)
-~/models/qwen2.5-7b-instruct-q4_k_m.gguf
-~/models/qwen2.5-coder-3b-instruct-q4_k_m.gguf
-~/models/nomic-embed-text-v1.5.f16.gguf
+./scripts/setup.sh
 ```
+
+It will:
+1. Create required directories
+2. Ask which model size (14B+7B, 7B+3B, or 3B+3B)
+3. Download models from HuggingFace
+4. Configure storage paths
+
+### Model Sizes
+
+| Config | VRAM Required | Download Size |
+|--------|---------------|---------------|
+| Production (14B+7B) | 16GB+ | ~15GB |
+| Lite (7B+3B) | 8GB+ | ~8GB |
+| Minimal (3B+3B) | 6GB+ | ~4GB |
 
 ## Build Options
 
@@ -94,6 +104,20 @@ Data is stored in `~/.zetazero/storage/`:
    docker-compose up -d
    ```
 
+## Index Your Codebase (Optional)
+
+Let Z.E.T.A. dream about your own code:
+
+```bash
+# Index a codebase into Z.E.T.A.'s memory graph
+python3 scripts/index_codebase.py --path ./your-project/src
+
+# Or from inside Docker
+docker exec zeta python3 /app/scripts/index_codebase.py --path /your-mounted-code
+```
+
+This extracts functions, structs, and classes into the memory graph. Z.E.T.A. will then dream about your code and generate ideas.
+
 ## Commands
 
 ```bash
@@ -102,6 +126,9 @@ docker logs -f zeta
 
 # Check health
 curl http://localhost:8080/health
+
+# Check dream status
+curl http://localhost:8080/git/status
 
 # Stop
 docker-compose down

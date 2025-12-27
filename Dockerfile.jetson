@@ -39,6 +39,7 @@ ENV GPU_LAYERS_CODER="35"
 EXPOSE 8080
 
 COPY docker-entrypoint.sh /app/
+COPY scripts/index_codebase.py /app/scripts/
 RUN chmod +x /app/docker-entrypoint.sh
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
