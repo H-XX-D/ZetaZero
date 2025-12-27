@@ -1,0 +1,9 @@
+.git
+build
+dist
+models
+*.gguf
+*.log
+node_modules
+__pycache__
+.DS_Store

@@ -775,8 +775,19 @@ private:
     std::string get_random_graph_context() {
         if (!ctx || ctx->num_nodes == 0) return "";
 
-        // Pick a random node from the ENTIRE graph (not just recent)
-        int random_idx = rand() % ctx->num_nodes;
+        // Skip bootstrap nodes (0-4: identity_name, creator, self_awareness, etc)
+        // These are always present and not interesting for creative jumps
+        const int BOOTSTRAP_NODES = 5;
+
+        int random_idx;
+        if (ctx->num_nodes > BOOTSTRAP_NODES) {
+            // Jump to codebase/content nodes only (skip bootstrap)
+            random_idx = BOOTSTRAP_NODES + (rand() % (ctx->num_nodes - BOOTSTRAP_NODES));
+        } else {
+            // Fallback to bootstrap if no codebase nodes indexed
+            random_idx = rand() % ctx->num_nodes;
+            fprintf(stderr, "[DREAM] WARNING: Only bootstrap nodes available - index codebase!\n");
+        }
         zeta_graph_node_t* seed_node = &ctx->nodes[random_idx];
 
         std::string context = "GRAPH JUMP: Exploring a different part of your knowledge:\n\n";
@@ -809,10 +820,10 @@ private:
             }
         }
 
-        // If no edges found, grab random distant nodes for diversity
-        if (neighbor_count == 0) {
-            for (int j = 0; j < 3 && ctx->num_nodes > 1; j++) {
-                int idx = rand() % ctx->num_nodes;
+        // If no edges found, grab random distant nodes for diversity (skip bootstrap)
+        if (neighbor_count == 0 && ctx->num_nodes > BOOTSTRAP_NODES) {
+            for (int j = 0; j < 3; j++) {
+                int idx = BOOTSTRAP_NODES + (rand() % (ctx->num_nodes - BOOTSTRAP_NODES));
                 if (idx != random_idx && ctx->nodes[idx].is_active) {
                     context += "- [" + std::string(ctx->nodes[idx].label) + "]: " +
                                std::string(ctx->nodes[idx].value).substr(0, 80) + "\n";

@@ -1,0 +1,47 @@
+# Jetson Orin Dockerfile (JetPack 6 / L4T)
+# For 16GB VRAM: 14B + 7B config
+# For 8GB VRAM: Use zeta-lite profile
+
+FROM nvcr.io/nvidia/l4t-cuda:12.2.2-runtime
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    ca-certificates \
+    python3 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy the pre-built aarch64 binary
+# Build with: cmake -DGGML_CUDA=ON && make zeta-server
+COPY dist/zeta-server-aarch64 /app/zeta-server
+RUN chmod +x /app/zeta-server
+
+# Create directories for models, storage, and dreams
+RUN mkdir -p /models /storage /storage/dreams/pending /storage/dreams/archive /storage/blocks
+
+# Environment variables (14B + 7B production config)
+ENV ZETA_HOST="0.0.0.0"
+ENV ZETA_PORT="8080"
+ENV MODEL_MAIN="/models/qwen2.5-14b-instruct-q4_k_m.gguf"
+ENV MODEL_CODER="/models/qwen2.5-coder-7b-instruct-q4_k_m.gguf"
+ENV MODEL_EMBED="/models/nomic-embed-text-v1.5.f16.gguf"
+ENV ZETA_STORAGE="/storage"
+ENV ZETA_DREAM_INTERVAL="300"
+ENV ZETA_DREAM_DIR="/storage/dreams"
+ENV ZETA_GRAPH_PATH="/storage/blocks/graph.bin"
+
+# GPU layers for Jetson Orin (16GB unified memory)
+ENV GPU_LAYERS_MAIN="49"
+ENV GPU_LAYERS_CODER="35"
+
+EXPOSE 8080
+
+COPY docker-entrypoint.sh /app/
+RUN chmod +x /app/docker-entrypoint.sh
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
+    CMD curl -f http://localhost:8080/health || exit 1
+
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
