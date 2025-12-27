@@ -25,11 +25,15 @@ services:
       - ZETA_DREAM_INTERVAL=300
       - ZETA_DREAM_DIR=/storage/dreams
       - ZETA_GRAPH_PATH=/storage/blocks/graph.bin
+      # Auto-index your codebase on first run (uncomment and set path)
+      # - INDEX_PATH=/codebase
     volumes:
       # Mount models from host
       - ~/models:/models:ro
       # Persist storage (dreams, graph, memories)
       - ~/.zetazero/storage:/storage
+      # Mount your codebase for indexing (uncomment and set path)
+      # - /path/to/your/project:/codebase:ro
     deploy:
       resources:
         reservations:
@@ -59,9 +63,13 @@ services:
       - ZETA_DREAM_INTERVAL=600
       - ZETA_DREAM_DIR=/storage/dreams
       - ZETA_GRAPH_PATH=/storage/blocks/graph.bin
+      # Auto-index your codebase on first run (uncomment and set path)
+      # - INDEX_PATH=/codebase
     volumes:
       - ~/models:/models:ro
       - ~/.zetazero/storage:/storage
+      # Mount your codebase for indexing (uncomment and set path)
+      # - /path/to/your/project:/codebase:ro
     deploy:
       resources:
         reservations:

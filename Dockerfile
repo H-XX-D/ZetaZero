@@ -16,6 +16,7 @@ WORKDIR /app
 
 # Copy source code
 COPY llama.cpp /app/llama.cpp
+COPY zeta-integration /app/zeta-integration
 
 # Build zeta-server with CUDA support
 WORKDIR /app/llama.cpp
