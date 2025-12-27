@@ -68,7 +68,7 @@ static zeta_dream_config_t g_dream_config = {
     .max_dream_iterations = 5,
     .max_dream_tokens = 512,
     .compression_confidence = 0.7f,
-    .dreams_dir = "/mnt/HoloGit/dreams",
+    .dreams_dir = "/storage/dreams",
     .plateau_threshold = 3         // Jump to random graph node after 3 discards
 };
 

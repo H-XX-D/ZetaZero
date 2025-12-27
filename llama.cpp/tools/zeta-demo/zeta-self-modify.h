@@ -36,8 +36,8 @@ namespace zeta_self_modify {
 // ============================================================================
 
 struct SelfModifyConfig {
-    std::string source_dir = "/home/xx/ZetaZero/llama.cpp/tools/zeta-demo";
-    std::string build_dir = "/home/xx/ZetaZero/llama.cpp/build";
+    std::string source_dir = "/app/llama.cpp/tools/zeta-demo";  // Docker path
+    std::string build_dir = "/app/llama.cpp/build";
     std::string dreams_file = "/tmp/zeta_dreams.txt";
     std::string log_file = "/tmp/zeta_self_modify.log";
 

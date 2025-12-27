@@ -40,15 +40,9 @@ done
 exec /app/zeta-server \
     --host "$ZETA_HOST" \
     --port "$ZETA_PORT" \
-    --model "$MODEL_MAIN" \
+    -m "$MODEL_MAIN" \
     --model-7b-coder "$MODEL_CODER" \
-    --model-embed "$MODEL_EMBED" \
-    --n-gpu-layers "$GPU_LAYERS_MAIN" \
-    --n-gpu-layers-7b "$GPU_LAYERS_CODER" \
-    --ctx-size 16384 \
-    --parallel 4 \
-    --dream-interval "$ZETA_DREAM_INTERVAL" \
-    --dream-dir "$ZETA_DREAM_DIR" \
-    --graph-path "$ZETA_GRAPH_PATH" \
-    --flash-attn \
+    --embed-model "$MODEL_EMBED" \
+    -ngl "$GPU_LAYERS_MAIN" \
+    --zeta-storage "$ZETA_STORAGE" \
     "$@"

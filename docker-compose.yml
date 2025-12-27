@@ -2,11 +2,11 @@ version: '3.8'
 
 services:
   zeta:
-    image: ghcr.io/h-xx-d/zetazero:latest
-    # Uncomment to build locally instead:
-    # build:
-    #   context: .
-    #   dockerfile: Dockerfile
+    # image: ghcr.io/h-xx-d/zetazero:latest
+    # Build locally with dream support:
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: zeta
     restart: unless-stopped
     runtime: nvidia
@@ -77,3 +77,29 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
+
+  # LiteLLM Proxy - Routes to cloud APIs (OpenAI, Anthropic, etc.)
+  # Use with zeta or zeta-lite when you want hybrid local/cloud
+  # Start with: docker-compose --profile litellm up -d
+  litellm-proxy:
+    image: python:3.11-slim
+    container_name: litellm-proxy
+    restart: unless-stopped
+    network_mode: host
+    profiles:
+      - litellm
+    environment:
+      # API Keys - set these in .env or export before running
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      # Model configuration
+      - LITELLM_MODEL=gpt-4o-mini
+      - LITELLM_14B_MODEL=claude-3-5-sonnet-20241022
+      - LITELLM_7B_MODEL=gpt-4o-mini
+      - LITELLM_REASONING_MODEL=claude-3-5-sonnet-20241022
+      - LITELLM_CODE_MODEL=gpt-4o
+    volumes:
+      - ./scripts:/app/scripts:ro
+    working_dir: /app
+    command: >
+      bash -c "pip install litellm && python scripts/litellm_proxy.py --port 8081"

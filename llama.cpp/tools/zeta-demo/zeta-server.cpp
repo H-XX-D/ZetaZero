@@ -13,10 +13,10 @@
 // If no config file found, uses hardcoded Z6 defaults below.
 // ============================================================================
 
-// Z6 DEFAULT MODEL PATHS (RTX 5060 Ti 16GB) - used if no config file
-#define Z6_MODEL_14B    "/home/xx/models/qwen2.5-14b-instruct-q4.gguf"
-#define Z6_MODEL_7B     "/home/xx/models/qwen2.5-7b-coder-q4_k_m.gguf"
-#define Z6_MODEL_EMBED  "/home/xx/models/Qwen3-Embedding-4B-Q4_K_M.gguf"
+// DEFAULT MODEL PATHS - Docker uses /models, override with CLI flags or zeta.conf
+#define Z6_MODEL_14B    "/models/qwen2.5-14b-instruct-q4_k_m.gguf"
+#define Z6_MODEL_7B     "/models/qwen2.5-coder-7b-instruct-q4_k_m.gguf"
+#define Z6_MODEL_EMBED  "/models/nomic-embed-text-v1.5.f16.gguf"
 #define Z6_DEFAULT_PORT 8080
 #define Z6_DEFAULT_GPU_LAYERS 999
 
@@ -149,7 +149,7 @@ static const llama_vocab* g_vocab = nullptr;
 static common_params g_params;
 static std::mutex g_mutex;
 static std::string g_embed_model_path, g_embed_model_code_path;
-static std::string g_storage_dir = "/mnt/HoloGit/blocks";
+static std::string g_storage_dir = "/storage";  // Docker default, override with --zeta-storage
 static int g_n_embd = 0;
 
 // 3B worker thread
@@ -2740,7 +2740,7 @@ int main(int argc, char** argv) {
     int port = g_config.port > 0 ? g_config.port : Z6_DEFAULT_PORT;
     int gpu_layers = g_config.gpu_layers > 0 ? g_config.gpu_layers : Z6_DEFAULT_GPU_LAYERS;
     g_embed_model_path = g_config.model_embed.empty() ? Z6_MODEL_EMBED : g_config.model_embed;
-    g_storage_dir = g_config.storage_dir.empty() ? "/mnt/HoloGit/blocks" : g_config.storage_dir;
+    g_storage_dir = g_config.storage_dir.empty() ? "/storage" : g_config.storage_dir;
     g_ctx_size_14b = g_config.ctx_14b > 0 ? g_config.ctx_14b : ZETA_CTX_SIZE;
     g_ctx_size_3b = g_config.ctx_7b > 0 ? g_config.ctx_7b : ZETA_CTX_SIZE_3B;
 
