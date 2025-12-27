@@ -2,10 +2,11 @@ version: '3.8'
 
 services:
   zeta:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: zetazero:latest
+    image: ghcr.io/h-xx-d/zetazero:latest
+    # Uncomment to build locally instead:
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
     container_name: zeta
     restart: unless-stopped
     runtime: nvidia
@@ -39,10 +40,7 @@ services:
 
   # Smaller config for 8GB VRAM GPUs
   zeta-lite:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: zetazero:latest
+    image: ghcr.io/h-xx-d/zetazero:latest
     container_name: zeta-lite
     restart: unless-stopped
     runtime: nvidia
