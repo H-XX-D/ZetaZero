@@ -337,9 +337,13 @@ cmake --build build --target zeta-server
 - `GET /git/status` - Graph memory status
 - `POST /memory/query` - Semantic memory search
 
+## Contact
+
+For consulting, integration, or enterprise inquiries: todd@hendrixxdesign.com
+
 ## License
 
-Research prototype - created by Alex in 2025
+Research prototype - created in 2025
 
 ---
 
