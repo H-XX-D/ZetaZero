@@ -246,6 +246,51 @@ ZetaRoutingDecision routeWithFallback(const ZetaTask& task, const ZetaResourceSt
 - Load-based fallback at 90%+ load
 - Cascading fallback chain: 14B → 7B → 4B
 
+### Embedding Cache (Dream 085129)
+```cpp
+class EmbeddingCache {
+    bool get(const char* text, float* output, int dim);   // Check cache
+    void put(const char* text, const float* embedding, int dim);  // Store
+};
+```
+- Caches 4B embedding results with 10-minute TTL
+- Max 500 entries with LRU eviction
+- Avoids redundant computation for repeated queries
+
+### Query Prioritization (Dream 085038)
+```cpp
+class ZetaQueryPrioritizer {
+    bool enqueue(const ZetaTask& task, ZetaPriority priority, time_t deadline);
+    bool dequeue(ZetaPrioritizedTask& out_task);
+    float calculatePriorityScore(...);
+};
+```
+- Priority levels: LOW, MEDIUM, HIGH, URGENT
+- Weighted scoring: urgency (30%), complexity (30%), user tier (20%), wait time (20%)
+- Age-based priority upgrades for waiting tasks
+
+### User Satisfaction Feedback (Dream 084453)
+```cpp
+class ZetaSatisfactionTracker {
+    void recordFeedback(const std::string& request_id, const std::string& model, int rating);
+    float getRoutingAdjustment(const std::string& model);
+};
+```
+- Collects 1-5 star ratings per request
+- Calculates per-model satisfaction scores
+- Provides routing adjustment recommendations
+
+### Meta-Router (Dream 085148)
+```cpp
+class ZetaMetaRouter {
+    void registerRouter(const std::string& name, ZetaDynamicRouter* router);
+    ZetaRoutingDecision routeWithMeta(const std::string& query, const ZetaResourceStatus& status);
+};
+```
+- "Router of routers" for strategy selection
+- Evaluates router performance every 100 requests
+- Weighted scoring: response time (40%), accuracy (40%), satisfaction (20%)
+
 ## Files
 
 | File | Purpose |

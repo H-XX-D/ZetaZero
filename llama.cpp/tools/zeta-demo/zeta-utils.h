@@ -312,6 +312,342 @@ struct RoutingCacheEntry {
 };
 
 // ============================================================================
+// DREAM SUGGESTION (085038): Query Prioritization System
+// ============================================================================
+// Implements priority-based routing with scoring algorithm
+
+enum class ZetaPriority {
+    LOW = 0,
+    MEDIUM = 1,
+    HIGH = 2,
+    URGENT = 3
+};
+
+struct ZetaPrioritizedTask {
+    ZetaTask task;
+    ZetaPriority priority;
+    float priority_score;      // 0.0-1.0 composite score
+    time_t submitted_at;
+    time_t deadline;           // 0 = no deadline
+    std::string request_id;
+
+    ZetaPrioritizedTask() : priority(ZetaPriority::MEDIUM), priority_score(0.5f),
+                             submitted_at(0), deadline(0) {}
+};
+
+class ZetaQueryPrioritizer {
+public:
+    // Configuration weights for priority calculation
+    float weight_urgency = 0.3f;        // Time-sensitivity weight
+    float weight_complexity = 0.3f;     // Task complexity weight
+    float weight_user_tier = 0.2f;      // User importance weight
+    float weight_queue_position = 0.2f; // How long waiting
+
+private:
+    std::mutex prioritizer_mutex_;
+    std::vector<ZetaPrioritizedTask> task_queue_;
+    int max_queue_size_ = 100;
+    int tasks_processed_ = 0;
+    int tasks_upgraded_ = 0;  // Priority upgrades due to wait time
+
+public:
+    // Calculate priority score for a task
+    float calculatePriorityScore(const ZetaTask& task, ZetaPriority explicit_priority,
+                                  time_t deadline = 0, float user_tier = 0.5f) {
+        float score = 0.0f;
+
+        // Urgency: based on explicit priority and deadline
+        float urgency = (float)explicit_priority / 3.0f;
+        if (deadline > 0) {
+            time_t now = time(NULL);
+            float time_remaining = (float)(deadline - now);
+            if (time_remaining <= 0) {
+                urgency = 1.0f;  // Past deadline = max urgency
+            } else if (time_remaining < 60) {
+                urgency = std::max(urgency, 0.9f);  // < 1 min
+            } else if (time_remaining < 300) {
+                urgency = std::max(urgency, 0.7f);  // < 5 min
+            }
+        }
+        score += weight_urgency * urgency;
+
+        // Complexity: more complex = potentially more important
+        score += weight_complexity * task.complexity;
+
+        // User tier: premium users get priority
+        score += weight_user_tier * user_tier;
+
+        return std::min(1.0f, score);
+    }
+
+    // Enqueue a task with priority
+    bool enqueue(const ZetaTask& task, ZetaPriority priority,
+                 time_t deadline = 0, float user_tier = 0.5f) {
+        std::lock_guard<std::mutex> lock(prioritizer_mutex_);
+
+        if (task_queue_.size() >= (size_t)max_queue_size_) {
+            // Queue full - reject or evict lowest priority
+            auto min_it = std::min_element(task_queue_.begin(), task_queue_.end(),
+                [](const ZetaPrioritizedTask& a, const ZetaPrioritizedTask& b) {
+                    return a.priority_score < b.priority_score;
+                });
+
+            float new_score = calculatePriorityScore(task, priority, deadline, user_tier);
+            if (new_score <= min_it->priority_score) {
+                return false;  // New task not important enough
+            }
+            task_queue_.erase(min_it);  // Evict lowest
+        }
+
+        ZetaPrioritizedTask pt;
+        pt.task = task;
+        pt.priority = priority;
+        pt.priority_score = calculatePriorityScore(task, priority, deadline, user_tier);
+        pt.submitted_at = time(NULL);
+        pt.deadline = deadline;
+        pt.request_id = std::to_string(time(NULL)) + "_" + std::to_string(rand());
+
+        task_queue_.push_back(pt);
+
+        // Sort by priority score (highest first)
+        std::sort(task_queue_.begin(), task_queue_.end(),
+            [](const ZetaPrioritizedTask& a, const ZetaPrioritizedTask& b) {
+                return a.priority_score > b.priority_score;
+            });
+
+        fprintf(stderr, "[PRIORITIZER] Enqueued task (priority=%.2f, queue_size=%zu)\n",
+                pt.priority_score, task_queue_.size());
+
+        return true;
+    }
+
+    // Dequeue highest priority task
+    bool dequeue(ZetaPrioritizedTask& out_task) {
+        std::lock_guard<std::mutex> lock(prioritizer_mutex_);
+
+        if (task_queue_.empty()) return false;
+
+        // Age-based priority upgrade for waiting tasks
+        time_t now = time(NULL);
+        for (auto& pt : task_queue_) {
+            float wait_time = (float)(now - pt.submitted_at);
+            if (wait_time > 30) {  // Waiting > 30 seconds
+                float boost = weight_queue_position * (wait_time / 60.0f);
+                float new_score = std::min(1.0f, pt.priority_score + boost);
+                if (new_score > pt.priority_score) {
+                    pt.priority_score = new_score;
+                    tasks_upgraded_++;
+                }
+            }
+        }
+
+        // Re-sort after upgrades
+        std::sort(task_queue_.begin(), task_queue_.end(),
+            [](const ZetaPrioritizedTask& a, const ZetaPrioritizedTask& b) {
+                return a.priority_score > b.priority_score;
+            });
+
+        out_task = task_queue_.front();
+        task_queue_.erase(task_queue_.begin());
+        tasks_processed_++;
+
+        return true;
+    }
+
+    // Get queue statistics
+    std::string getStats() const {
+        std::stringstream ss;
+        ss << "=== Query Prioritizer Stats ===\n";
+        ss << "Queue size: " << task_queue_.size() << "/" << max_queue_size_ << "\n";
+        ss << "Tasks processed: " << tasks_processed_ << "\n";
+        ss << "Priority upgrades: " << tasks_upgraded_ << "\n";
+
+        if (!task_queue_.empty()) {
+            ss << "Top priority score: " << task_queue_.front().priority_score << "\n";
+            ss << "Lowest priority score: " << task_queue_.back().priority_score << "\n";
+        }
+
+        return ss.str();
+    }
+
+    int getQueueSize() const { return task_queue_.size(); }
+    bool isEmpty() const { return task_queue_.empty(); }
+};
+
+// Global prioritizer
+static ZetaQueryPrioritizer g_query_prioritizer;
+
+// ============================================================================
+// DREAM SUGGESTION (084453): User Satisfaction Feedback System
+// ============================================================================
+// Collects user ratings and uses them to optimize routing decisions
+
+struct ZetaUserFeedback {
+    std::string request_id;
+    std::string model_used;
+    int rating;               // 1-5 stars
+    time_t timestamp;
+    float response_time_ms;
+    std::string feedback_text;  // Optional text feedback
+};
+
+class ZetaSatisfactionTracker {
+public:
+    // Configuration
+    int min_samples_for_adjustment = 10;
+    float rating_threshold_good = 4.0f;    // Avg >= 4.0 is good
+    float rating_threshold_poor = 2.5f;    // Avg <= 2.5 is poor
+
+private:
+    std::vector<ZetaUserFeedback> feedback_history_;
+    mutable std::mutex feedback_mutex_;
+    int max_history_size_ = 1000;
+
+    // Per-model satisfaction stats
+    struct ModelSatisfaction {
+        std::string model;
+        float total_rating;
+        int rating_count;
+        float avg_rating;
+        time_t last_feedback;
+    };
+    std::map<std::string, ModelSatisfaction> model_satisfaction_;
+
+public:
+    // Record user feedback
+    void recordFeedback(const std::string& request_id, const std::string& model,
+                        int rating, float response_time_ms = 0.0f,
+                        const std::string& text = "") {
+        std::lock_guard<std::mutex> lock(feedback_mutex_);
+
+        // Clamp rating to 1-5
+        rating = std::max(1, std::min(5, rating));
+
+        ZetaUserFeedback fb;
+        fb.request_id = request_id;
+        fb.model_used = model;
+        fb.rating = rating;
+        fb.timestamp = time(NULL);
+        fb.response_time_ms = response_time_ms;
+        fb.feedback_text = text;
+
+        // Add to history
+        feedback_history_.push_back(fb);
+        if (feedback_history_.size() > (size_t)max_history_size_) {
+            feedback_history_.erase(feedback_history_.begin());
+        }
+
+        // Update model satisfaction
+        if (model_satisfaction_.find(model) == model_satisfaction_.end()) {
+            model_satisfaction_[model] = {model, 0.0f, 0, 0.0f, 0};
+        }
+
+        auto& ms = model_satisfaction_[model];
+        ms.total_rating += rating;
+        ms.rating_count++;
+        ms.avg_rating = ms.total_rating / ms.rating_count;
+        ms.last_feedback = time(NULL);
+
+        fprintf(stderr, "[SATISFACTION] Model %s: rating=%d, avg=%.2f (n=%d)\n",
+                model.c_str(), rating, ms.avg_rating, ms.rating_count);
+    }
+
+    // Get average satisfaction for a model
+    float getModelSatisfaction(const std::string& model) const {
+        std::lock_guard<std::mutex> lock(feedback_mutex_);
+
+        auto it = model_satisfaction_.find(model);
+        if (it != model_satisfaction_.end() && it->second.rating_count >= 5) {
+            return it->second.avg_rating;
+        }
+        return 3.0f;  // Default neutral if insufficient data
+    }
+
+    // Get routing adjustment based on satisfaction
+    // Returns: -1.0 to +1.0 (negative = route away, positive = prefer)
+    float getRoutingAdjustment(const std::string& model) const {
+        std::lock_guard<std::mutex> lock(feedback_mutex_);
+
+        auto it = model_satisfaction_.find(model);
+        if (it == model_satisfaction_.end() || it->second.rating_count < min_samples_for_adjustment) {
+            return 0.0f;  // No adjustment without sufficient data
+        }
+
+        float avg = it->second.avg_rating;
+
+        if (avg >= rating_threshold_good) {
+            // Good satisfaction - boost routing
+            return (avg - 3.0f) / 2.0f;  // +0.5 to +1.0
+        } else if (avg <= rating_threshold_poor) {
+            // Poor satisfaction - reduce routing
+            return (avg - 3.0f) / 2.0f;  // -0.25 to -1.0
+        }
+
+        return 0.0f;  // Neutral
+    }
+
+    // Get recommendations for routing thresholds
+    std::string getRoutingRecommendations() const {
+        std::lock_guard<std::mutex> lock(feedback_mutex_);
+
+        std::stringstream ss;
+        ss << "=== Satisfaction-Based Routing Recommendations ===\n";
+
+        for (const auto& [model, ms] : model_satisfaction_) {
+            if (ms.rating_count >= min_samples_for_adjustment) {
+                float adj = getRoutingAdjustment(model);
+                ss << model << ": avg=" << ms.avg_rating << " (n=" << ms.rating_count << ")";
+
+                if (adj > 0.3f) {
+                    ss << " -> INCREASE routing\n";
+                } else if (adj < -0.3f) {
+                    ss << " -> DECREASE routing\n";
+                } else {
+                    ss << " -> maintain current\n";
+                }
+            } else {
+                ss << model << ": insufficient data (n=" << ms.rating_count << ")\n";
+            }
+        }
+
+        return ss.str();
+    }
+
+    // Get overall statistics
+    std::string getStats() const {
+        std::lock_guard<std::mutex> lock(feedback_mutex_);
+
+        std::stringstream ss;
+        ss << "=== User Satisfaction Stats ===\n";
+        ss << "Total feedback entries: " << feedback_history_.size() << "\n\n";
+
+        for (const auto& [model, ms] : model_satisfaction_) {
+            ss << model << ":\n";
+            ss << "  Ratings: " << ms.rating_count << "\n";
+            ss << "  Average: " << ms.avg_rating << "/5\n";
+            ss << "  Routing adjustment: " << getRoutingAdjustment(model) << "\n";
+        }
+
+        return ss.str();
+    }
+
+    // Get recent feedback for analysis
+    std::vector<ZetaUserFeedback> getRecentFeedback(int count = 20) const {
+        std::lock_guard<std::mutex> lock(feedback_mutex_);
+
+        std::vector<ZetaUserFeedback> recent;
+        int start = std::max(0, (int)feedback_history_.size() - count);
+        for (int i = start; i < (int)feedback_history_.size(); i++) {
+            recent.push_back(feedback_history_[i]);
+        }
+        return recent;
+    }
+};
+
+// Global satisfaction tracker
+static ZetaSatisfactionTracker g_satisfaction_tracker;
+
+// ============================================================================
 // DREAM SUGGESTION: Routing Performance Metrics (Feedback Loop)
 // ============================================================================
 
@@ -715,6 +1051,236 @@ static inline ZetaRoutingDecision zeta_route_query(const std::string& query,
                                                     const ZetaResourceStatus& status) {
     ZetaTask task = g_dynamic_router.analyzeQuery(query);
     return g_dynamic_router.route(task, status);
+}
+
+// ============================================================================
+// DREAM SUGGESTION (085148): Meta-Router for Router Selection
+// ============================================================================
+// A "router of routers" that dynamically selects the best routing strategy
+// based on real-time performance metrics
+
+class ZetaMetaRouter {
+public:
+    // Router instance with performance tracking
+    struct RouterInstance {
+        std::string name;
+        ZetaDynamicRouter* router;
+        float response_time_avg_ms;
+        float accuracy_avg;
+        int requests_handled;
+        time_t last_used;
+        bool is_active;
+
+        RouterInstance() : router(nullptr), response_time_avg_ms(0.0f),
+                            accuracy_avg(0.5f), requests_handled(0),
+                            last_used(0), is_active(true) {}
+    };
+
+private:
+    std::vector<RouterInstance> router_pool_;
+    mutable std::mutex meta_mutex_;
+    int active_router_idx_ = 0;
+    int evaluation_window_ = 100;  // Requests before re-evaluation
+    int requests_since_eval_ = 0;
+
+    // Selection weights
+    float weight_response_time_ = 0.4f;
+    float weight_accuracy_ = 0.4f;
+    float weight_satisfaction_ = 0.2f;
+
+public:
+    // Register a router instance
+    void registerRouter(const std::string& name, ZetaDynamicRouter* router) {
+        std::lock_guard<std::mutex> lock(meta_mutex_);
+
+        RouterInstance ri;
+        ri.name = name;
+        ri.router = router;
+        ri.is_active = true;
+        router_pool_.push_back(ri);
+
+        fprintf(stderr, "[META-ROUTER] Registered router '%s' (pool_size=%zu)\n",
+                name.c_str(), router_pool_.size());
+    }
+
+    // Get the currently selected best router
+    ZetaDynamicRouter* getActiveRouter() {
+        std::lock_guard<std::mutex> lock(meta_mutex_);
+
+        if (router_pool_.empty()) return nullptr;
+
+        requests_since_eval_++;
+
+        // Periodic re-evaluation
+        if (requests_since_eval_ >= evaluation_window_) {
+            selectBestRouter();
+            requests_since_eval_ = 0;
+        }
+
+        return router_pool_[active_router_idx_].router;
+    }
+
+    // Record performance for active router
+    void recordPerformance(float response_time_ms, float accuracy) {
+        std::lock_guard<std::mutex> lock(meta_mutex_);
+
+        if (router_pool_.empty()) return;
+
+        auto& ri = router_pool_[active_router_idx_];
+        ri.requests_handled++;
+        ri.last_used = time(NULL);
+
+        // Running average
+        ri.response_time_avg_ms = (ri.response_time_avg_ms * (ri.requests_handled - 1) +
+                                    response_time_ms) / ri.requests_handled;
+        ri.accuracy_avg = (ri.accuracy_avg * (ri.requests_handled - 1) +
+                            accuracy) / ri.requests_handled;
+    }
+
+    // Select the best router based on current metrics
+    void selectBestRouter() {
+        if (router_pool_.size() <= 1) return;
+
+        float best_score = -1.0f;
+        int best_idx = 0;
+
+        for (size_t i = 0; i < router_pool_.size(); i++) {
+            if (!router_pool_[i].is_active) continue;
+
+            const auto& ri = router_pool_[i];
+
+            // Calculate composite score
+            float time_score = 1.0f;
+            if (ri.response_time_avg_ms > 0) {
+                // Lower response time = higher score
+                time_score = 1000.0f / (ri.response_time_avg_ms + 100.0f);
+                time_score = std::min(1.0f, time_score);
+            }
+
+            float accuracy_score = ri.accuracy_avg;
+
+            // Get satisfaction adjustment from global tracker
+            float satisfaction_adj = 0.0f;
+            // Note: Would integrate with g_satisfaction_tracker here
+
+            float score = weight_response_time_ * time_score +
+                          weight_accuracy_ * accuracy_score +
+                          weight_satisfaction_ * (0.5f + satisfaction_adj);
+
+            if (score > best_score) {
+                best_score = score;
+                best_idx = i;
+            }
+        }
+
+        if (best_idx != active_router_idx_) {
+            fprintf(stderr, "[META-ROUTER] Switched from '%s' to '%s' (score=%.3f)\n",
+                    router_pool_[active_router_idx_].name.c_str(),
+                    router_pool_[best_idx].name.c_str(), best_score);
+            active_router_idx_ = best_idx;
+        }
+    }
+
+    // Route query using best router with fallback
+    ZetaRoutingDecision routeWithMeta(const std::string& query,
+                                       const ZetaResourceStatus& status) {
+        ZetaDynamicRouter* router = getActiveRouter();
+
+        if (!router) {
+            // No router available - use default
+            return g_dynamic_router.routeWithFallback(
+                g_dynamic_router.analyzeQuery(query), status);
+        }
+
+        ZetaTask task = router->analyzeQuery(query);
+        return router->routeWithFallback(task, status);
+    }
+
+    // Get statistics for all routers
+    std::string getStats() const {
+        std::lock_guard<std::mutex> lock(meta_mutex_);
+
+        std::stringstream ss;
+        ss << "=== Meta-Router Stats ===\n";
+        ss << "Pool size: " << router_pool_.size() << "\n";
+        ss << "Active router: " << (router_pool_.empty() ? "none" :
+                                     router_pool_[active_router_idx_].name) << "\n";
+        ss << "Requests since eval: " << requests_since_eval_ << "/"
+           << evaluation_window_ << "\n\n";
+
+        for (size_t i = 0; i < router_pool_.size(); i++) {
+            const auto& ri = router_pool_[i];
+            ss << (i == (size_t)active_router_idx_ ? "* " : "  ");
+            ss << ri.name << ": "
+               << ri.requests_handled << " reqs, "
+               << ri.response_time_avg_ms << "ms avg, "
+               << (ri.accuracy_avg * 100) << "% accuracy";
+            if (!ri.is_active) ss << " [INACTIVE]";
+            ss << "\n";
+        }
+
+        return ss.str();
+    }
+
+    // Disable a router temporarily
+    void disableRouter(const std::string& name) {
+        std::lock_guard<std::mutex> lock(meta_mutex_);
+
+        for (auto& ri : router_pool_) {
+            if (ri.name == name) {
+                ri.is_active = false;
+                fprintf(stderr, "[META-ROUTER] Disabled router '%s'\n", name.c_str());
+
+                // Select new active if current was disabled
+                if (router_pool_[active_router_idx_].name == name) {
+                    selectBestRouter();
+                }
+                break;
+            }
+        }
+    }
+
+    // Re-enable a router
+    void enableRouter(const std::string& name) {
+        std::lock_guard<std::mutex> lock(meta_mutex_);
+
+        for (auto& ri : router_pool_) {
+            if (ri.name == name) {
+                ri.is_active = true;
+                fprintf(stderr, "[META-ROUTER] Enabled router '%s'\n", name.c_str());
+                break;
+            }
+        }
+    }
+};
+
+// Global meta-router instance
+static ZetaMetaRouter g_meta_router;
+
+// Convenience function using meta-router
+static inline ZetaRoutingDecision zeta_meta_route(const std::string& query,
+                                                   const ZetaResourceStatus& status) {
+    return g_meta_router.routeWithMeta(query, status);
+}
+
+// ============================================================================
+// DREAM SUGGESTION: Unified Stats Function
+// ============================================================================
+// Gets combined stats from all routing/prioritization systems
+
+static inline std::string zeta_get_all_routing_stats() {
+    std::stringstream ss;
+
+    ss << "\n╔══════════════════════════════════════════════════════════════╗\n";
+    ss << "║            Z.E.T.A. ROUTING SYSTEM STATUS                    ║\n";
+    ss << "╚══════════════════════════════════════════════════════════════╝\n\n";
+
+    ss << g_dynamic_router.getExtendedStats() << "\n";
+    ss << g_query_prioritizer.getStats() << "\n";
+    ss << g_satisfaction_tracker.getStats() << "\n";
+    ss << g_meta_router.getStats() << "\n";
+
+    return ss.str();
 }
 
 #endif // ZETA_UTILS_H

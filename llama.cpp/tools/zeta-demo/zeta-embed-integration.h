@@ -12,6 +12,172 @@
 #include <cmath>
 #include <vector>
 #include <mutex>
+#include <map>
+#include <string>
+
+// ============================================================================
+// DREAM SUGGESTION (085129): Embedding Cache for 4B Model
+// ============================================================================
+// Caches embedding results to avoid redundant computation for repeated queries
+
+struct EmbeddingCacheEntry {
+    std::vector<float> embedding;
+    time_t timestamp;
+    int hits;
+};
+
+class EmbeddingCache {
+public:
+    // Configuration
+    int max_entries = 500;           // Max cached embeddings
+    int ttl_seconds = 600;           // 10 minute TTL
+    int min_text_len = 10;           // Don't cache very short texts
+
+private:
+    std::map<std::string, EmbeddingCacheEntry> cache_;
+    mutable std::mutex cache_mutex_;
+    int cache_hits_ = 0;
+    int cache_misses_ = 0;
+
+    // Simple hash for cache key (first 100 chars lowercase + length)
+    std::string make_key(const char* text) {
+        std::string key;
+        size_t len = strlen(text);
+        size_t copy_len = (len < 100) ? len : 100;
+        for (size_t i = 0; i < copy_len; i++) {
+            key += tolower(text[i]);
+        }
+        key += "_" + std::to_string(len);
+        return key;
+    }
+
+    void prune_expired() {
+        time_t now = time(NULL);
+        auto it = cache_.begin();
+        while (it != cache_.end()) {
+            if (now - it->second.timestamp > ttl_seconds) {
+                it = cache_.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+
+    void prune_lru() {
+        if (cache_.size() <= (size_t)max_entries) return;
+
+        // Find entry with lowest hits and oldest timestamp
+        auto oldest = cache_.begin();
+        for (auto it = cache_.begin(); it != cache_.end(); ++it) {
+            if (it->second.hits < oldest->second.hits ||
+                (it->second.hits == oldest->second.hits &&
+                 it->second.timestamp < oldest->second.timestamp)) {
+                oldest = it;
+            }
+        }
+        cache_.erase(oldest);
+    }
+
+public:
+    // Check cache for existing embedding
+    bool get(const char* text, float* output, int dim) {
+        if (!text || strlen(text) < (size_t)min_text_len) return false;
+
+        std::lock_guard<std::mutex> lock(cache_mutex_);
+
+        std::string key = make_key(text);
+        auto it = cache_.find(key);
+
+        if (it != cache_.end()) {
+            // Check TTL
+            time_t now = time(NULL);
+            if (now - it->second.timestamp > ttl_seconds) {
+                cache_.erase(it);
+                cache_misses_++;
+                return false;
+            }
+
+            // Cache hit
+            int copy_dim = (dim < (int)it->second.embedding.size())
+                           ? dim : (int)it->second.embedding.size();
+            memcpy(output, it->second.embedding.data(), copy_dim * sizeof(float));
+            it->second.hits++;
+            cache_hits_++;
+
+            fprintf(stderr, "[EMBED-CACHE] HIT: %.30s... (hits=%d)\n",
+                    text, it->second.hits);
+            return true;
+        }
+
+        cache_misses_++;
+        return false;
+    }
+
+    // Add embedding to cache
+    void put(const char* text, const float* embedding, int dim) {
+        if (!text || !embedding || strlen(text) < (size_t)min_text_len) return;
+
+        std::lock_guard<std::mutex> lock(cache_mutex_);
+
+        // Prune if needed
+        prune_expired();
+        prune_lru();
+
+        std::string key = make_key(text);
+
+        EmbeddingCacheEntry entry;
+        entry.embedding.resize(dim);
+        memcpy(entry.embedding.data(), embedding, dim * sizeof(float));
+        entry.timestamp = time(NULL);
+        entry.hits = 0;
+
+        cache_[key] = std::move(entry);
+
+        fprintf(stderr, "[EMBED-CACHE] PUT: %.30s... (cache_size=%zu)\n",
+                text, cache_.size());
+    }
+
+    // Get cache statistics
+    std::string get_stats() const {
+        std::lock_guard<std::mutex> lock(cache_mutex_);
+
+        char buf[512];
+        float hit_rate = (cache_hits_ + cache_misses_ > 0)
+                         ? (float)cache_hits_ / (cache_hits_ + cache_misses_) * 100.0f
+                         : 0.0f;
+
+        snprintf(buf, sizeof(buf),
+                 "=== Embedding Cache Stats ===\n"
+                 "Entries: %zu/%d\n"
+                 "Hits: %d\n"
+                 "Misses: %d\n"
+                 "Hit Rate: %.1f%%\n"
+                 "TTL: %d seconds\n",
+                 cache_.size(), max_entries,
+                 cache_hits_, cache_misses_, hit_rate, ttl_seconds);
+
+        return std::string(buf);
+    }
+
+    // Clear cache
+    void clear() {
+        std::lock_guard<std::mutex> lock(cache_mutex_);
+        cache_.clear();
+        cache_hits_ = 0;
+        cache_misses_ = 0;
+        fprintf(stderr, "[EMBED-CACHE] Cleared\n");
+    }
+
+    // Get hit rate for monitoring
+    float get_hit_rate() const {
+        std::lock_guard<std::mutex> lock(cache_mutex_);
+        if (cache_hits_ + cache_misses_ == 0) return 0.0f;
+        return (float)cache_hits_ / (cache_hits_ + cache_misses_);
+    }
+};
+
+// Global embedding cache
+static EmbeddingCache g_embed_cache;
 
 // Embedding model context
 struct zeta_embed_ctx {
@@ -180,10 +346,8 @@ static int zeta_embed_chunk_internal(const char* text, size_t text_len, float* o
 // output must have space for at least embed_dim floats
 // THREAD SAFE: Uses mutex to serialize all embedding operations
 // CHUNKING: Long text is split into overlapping chunks and averaged
+// DREAM SUGGESTION: Uses embedding cache to avoid redundant computation
 static int zeta_embed_text(const char* text, float* output, int max_dim) {
-    // Lock mutex for thread safety - embedding model is NOT thread-safe
-    std::lock_guard<std::mutex> lock(g_embed_mutex);
-
     if (!g_embed_ctx || !g_embed_ctx->initialized) {
         return -1;
     }
@@ -199,6 +363,14 @@ static int zeta_embed_text(const char* text, float* output, int max_dim) {
         memset(output, 0, g_embed_ctx->embed_dim * sizeof(float));
         return g_embed_ctx->embed_dim;
     }
+
+    // DREAM SUGGESTION (085129): Check embedding cache first
+    if (g_embed_cache.get(text, output, max_dim)) {
+        return g_embed_ctx->embed_dim;  // Cache hit - return immediately
+    }
+
+    // Lock mutex for thread safety - embedding model is NOT thread-safe
+    std::lock_guard<std::mutex> lock(g_embed_mutex);
 
     // Chunking parameters: ~4 chars per token, 512 token context
     // Use 1500 chars per chunk with 300 char overlap for safety
@@ -227,6 +399,10 @@ static int zeta_embed_text(const char* text, float* output, int max_dim) {
                 output[i] /= norm;
             }
         }
+
+        // DREAM SUGGESTION (085129): Cache the computed embedding
+        g_embed_cache.put(text, output, copy_dim);
+
         return copy_dim;
     }
 
@@ -305,6 +481,9 @@ static int zeta_embed_text(const char* text, float* output, int max_dim) {
             output[i] /= norm;
         }
     }
+
+    // DREAM SUGGESTION (085129): Cache the computed embedding
+    g_embed_cache.put(text, output, copy_dim);
 
     return copy_dim;
 }
