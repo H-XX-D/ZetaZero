@@ -158,7 +158,7 @@ static inline bool zeta_load_config() {
         return false;
     }
 
-    // Apply config values
+    // Apply config file values
     if (config.count("MODEL_14B")) g_config.model_14b = config["MODEL_14B"];
     if (config.count("MODEL_7B_CODER")) g_config.model_7b_coder = config["MODEL_7B_CODER"];
     if (config.count("MODEL_EMBED")) g_config.model_embed = config["MODEL_EMBED"];
@@ -179,6 +179,45 @@ static inline bool zeta_load_config() {
     if (config.count("ZETA_STORAGE")) g_config.storage_dir = config["ZETA_STORAGE"];
     if (config.count("ZETA_LOG")) g_config.log_file = config["ZETA_LOG"];
     if (config.count("ZETA_PASSWORD")) g_config.password = config["ZETA_PASSWORD"];
+
+    // Environment variables OVERRIDE config file (for Docker compatibility)
+    // Check both MODEL_MAIN (Docker) and MODEL_14B (native) naming conventions
+    const char* env_val;
+    if ((env_val = getenv("MODEL_MAIN")) && strlen(env_val) > 0) {
+        g_config.model_14b = env_val;
+        fprintf(stderr, "[CONFIG] MODEL_MAIN env override: %s\n", env_val);
+    }
+    if ((env_val = getenv("MODEL_14B")) && strlen(env_val) > 0) {
+        g_config.model_14b = env_val;
+        fprintf(stderr, "[CONFIG] MODEL_14B env override: %s\n", env_val);
+    }
+    if ((env_val = getenv("MODEL_CODER")) && strlen(env_val) > 0) {
+        g_config.model_7b_coder = env_val;
+        fprintf(stderr, "[CONFIG] MODEL_CODER env override: %s\n", env_val);
+    }
+    if ((env_val = getenv("MODEL_7B_CODER")) && strlen(env_val) > 0) {
+        g_config.model_7b_coder = env_val;
+        fprintf(stderr, "[CONFIG] MODEL_7B_CODER env override: %s\n", env_val);
+    }
+    if ((env_val = getenv("MODEL_EMBED")) && strlen(env_val) > 0) {
+        g_config.model_embed = env_val;
+        fprintf(stderr, "[CONFIG] MODEL_EMBED env override: %s\n", env_val);
+    }
+    if ((env_val = getenv("ZETA_HOST")) && strlen(env_val) > 0) {
+        g_config.host = env_val;
+    }
+    if ((env_val = getenv("ZETA_PORT")) && strlen(env_val) > 0) {
+        g_config.port = atoi(env_val);
+    }
+    if ((env_val = getenv("GPU_LAYERS")) && strlen(env_val) > 0) {
+        g_config.gpu_layers = atoi(env_val);
+    }
+    if ((env_val = getenv("GPU_LAYERS_MAIN")) && strlen(env_val) > 0) {
+        g_config.gpu_layers = atoi(env_val);
+    }
+    if ((env_val = getenv("ZETA_STORAGE")) && strlen(env_val) > 0) {
+        g_config.storage_dir = env_val;
+    }
 
     g_config.loaded = true;
     return true;
