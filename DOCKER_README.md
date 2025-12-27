@@ -19,8 +19,15 @@ Each dream is a markdown file with concrete code suggestions based on YOUR archi
 ## Quick Start
 
 ```bash
+# Option 1: Pull pre-built image (fastest)
+docker pull ghcr.io/h-xx-d/zetazero:latest
 ./scripts/setup.sh          # Download models
 docker-compose up -d         # Start Z.E.T.A.
+
+# Option 2: Build from source
+./scripts/setup.sh          # Download models
+docker build -t zetazero:latest .
+docker-compose up -d
 ```
 
 Now running at `http://localhost:8080`.
