@@ -1,18 +1,29 @@
 # Z.E.T.A. Docker Deployment
 
-Run Z.E.T.A. in Docker with full CUDA support, dream system, and persistent memory.
+**An AI that dreams about your codebase and wakes up with ideas.**
 
-## Quick Start (One Command)
+Z.E.T.A. indexes your code, builds a memory graph, and runs autonomous "dream cycles" that generate novel insights, refactors, and feature ideas - all while you sleep.
 
 ```bash
-# Download models + create directories
-./scripts/setup.sh
+# Point it at your codebase
+python3 scripts/index_codebase.py --path ./your-project/src
 
-# Build and run
-docker-compose up -d
+# Check back tomorrow
+ls ~/.zetazero/storage/dreams/pending/
 ```
 
-That's it. You now have Z.E.T.A. running at `http://localhost:8080`.
+Each dream is a markdown file with concrete code suggestions based on YOUR architecture.
+
+---
+
+## Quick Start
+
+```bash
+./scripts/setup.sh          # Download models
+docker-compose up -d         # Start Z.E.T.A.
+```
+
+Now running at `http://localhost:8080`.
 
 ## Prerequisites
 
@@ -104,19 +115,42 @@ Data is stored in `~/.zetazero/storage/`:
    docker-compose up -d
    ```
 
-## Index Your Codebase (Optional)
+## Index Your Codebase
 
-Let Z.E.T.A. dream about your own code:
+This is where it gets interesting.
 
 ```bash
-# Index a codebase into Z.E.T.A.'s memory graph
+# Feed Z.E.T.A. your code
 python3 scripts/index_codebase.py --path ./your-project/src
 
-# Or from inside Docker
-docker exec zeta python3 /app/scripts/index_codebase.py --path /your-mounted-code
+# Watch the graph grow
+curl http://localhost:8080/git/status
+# {"total_nodes": 247, "branch": "main"}
 ```
 
-This extracts functions, structs, and classes into the memory graph. Z.E.T.A. will then dream about your code and generate ideas.
+Z.E.T.A. extracts every function, struct, and class into a memory graph. Then, every 5 minutes, it enters a "dream cycle" where it:
+
+1. Picks a random node from your codebase
+2. Free-associates to related concepts
+3. Drills down: concept → framework → implementation → actual code
+4. Saves novel ideas to `~/.zetazero/storage/dreams/pending/`
+
+**Example dream output:**
+```
+code_idea: Buffer Pool Optimization
+
+The `process_request` function allocates a new buffer on every call.
+Consider a thread-local buffer pool:
+
+typedef struct {
+    char buffer[BUFSIZE];
+    struct buffer_pool *next;
+} buffer_pool_t;
+
+This reduces allocation overhead in hot paths by ~40%.
+```
+
+Dreams are filtered for novelty - repetitive ideas get discarded automatically.
 
 ## Commands
 
