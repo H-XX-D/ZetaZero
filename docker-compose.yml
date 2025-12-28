@@ -31,8 +31,8 @@ services:
       # Auto-index your codebase on first run (uncomment and set path)
       # - INDEX_PATH=/codebase
     volumes:
-      # Mount zeta.conf for configuration (if present, overrides env vars)
-      - ./zeta.conf:/app/zeta.conf:ro
+      # Optional: Mount your zeta.conf (copy from zeta.conf.example first)
+      # - ./zeta.conf:/app/zeta.conf:ro
       # Mount models from host
       - ~/models:/models:ro
       # Persist storage (dreams, graph, memories)

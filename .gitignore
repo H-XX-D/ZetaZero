@@ -181,3 +181,6 @@ dist
 node_modules
 .vscode-test/
 *.vsix
+
+# Z.E.T.A. local config (use zeta.conf.example as template)
+zeta.conf

@@ -1,0 +1,63 @@
+# =============================================================================
+# Z.E.T.A. Configuration File - EXAMPLE
+# =============================================================================
+# Copy this file to zeta.conf and customize for your setup.
+#
+# DOCKER: Mount your customized zeta.conf:
+#   docker run -v ./zeta.conf:/app/zeta.conf:ro ghcr.io/h-xx-d/zetazero:latest
+#
+# NATIVE: Place in ./zeta.conf, ~/ZetaZero/zeta.conf, or /etc/zeta/zeta.conf
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# SERVER
+# -----------------------------------------------------------------------------
+ZETA_HOST="0.0.0.0"
+ZETA_PORT="8080"
+
+# -----------------------------------------------------------------------------
+# MODELS - Download from HuggingFace
+# -----------------------------------------------------------------------------
+# Docker mounts models to /models
+# Native: change to your model directory
+
+MODEL_14B="/models/qwen2.5-14b-instruct-q4_k_m.gguf"
+MODEL_7B_CODER="/models/qwen2.5-coder-7b-instruct-q4_k_m.gguf"
+MODEL_EMBED="/models/nomic-embed-text-v1.5.f16.gguf"
+
+# -----------------------------------------------------------------------------
+# GPU
+# -----------------------------------------------------------------------------
+GPU_LAYERS="999"    # 999=all GPU, 0=CPU only
+CTX_14B="4096"
+CTX_7B="2048"
+CTX_EMBED="512"
+BATCH_SIZE="2048"
+
+# -----------------------------------------------------------------------------
+# STORAGE
+# -----------------------------------------------------------------------------
+ZETA_STORAGE="/storage"
+
+# -----------------------------------------------------------------------------
+# OPTIONAL: Index codebase on startup
+# -----------------------------------------------------------------------------
+# INDEX_PATH="/codebase"
+
+# =============================================================================
+# HARDWARE PRESETS - Uncomment for your GPU
+# =============================================================================
+
+# --- 12GB GPU (RTX 3060 12GB, 4070) ---
+# MODEL_7B_CODER=""
+# CTX_14B="2048"
+
+# --- 8GB GPU (RTX 3060 8GB, 4060) ---
+# MODEL_14B="/models/qwen2.5-7b-instruct-q4_k_m.gguf"
+# MODEL_7B_CODER="/models/qwen2.5-coder-3b-instruct-q4_k_m.gguf"
+# GPU_LAYERS="40"
+
+# --- CPU Only ---
+# GPU_LAYERS="0"
+# MODEL_14B="/models/qwen2.5-7b-instruct-q4_k_m.gguf"
+# CTX_14B="2048"
