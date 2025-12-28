@@ -1,15 +1,18 @@
 # Z6-specific docker-compose override
 # Use with: docker-compose -f docker-compose.yml -f docker-compose.z6.yml up -d
 #
-# This mounts Z6's existing graph storage at /mnt/HoloGit/blocks
-# which contains the pre-trained memory graph
+# This uses Z6's zeta.conf which points to:
+#   - Models at /home/xx/models/
+#   - Storage at /mnt/HoloGit/blocks (existing graph)
 
 version: '3.8'
 
 services:
   zeta:
     volumes:
+      # Z6 zeta.conf has all paths configured
+      - ./zeta.conf:/app/zeta.conf:ro
       # Override storage to use existing Z6 graph
       - /mnt/HoloGit/blocks:/storage
-      # Models are in standard location on Z6
-      - ~/models:/models:ro
+      # Models as configured in zeta.conf
+      - /home/xx/models:/models:ro
