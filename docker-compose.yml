@@ -1,5 +1,8 @@
 version: '3.8'
 
+# For Z6 with existing graph: docker-compose -f docker-compose.yml -f docker-compose.z6.yml up -d
+# For new deployments: docker-compose up -d (starts with empty graph)
+
 services:
   zeta:
     # image: ghcr.io/h-xx-d/zetazero:latest

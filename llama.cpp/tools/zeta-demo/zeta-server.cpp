@@ -4390,9 +4390,15 @@ int main(int argc, char** argv) {
             json += buf;
         }
         json += "], \"edges\": [";
-        for (int i = 0; i < g_dual->num_edges && i < 100; i++) {
-            if (i > 0) json += ",";
+        int edge_count = 0;
+        for (int i = 0; i < g_dual->num_edges && edge_count < 100; i++) {
             auto& e = g_dual->edges[i];
+            // Skip uninitialized/garbage edges (source and target must be valid node IDs)
+            if (e.source_id <= 0 || e.target_id <= 0) continue;
+            // Skip edges with garbage weights (valid weights are 0.0-1.0)
+            if (e.weight < 0.0f || e.weight > 1.0f) continue;
+            if (edge_count > 0) json += ",";
+            edge_count++;
             char buf[128];
             snprintf(buf, sizeof(buf),
                 "{\"src\": %lld, \"tgt\": %lld, \"type\": %d, \"w\": %.2f}",
