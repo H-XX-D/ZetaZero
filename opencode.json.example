@@ -1,5 +1,6 @@
 {
   "$schema": "https://opencode.ai/opencode.schema.json",
+  "_comment": "API URL should match ZETA_HOST:ZETA_PORT from zeta.conf",
   "provider": {
     "zeta": {
       "name": "Z.E.T.A. Cognitive Stack",
@@ -32,5 +33,5 @@
       }
     }
   },
-  "model": "zeta/zeta-cognitive"
+  "_see_also": "Configure Z.E.T.A. server in zeta.conf"
 }
