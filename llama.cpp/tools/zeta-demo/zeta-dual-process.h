@@ -75,7 +75,7 @@ typedef enum {
     NODE_RELATION     // Relationship type
 } zeta_node_type_t;
 
-// Graph edge types  
+// Graph edge types
 typedef enum {
     EDGE_IS_A,        // Type relationship
     EDGE_HAS,         // Possession
@@ -87,6 +87,17 @@ typedef enum {
     EDGE_CAUSES,      // Causal relationship (A causes B)
     EDGE_PREVENTS     // Preventive relationship (A prevents B)
 } zeta_edge_type_t;
+
+// Ternary edge polarity (Balanced Ternary Logic)
+// Superior to binary for knowledge graphs:
+//   +1 = CORROBORATES (evidence supports this relationship)
+//    0 = UNKNOWN (relationship exists but truth value unclear)
+//   -1 = CONTRADICTS (evidence opposes this relationship)
+typedef enum {
+    POLARITY_CONTRADICTS = -1,  // A contradicts B (evidence against)
+    POLARITY_UNKNOWN = 0,       // Relationship unclear or neutral
+    POLARITY_CORROBORATES = 1   // A corroborates B (evidence for)
+} zeta_edge_polarity_t;
 
 // Source tag for trust hierarchy
 typedef enum {
@@ -141,7 +152,9 @@ typedef struct {
     int64_t source_id;
     int64_t target_id;
     zeta_edge_type_t type;
-    float weight;              // Edge strength
+    zeta_edge_polarity_t polarity;  // Ternary: +1=corroborates, 0=unknown, -1=contradicts
+    float weight;              // Edge strength (0.0-1.0)
+    float confidence;          // Confidence in polarity (0.0-1.0)
     int64_t created_at;
     int version;               // For versioning
 } zeta_graph_edge_t;
@@ -190,6 +203,9 @@ static inline int64_t zeta_create_node(zeta_dual_ctx_t* ctx, zeta_node_type_t ty
     return zeta_create_node_with_source(ctx, type, label, value, salience, SOURCE_USER);
 }
 static inline int64_t zeta_create_edge(zeta_dual_ctx_t*, int64_t, int64_t, zeta_edge_type_t, float);
+static inline int64_t zeta_create_edge_ternary(zeta_dual_ctx_t*, int64_t, int64_t, zeta_edge_type_t, zeta_edge_polarity_t, float);
+static inline zeta_edge_polarity_t zeta_ternary_consensus(zeta_edge_polarity_t, zeta_edge_polarity_t);
+static inline int zeta_find_contradictions(zeta_dual_ctx_t*, int64_t, int64_t, zeta_edge_type_t, int64_t*, int);
 
 // ============================================================================
 // 3B Subconscious Operations
@@ -491,12 +507,75 @@ static inline int64_t zeta_create_edge(
     edge->source_id = source_id;
     edge->target_id = target_id;
     edge->type = type;
+    edge->polarity = POLARITY_CORROBORATES;  // Default: positive assertion
     edge->weight = weight;
+    edge->confidence = weight;  // Use weight as initial confidence
     edge->created_at = (int64_t)time(NULL);
     edge->version = 1;
 
     ctx->num_edges++;
     return edge->edge_id;
+}
+
+// Create edge with explicit ternary polarity
+static inline int64_t zeta_create_edge_ternary(
+    zeta_dual_ctx_t* ctx,
+    int64_t source_id,
+    int64_t target_id,
+    zeta_edge_type_t type,
+    zeta_edge_polarity_t polarity,
+    float confidence
+) {
+    if (!ctx || ctx->num_edges >= ZETA_MAX_EDGES) return -1;
+
+    zeta_graph_edge_t* edge = &ctx->edges[ctx->num_edges];
+    edge->edge_id = ctx->next_edge_id++;
+    edge->source_id = source_id;
+    edge->target_id = target_id;
+    edge->type = type;
+    edge->polarity = polarity;
+    edge->weight = confidence;  // Weight = confidence for compatibility
+    edge->confidence = confidence;
+    edge->created_at = (int64_t)time(NULL);
+    edge->version = 1;
+
+    ctx->num_edges++;
+    return edge->edge_id;
+}
+
+// CONSENSUS: Merge two edges with ternary logic
+// If they agree, return value. If one unknown, return other. If disagree, return unknown (conflict).
+static inline zeta_edge_polarity_t zeta_ternary_consensus(
+    zeta_edge_polarity_t a,
+    zeta_edge_polarity_t b
+) {
+    if (a == b) return a;  // Agreement
+    if (a == POLARITY_UNKNOWN) return b;  // A unknown, use B
+    if (b == POLARITY_UNKNOWN) return a;  // B unknown, use A
+    return POLARITY_UNKNOWN;  // Conflict: +1 vs -1 → 0 (uncertain)
+}
+
+// Find contradicting edges for a relationship
+static inline int zeta_find_contradictions(
+    zeta_dual_ctx_t* ctx,
+    int64_t source_id,
+    int64_t target_id,
+    zeta_edge_type_t type,
+    int64_t* contradicting_edges,
+    int max_results
+) {
+    int count = 0;
+    for (int i = 0; i < ctx->num_edges && count < max_results; i++) {
+        zeta_graph_edge_t* edge = &ctx->edges[i];
+        // Same source-target-type but opposite polarity
+        if (edge->source_id == source_id &&
+            edge->target_id == target_id &&
+            edge->type == type &&
+            edge->polarity == POLARITY_CONTRADICTS) {
+            contradicting_edges[count++] = edge->edge_id;
+        }
+    }
+    return count;
 }
 
 // Smart edge commit: routes through GitGraph when enabled (tracked/permanent)
