@@ -1783,7 +1783,7 @@ static std::string generate(const std::string& prompt, int max_tokens) {
         }
 
         // Add TRM recursive context if available
-        std::string trm_ctx = g_trm.retrieve(prompt, 3);
+        std::string trm_ctx = g_trm.retrieve_context(prompt);
         if (!trm_ctx.empty()) {
             zeta_context += "\n[TRM_CONTEXT]\n" + trm_ctx + "\n[/TRM_CONTEXT]\n";
         }
