@@ -61,3 +61,23 @@ ZETA_STORAGE="/storage"
 # GPU_LAYERS="0"
 # MODEL_14B="/models/qwen2.5-7b-instruct-q4_k_m.gguf"
 # CTX_14B="2048"
+
+# =============================================================================
+# OPENCODE INTEGRATION
+# =============================================================================
+# Z.E.T.A. exposes OpenAI-compatible endpoints for use with OpenCode, LiteLLM,
+# and other OpenAI-compatible clients.
+#
+# Endpoints (enabled automatically):
+#   POST /v1/chat/completions - Chat completions API
+#   GET  /v1/models           - List available models
+#
+# To use with OpenCode:
+#   1. Copy opencode.json.example to your project as opencode.json
+#   2. Update the API URL to match ZETA_HOST:ZETA_PORT
+#   3. Run: opencode -m zeta/zeta-cognitive
+#
+# Available models:
+#   - zeta-cognitive (14B reasoning + memory graph)
+#   - zeta-coder (7B code generation)
+# =============================================================================
