@@ -149,6 +149,7 @@ static llama_model* g_model_coder = nullptr;  // Coder model
 static const llama_vocab* g_vocab = nullptr;
 static common_params g_params;
 static std::mutex g_mutex;
+static std::atomic<bool> g_user_active{false};  // Prevents dream thread during user operations
 static std::string g_embed_model_path, g_embed_model_code_path;
 static std::string g_storage_dir = "/storage";  // Docker default, override with --zeta-storage
 static int g_n_embd = 0;
@@ -1766,6 +1767,9 @@ static std::string generate_chunked_output(const std::string& prompt, int max_to
 
 static std::string generate(const std::string& prompt, int max_tokens) {
     std::lock_guard<std::mutex> lock(g_mutex);
+    g_user_active = true;  // Block dream thread while user query is running
+    auto user_active_guard = [](void*) { g_user_active = false; };
+    std::unique_ptr<void, decltype(user_active_guard)> guard((void*)1, user_active_guard);
 
     fprintf(stderr, "[GENERATE] Received prompt (len=%zu): %.60s...\n", prompt.size(), prompt.c_str());
 
@@ -4515,6 +4519,10 @@ int main(int argc, char** argv) {
     // Graph-KV warmup endpoint - capture KV for existing nodes
     svr.Post("/gkv/warmup", [](const httplib::Request& req, httplib::Response& res) {
         std::lock_guard<std::mutex> lock(g_mutex);
+        g_user_active = true;  // Block dream thread during warmup
+        ZETA_DREAM_WAKE();     // Wake from any active dream
+        auto user_active_guard = [](void*) { g_user_active = false; };
+        std::unique_ptr<void, decltype(user_active_guard)> guard((void*)1, user_active_guard);
         res.set_header("Access-Control-Allow-Origin", "*");
 
         if (!g_gkv_ctx || !g_ctx_conscious || !g_dual) {
@@ -5383,7 +5391,20 @@ int main(int argc, char** argv) {
     fprintf(stderr, "\n[DREAM] Initializing Dream State Manager...\n");
     g_dream_state.init(g_dual, [](const std::string& prompt, int max_tokens, float temp, float penalty) -> std::string {
         // Dream generation callback - runs with custom temperature/penalty
+        // CRITICAL: Check if user activity is pending BEFORE acquiring mutex
+        // This allows user queries to preempt dream generation
+        if (g_user_active.load()) {
+            fprintf(stderr, "[DREAM-GEN] Skipped - user activity pending\n");
+            return "";
+        }
+
         std::lock_guard<std::mutex> lock(g_mutex);
+
+        // Double-check after acquiring mutex in case user became active while waiting
+        if (g_user_active.load()) {
+            fprintf(stderr, "[DREAM-GEN] Aborted - user became active while waiting for mutex\n");
+            return "";
+        }
 
         if (!g_model_conscious || !g_ctx_conscious || !g_vocab) return "";
 
@@ -5428,6 +5449,13 @@ int main(int argc, char** argv) {
         int kv_pos = n_tokens;
 
         for (int i = 0; i < max_tokens; i++) {
+            // CRITICAL: Abort dream generation immediately if user activity detected
+            // This prevents dreams from blocking user queries
+            if (g_user_active.load()) {
+                fprintf(stderr, "[DREAM-GEN] Aborting - user activity detected (generated %zu chars)\n", result.size());
+                break;
+            }
+
             llama_token tok = common_sampler_sample(sampler, g_ctx_conscious, -1);
             common_sampler_accept(sampler, tok, true);
 
