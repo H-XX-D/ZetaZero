@@ -39,6 +39,14 @@ BATCH_SIZE="2048"
 # -----------------------------------------------------------------------------
 ZETA_STORAGE="/storage"
 
+# Graph-KV cache directory (for prefill acceleration)
+# Stores quantized attention states for fast concept retrieval
+ZETA_GKV_DIR="/storage/graph_kv"
+
+# Dream directory (for idle-time memory consolidation)
+# Dreams are generated when system is idle, stored here for review
+ZETA_DREAM_DIR="/storage/dreams"
+
 # -----------------------------------------------------------------------------
 # OPTIONAL: Index codebase on startup
 # -----------------------------------------------------------------------------

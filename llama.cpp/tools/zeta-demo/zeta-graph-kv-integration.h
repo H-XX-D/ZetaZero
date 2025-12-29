@@ -25,10 +25,12 @@ static zeta_gkv_ctx_t* g_gkv_ctx = nullptr;
 
 // Initialize Graph-KV system
 // Call after model and dual-process are initialized
+// If gkv_dir_override is provided, use it directly; otherwise append "/graph_kv" to storage_dir
 static inline bool zeta_gkv_integration_init(
     const struct llama_model* model,
     const char* storage_dir,
-    int max_cached_segments = 128
+    int max_cached_segments = 128,
+    const char* gkv_dir_override = nullptr
 ) {
     if (g_gkv_ctx) {
         fprintf(stderr, "[GKV] Already initialized\n");
@@ -36,7 +38,11 @@ static inline bool zeta_gkv_integration_init(
     }
 
     char gkv_dir[1024];
-    snprintf(gkv_dir, sizeof(gkv_dir), "%s/graph_kv", storage_dir);
+    if (gkv_dir_override && gkv_dir_override[0] != '\0') {
+        snprintf(gkv_dir, sizeof(gkv_dir), "%s", gkv_dir_override);
+    } else {
+        snprintf(gkv_dir, sizeof(gkv_dir), "%s/graph_kv", storage_dir);
+    }
 
     g_gkv_ctx = zeta_gkv_init(model, gkv_dir, max_cached_segments);
     if (!g_gkv_ctx) {

@@ -42,6 +42,8 @@ struct zeta_config_t {
 
     // Paths
     std::string storage_dir;
+    std::string gkv_dir;      // Graph-KV cache directory
+    std::string dream_dir;    // Dream output directory
     std::string log_file;
 
     // Auth
@@ -66,6 +68,8 @@ static zeta_config_t g_config = {
     512,            // ctx_embed
     2048,           // batch_size
     "/storage",     // storage_dir
+    "/storage/graph_kv",    // gkv_dir
+    "/storage/dreams",      // dream_dir
     "/tmp/zeta.log",// log_file
     "zeta1234",     // password
     false           // loaded
@@ -177,6 +181,8 @@ static inline bool zeta_load_config() {
     if (config.count("BATCH_SIZE")) g_config.batch_size = atoi(config["BATCH_SIZE"].c_str());
 
     if (config.count("ZETA_STORAGE")) g_config.storage_dir = config["ZETA_STORAGE"];
+    if (config.count("ZETA_GKV_DIR")) g_config.gkv_dir = config["ZETA_GKV_DIR"];
+    if (config.count("ZETA_DREAM_DIR")) g_config.dream_dir = config["ZETA_DREAM_DIR"];
     if (config.count("ZETA_LOG")) g_config.log_file = config["ZETA_LOG"];
     if (config.count("ZETA_PASSWORD")) g_config.password = config["ZETA_PASSWORD"];
 
@@ -195,7 +201,10 @@ static inline void zeta_print_config() {
     fprintf(stderr, "  Port:    %d\n", g_config.port);
     fprintf(stderr, "  GPU:     %d layers\n", g_config.gpu_layers);
     fprintf(stderr, "  Context: 14B=%d, 7B=%d, Embed=%d\n", g_config.ctx_14b, g_config.ctx_7b, g_config.ctx_embed);
-    fprintf(stderr, "Storage:   %s\n", g_config.storage_dir.c_str());
+    fprintf(stderr, "Paths:\n");
+    fprintf(stderr, "  Storage: %s\n", g_config.storage_dir.c_str());
+    fprintf(stderr, "  GKV:     %s\n", g_config.gkv_dir.c_str());
+    fprintf(stderr, "  Dreams:  %s\n", g_config.dream_dir.c_str());
     fprintf(stderr, "==============================\n\n");
 }
 

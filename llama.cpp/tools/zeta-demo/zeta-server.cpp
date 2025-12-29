@@ -3079,7 +3079,8 @@ int main(int argc, char** argv) {
 
     // Initialize Graph-KV: Pre-computed KV cache for graph nodes
     // Skips prefill on retrieval by loading cached transformer states
-    if (zeta_gkv_integration_init(g_model_conscious, g_storage_dir.c_str(), 128)) {
+    const char* gkv_dir = g_config.gkv_dir.empty() ? nullptr : g_config.gkv_dir.c_str();
+    if (zeta_gkv_integration_init(g_model_conscious, g_storage_dir.c_str(), 128, gkv_dir)) {
         fprintf(stderr, "[GKV] Graph-KV cache enabled (skip prefill on retrieval)\n");
     }
 
@@ -5389,6 +5390,11 @@ int main(int argc, char** argv) {
     // Initialize Dream State Manager
     // The dream cycle runs when idle, consolidating memories with high-temp free association
     fprintf(stderr, "\n[DREAM] Initializing Dream State Manager...\n");
+    // Configure dream directory from config (if set)
+    if (!g_config.dream_dir.empty()) {
+        g_dream_config.dreams_dir = g_config.dream_dir;
+        fprintf(stderr, "[DREAM] Using configured dream dir: %s\n", g_config.dream_dir.c_str());
+    }
     g_dream_state.init(g_dual, [](const std::string& prompt, int max_tokens, float temp, float penalty) -> std::string {
         // Dream generation callback - runs with custom temperature/penalty
         // CRITICAL: Check if user activity is pending BEFORE acquiring mutex
