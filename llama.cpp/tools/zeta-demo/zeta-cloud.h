@@ -152,10 +152,14 @@ inline std::string call_openai(const std::string& prompt, const std::string& con
         return "{\"error\": \"No OpenAI API key configured\"}";
     }
 
-    // Build the enhanced prompt with Z.E.T.A. context
+    // Build the enhanced prompt with Z.E.T.A. context translated to natural language
     std::string enhanced_prompt;
     if (!context.empty()) {
-        enhanced_prompt = "[ZETA_CONTEXT]\n" + context + "\n[/ZETA_CONTEXT]\n\n" + prompt;
+        enhanced_prompt =
+            "The following is relevant context from a local knowledge graph and memory system. "
+            "Use this information to provide a more informed response, but prioritize the user's actual question.\n\n"
+            "--- RELEVANT CONTEXT ---\n" + context + "\n--- END CONTEXT ---\n\n"
+            "User's question: " + prompt;
     } else {
         enhanced_prompt = prompt;
     }
@@ -199,10 +203,14 @@ inline std::string call_anthropic(const std::string& prompt, const std::string& 
         return "{\"error\": \"No Anthropic API key configured\"}";
     }
 
-    // Build the enhanced prompt with Z.E.T.A. context
+    // Build the enhanced prompt with Z.E.T.A. context translated to natural language
     std::string enhanced_prompt;
     if (!context.empty()) {
-        enhanced_prompt = "[ZETA_CONTEXT]\n" + context + "\n[/ZETA_CONTEXT]\n\n" + prompt;
+        enhanced_prompt =
+            "The following is relevant context from a local knowledge graph and memory system. "
+            "Use this information to provide a more informed response, but prioritize the user's actual question.\n\n"
+            "--- RELEVANT CONTEXT ---\n" + context + "\n--- END CONTEXT ---\n\n"
+            "User's question: " + prompt;
     } else {
         enhanced_prompt = prompt;
     }
