@@ -334,6 +334,35 @@ static inline int zeta_proactive_prefetch(
 }
 
 // ============================================================================
+// Copy proactive queue to stream_state for GKV injection
+// ============================================================================
+
+static inline void zeta_proactive_copy_to_stream(
+    zeta_stream_state_t* stream_state,
+    int count
+) {
+    if (!g_proactive || !stream_state || count <= 0) return;
+
+    std::lock_guard<std::mutex> lock(g_proactive->queue_mutex);
+
+    // Reset stream_state active nodes
+    stream_state->num_active = 0;
+
+    // Copy from proactive queue to stream_state active array
+    int to_copy = std::min(count, (int)g_proactive->queue_size);
+    to_copy = std::min(to_copy, ZETA_STREAM_CAPACITY);
+
+    for (int i = 0; i < to_copy; i++) {
+        stream_state->active[i].node_id = g_proactive->queue[i].node_id;
+        stream_state->active[i].priority = g_proactive->queue[i].relevance;
+        stream_state->active[i].tokens_consumed = g_proactive->queue[i].tokens;
+        stream_state->active[i].served = false;  // Not yet used for generation
+    }
+
+    stream_state->num_active = to_copy;
+}
+
+// ============================================================================
 // Parallel Prefetch: 7B watches 14B output and fetches related nodes
 // ============================================================================
 

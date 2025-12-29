@@ -1921,6 +1921,11 @@ static std::string generate(const std::string& prompt, int max_tokens) {
                          "[MEMORY]\n%s[/MEMORY]\n", prefetch_context.c_str());
                 fprintf(stderr, "[PROACTIVE] Prefetched %d nodes for 14B context\n", prefetched);
             }
+
+            // Copy proactive results to stream_state for GKV injection
+            // GKV checks g_stream_state.active[] for cached KV retrieval
+            zeta_proactive_copy_to_stream(&g_stream_state, prefetched);
+            fprintf(stderr, "[GKV-BRIDGE] Copied %d proactive nodes to stream_state\n", prefetched);
         } else {
             fprintf(stderr, "[PROACTIVE] No nodes matched query (nodes=%d, has_embed=%d)\n",
                     g_dual ? g_dual->num_nodes : 0,
