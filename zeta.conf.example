@@ -63,6 +63,31 @@ ZETA_STORAGE="/storage"
 # CTX_14B="2048"
 
 # =============================================================================
+# CLOUD ROUTING (Optional - disabled by default)
+# =============================================================================
+# Enable smart routing to cloud APIs for complex tasks.
+# If not configured, everything stays 100% local.
+#
+# How it works:
+#   1. Z.E.T.A. evaluates query complexity
+#   2. Simple queries → Local 14B (fast, free, private)
+#   3. Complex queries → Cloud API with Z.E.T.A. context injected
+#
+# What ALWAYS stays local (even with cloud enabled):
+#   - Memory/graph operations (privacy)
+#   - Dreams (privacy)
+#   - Embeddings (speed)
+
+# CLOUD_ROUTING="false"              # Set "true" to enable
+# CLOUD_COMPLEXITY_THRESHOLD="0.7"   # 0-1, higher = more stays local
+# CLOUD_PROVIDER="openai"            # openai, anthropic, or both
+# CLOUD_MODEL="gpt-4o"               # Model to use for complex queries
+
+# API Keys (only needed if CLOUD_ROUTING="true")
+# OPENAI_API_KEY=""
+# ANTHROPIC_API_KEY=""
+
+# =============================================================================
 # OPENCODE INTEGRATION
 # =============================================================================
 # Z.E.T.A. exposes OpenAI-compatible endpoints for use with OpenCode, LiteLLM,

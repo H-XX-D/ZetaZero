@@ -102,6 +102,7 @@ extern "C" {
 #include "zeta-graph-smart.h"
 #include "zeta-graph-git.h"
 #include "zeta-dream.h"         // Dream State: idle consolidation cycle
+#include "zeta-cloud.h"         // Cloud routing: optional escalation to OpenAI/Anthropic
 
 // GitGraph context (git-style branching for knowledge graph)
 static zeta_git_ctx_t* g_git = nullptr;
@@ -1768,6 +1769,61 @@ static std::string generate(const std::string& prompt, int max_tokens) {
 
     fprintf(stderr, "[GENERATE] Received prompt (len=%zu): %.60s...\n", prompt.size(), prompt.c_str());
 
+    // === CLOUD ROUTING: Optionally escalate complex queries to cloud APIs ===
+    // This is DISABLED by default. Enable with CLOUD_ROUTING=true in zeta.conf
+    if (zeta_cloud::should_route_to_cloud(prompt)) {
+        // Build Z.E.T.A. context to inject into cloud request
+        std::string zeta_context;
+
+        // Get relevant memory graph nodes
+        char context_buf[4096];
+        size_t ctx_len = ZETA_BUILD_CONTEXT(prompt.c_str(), context_buf, sizeof(context_buf));
+        if (ctx_len > 0) {
+            zeta_context += std::string(context_buf);
+        }
+
+        // Add TRM recursive context if available
+        std::string trm_ctx = g_trm.retrieve(prompt, 3);
+        if (!trm_ctx.empty()) {
+            zeta_context += "\n[TRM_CONTEXT]\n" + trm_ctx + "\n[/TRM_CONTEXT]\n";
+        }
+
+        // Route to cloud with Z.E.T.A. context
+        std::string cloud_response = zeta_cloud::route_to_cloud(prompt, zeta_context, max_tokens);
+
+        // Still extract facts from cloud response for memory (learning from cloud)
+        if (!cloud_response.empty() && cloud_response[0] != '[') {  // Not an error
+            g_trm.push_state(cloud_response, "assistant");
+            ZETA_EXTRACT_FACTS(cloud_response.c_str(), false);
+        }
+
+        // Format as Z.E.T.A. response
+        std::string escaped;
+        for (char c : cloud_response) {
+            if (c == '"') escaped += "\\\"";
+            else if (c == '\\') escaped += "\\\\";
+            else if (c == '\n') escaped += "\\n";
+            else if (c == '\r') escaped += "\\r";
+            else if (c == '\t') escaped += "\\t";
+            else escaped += c;
+        }
+
+        int graph_nodes = g_dual ? g_dual->num_nodes : 0;
+        int graph_edges = g_dual ? g_dual->num_edges : 0;
+
+        char json[65536];
+        snprintf(json, sizeof(json),
+            "{\"output\": \"%s\", \"tokens\": %d, \"momentum\": 0.90, "
+            "\"cloud_routed\": true, \"provider\": \"%s\", \"model\": \"%s\", "
+            "\"graph_nodes\": %d, \"graph_edges\": %d}",
+            escaped.c_str(), max_tokens,
+            zeta_cloud::g_cloud_config.provider.c_str(),
+            zeta_cloud::g_cloud_config.model.c_str(),
+            graph_nodes, graph_edges);
+
+        return std::string(json);
+    }
+
     // === CHUNKED GENERATION: For very long outputs, use plan-based chunking ===
     if (max_tokens >= LONG_OUTPUT_THRESHOLD) {
         fprintf(stderr, "[GENERATE] Long output requested (%d tokens), using chunked generation\n", max_tokens);
@@ -2702,6 +2758,9 @@ int main(int argc, char** argv) {
 
     // Load config file first (before parsing args)
     zeta_load_config();
+
+    // Initialize cloud routing (disabled by default, reads CLOUD_* env vars)
+    zeta_cloud::init_from_env();
 
     // Z6 defaults now hardcoded - help message only on explicit --help
     if (argc > 1 && (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0)) {
@@ -4830,6 +4889,14 @@ int main(int argc, char** argv) {
     fprintf(stderr, "\n  OpenAI-Compatible (for OpenCode, LiteLLM, etc.):\n");
     fprintf(stderr, "  POST /v1/chat/completions - Chat completions API\n");
     fprintf(stderr, "  GET  /v1/models           - List available models\n");
+    if (zeta_cloud::g_cloud_config.enabled) {
+        fprintf(stderr, "\n  Cloud Routing: ENABLED (threshold=%.2f, %s/%s)\n",
+                zeta_cloud::g_cloud_config.complexity_threshold,
+                zeta_cloud::g_cloud_config.provider.c_str(),
+                zeta_cloud::g_cloud_config.model.c_str());
+    } else {
+        fprintf(stderr, "\n  Cloud Routing: disabled (set CLOUD_ROUTING=true to enable)\n");
+    }
 
     // Start new session (versions old data)
     svr.Post("/session/new", [](const httplib::Request& req, httplib::Response& res) {
