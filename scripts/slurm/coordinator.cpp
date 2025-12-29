@@ -297,22 +297,19 @@ void handle_client(int client_sock) {
     else if (method == "GET" && path == "/nodes") {
         response = http_response(200, g_pool.to_json());
     }
-    else if (method == "GET" && path == "/health") {
+    else if (method == "GET" && path == "/coord/health") {
+        // Coordinator-specific health (use /health for node health)
         auto healthy = g_pool.get_healthy();
         std::ostringstream ss;
         ss << "{\"status\":\"ok\",\"nodes_total\":" << g_pool.nodes.size()
            << ",\"nodes_healthy\":" << healthy.size() << "}";
         response = http_response(200, ss.str());
     }
-    else if (method == "GET" && path == "/v1/models") {
-        response = http_response(200,
-            "{\"object\":\"list\",\"data\":["
-            "{\"id\":\"zeta-cognitive\",\"object\":\"model\",\"owned_by\":\"zeta\"},"
-            "{\"id\":\"zeta-coder\",\"object\":\"model\",\"owned_by\":\"zeta\"}"
-            "]}");
-    }
-    else if (path.rfind("/v1/", 0) == 0 || path.rfind("/zeta/", 0) == 0) {
-        // Proxy to node
+    else {
+        // Proxy ALL other paths to nodes
+        // This includes: /generate, /code, /embedding, /embeddings, /memory/query,
+        // /graph, /gkv/stats, /tools, /project/*, /session/*, /tokenize,
+        // /cache/clear, /health, /v1/*, /git/*, /swarm/*, etc.
         auto node = g_pool.select_least_loaded();
         if (!node) {
             response = http_response(503, "{\"error\":\"no healthy nodes\"}");
@@ -322,9 +319,6 @@ void handle_client(int client_sock) {
             response = proxy_request(node, method, path, "", body);
             node->active_requests--;
         }
-    }
-    else {
-        response = http_response(404, "{\"error\":\"not found\"}");
     }
 
     send(client_sock, response.c_str(), response.size(), 0);

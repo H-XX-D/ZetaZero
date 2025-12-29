@@ -72,15 +72,32 @@ ZETA_SHARED_STORAGE="/scratch/${USER}/zeta-storage"
 ## Monitoring
 
 ```bash
-# List active nodes
+# Coordinator status (nodes, health)
+curl http://headnode:8000/coord/health
 curl http://headnode:8000/nodes
 
-# Coordinator health
+# Node health (proxied to a node)
 curl http://headnode:8000/health
+
+# Graph stats (proxied)
+curl http://headnode:8000/gkv/stats
 
 # Check Slurm jobs
 squeue -u $USER
 ```
+
+## Proxied Endpoints
+
+All zeta-server endpoints are proxied through the coordinator:
+- `/v1/chat/completions`, `/v1/models` - OpenAI-compatible API
+- `/generate`, `/code` - Direct generation
+- `/embedding`, `/embeddings` - Vector embeddings
+- `/memory/query` - Memory graph queries
+- `/graph`, `/gkv/stats` - Graph statistics
+- `/project/*`, `/session/*` - Project management
+- `/tools`, `/tool/execute` - Tool execution
+- `/git/*` - Git operations
+- `/health` - Node health check
 
 ## Shared Graph Storage
 
