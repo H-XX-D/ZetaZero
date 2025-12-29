@@ -2004,6 +2004,19 @@ static std::string generate(const std::string& prompt, int max_tokens) {
     llama_memory_t mem = llama_get_memory(g_ctx_conscious);
     llama_memory_clear(mem, true);
 
+    // === GRAPH-KV INJECTION: Inject cached KV states for retrieved nodes ===
+    // This skips prefill computation for concepts we've seen before
+    int gkv_injected = 0;
+    if (g_gkv_ctx && g_stream_state.num_active > 0) {
+        gkv_injected = zeta_gkv_inject_for_stream(
+            g_ctx_conscious, &g_stream_state, 0, 0  // seq_id=0, base_pos=0
+        );
+        if (gkv_injected > 0) {
+            fprintf(stderr, "[GKV] Injected %d cached tokens from %d nodes\n",
+                    gkv_injected, g_stream_state.num_active);
+        }
+    }
+
     // Safety: truncate if prompt too long for context
     if (n_tokens > 3800) {
         fprintf(stderr, "[WARN] Truncating prompt from %d to 3800 tokens\n", n_tokens);
@@ -2014,9 +2027,11 @@ static std::string generate(const std::string& prompt, int max_tokens) {
     llama_batch batch = llama_batch_init(n_tokens + 512, 0, 1);  // +512 for generation
 
     // Decode entire prompt in one pass (n_batch = n_ctx enables this)
+    // Position offset by injected GKV tokens to avoid overwriting cached KV
+    int pos_offset = gkv_injected;
     for (int i = 0; i < n_tokens; i++) {
         bool is_last = (i == n_tokens - 1);
-        common_batch_add(batch, tokens[i], i, {0}, is_last);
+        common_batch_add(batch, tokens[i], pos_offset + i, {0}, is_last);
     }
 
     if (llama_decode(g_ctx_conscious, batch) != 0) {
@@ -2042,8 +2057,9 @@ static std::string generate(const std::string& prompt, int max_tokens) {
             output_mode, output_ctrl.max_chars, output_ctrl.max_words);
 
     auto* sampler = common_sampler_init(g_model_conscious, g_params.sampling);
-    int kv_next_pos = n_tokens;  // Track actual KV cache position for self-eval
-    fprintf(stderr, "[GEN] Starting loop, max_tokens=%d, kv_next_pos=%d\n", max_tokens, kv_next_pos);
+    int kv_next_pos = pos_offset + n_tokens;  // Track actual KV cache position (includes injected GKV)
+    fprintf(stderr, "[GEN] Starting loop, max_tokens=%d, kv_next_pos=%d (gkv_injected=%d)\n",
+            max_tokens, kv_next_pos, gkv_injected);
 
     for (int i = 0; i < max_tokens; i++) {
         if (i == 0) fprintf(stderr, "[GEN] First iteration entering\n");
@@ -4480,6 +4496,82 @@ int main(int argc, char** argv) {
             (long long)stats.total_injections,
             stats.prefill_skipped_ms / 1000.0);
         res.set_content(json, "application/json");
+    });
+
+    // Graph-KV warmup endpoint - capture KV for existing nodes
+    svr.Post("/gkv/warmup", [](const httplib::Request& req, httplib::Response& res) {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        res.set_header("Access-Control-Allow-Origin", "*");
+
+        if (!g_gkv_ctx || !g_ctx_conscious || !g_dual) {
+            res.set_content("{\"error\": \"GKV or model not initialized\"}", "application/json");
+            return;
+        }
+
+        // Parse request - {"all": true, "limit": 50}
+        int limit = 50;  // Default limit
+        size_t limit_pos = req.body.find("\"limit\":");
+        if (limit_pos != std::string::npos) {
+            limit = atoi(req.body.c_str() + limit_pos + 8);
+        }
+
+        int captured = 0;
+        int skipped = 0;
+
+        // Clear KV cache for warmup
+        llama_memory_t mem = llama_get_memory(g_ctx_conscious);
+
+        for (int i = 0; i < g_dual->num_nodes && captured < limit; i++) {
+            zeta_graph_node_t* node = &g_dual->nodes[i];
+            if (!node->is_active) continue;
+
+            // Skip if already cached
+            if (zeta_gkv_has_cached(node->node_id)) {
+                skipped++;
+                continue;
+            }
+
+            // Get node's text value
+            if (node->value[0] == '\0') continue;
+
+            // Clear KV for fresh capture
+            llama_memory_clear(mem, true);
+
+            // Tokenize the node's content
+            std::vector<llama_token> tokens(512);
+            int n_tokens = llama_tokenize(g_vocab, node->value,
+                                          strlen(node->value),
+                                          tokens.data(), tokens.size(), true, true);
+            if (n_tokens <= 0 || n_tokens > 400) continue;  // Skip empty or too long
+            tokens.resize(n_tokens);
+
+            // Create batch and decode
+            llama_batch batch = llama_batch_init(n_tokens, 0, 1);
+            for (int t = 0; t < n_tokens; t++) {
+                common_batch_add(batch, tokens[t], t, {0}, t == n_tokens - 1);
+            }
+
+            if (llama_decode(g_ctx_conscious, batch) == 0) {
+                // Capture KV for this node
+                if (zeta_gkv_capture_for_node(g_ctx_conscious, 0, node->node_id, 0, n_tokens)) {
+                    captured++;
+                    fprintf(stderr, "[GKV-WARMUP] Captured %d tokens for node %lld (%s)\n",
+                            n_tokens, (long long)node->node_id, node->label);
+                }
+            }
+            llama_batch_free(batch);
+        }
+
+        // Flush captured segments to disk
+        zeta_gkv_force_flush();
+
+        char json[256];
+        snprintf(json, sizeof(json),
+            "{\"captured\": %d, \"skipped\": %d, \"total_nodes\": %d}",
+            captured, skipped, g_dual->num_nodes);
+        res.set_content(json, "application/json");
+        fprintf(stderr, "[GKV-WARMUP] Captured KV for %d nodes, skipped %d (already cached)\n",
+                captured, skipped);
     });
 
 
