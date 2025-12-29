@@ -3825,6 +3825,236 @@ int main(int argc, char** argv) {
     });
 
     // ========================================================================
+    // OPENAI-COMPATIBLE ENDPOINT (for OpenCode, LiteLLM, etc.)
+    // ========================================================================
+
+    svr.Post("/v1/chat/completions", [](const httplib::Request& req, httplib::Response& res) {
+        g_last_activity = time(NULL);
+        ZETA_DREAM_WAKE();
+
+        res.set_header("Access-Control-Allow-Origin", "*");
+        res.set_header("Content-Type", "application/json");
+
+        // Parse OpenAI format: {"model": "...", "messages": [...], "max_tokens": N}
+        std::string model = "zeta-cognitive";
+        int max_tokens = 2048;
+        float temperature = 0.7f;
+        std::string prompt;
+
+        // Extract model
+        size_t model_pos = req.body.find("\"model\":");
+        if (model_pos != std::string::npos) {
+            size_t ms = req.body.find('"', model_pos + 8);
+            if (ms != std::string::npos) {
+                size_t me = req.body.find('"', ms + 1);
+                if (me != std::string::npos) model = req.body.substr(ms + 1, me - ms - 1);
+            }
+        }
+
+        // Extract max_tokens
+        size_t tokens_pos = req.body.find("\"max_tokens\":");
+        if (tokens_pos != std::string::npos) {
+            size_t num_start = tokens_pos + 13;
+            while (num_start < req.body.size() && !isdigit(req.body[num_start])) num_start++;
+            if (num_start < req.body.size()) {
+                max_tokens = std::stoi(req.body.substr(num_start));
+            }
+        }
+
+        // Extract temperature
+        size_t temp_pos = req.body.find("\"temperature\":");
+        if (temp_pos != std::string::npos) {
+            size_t num_start = temp_pos + 14;
+            while (num_start < req.body.size() && !isdigit(req.body[num_start]) && req.body[num_start] != '.') num_start++;
+            if (num_start < req.body.size()) {
+                temperature = std::stof(req.body.substr(num_start));
+            }
+        }
+
+        // Extract messages array and convert to prompt
+        // Format: [{"role": "system", "content": "..."}, {"role": "user", "content": "..."}]
+        size_t messages_pos = req.body.find("\"messages\":");
+        if (messages_pos != std::string::npos) {
+            size_t arr_start = req.body.find('[', messages_pos);
+            if (arr_start != std::string::npos) {
+                // Find each message object
+                size_t pos = arr_start + 1;
+                while (pos < req.body.size()) {
+                    // Find next message object
+                    size_t obj_start = req.body.find('{', pos);
+                    if (obj_start == std::string::npos) break;
+
+                    // Find role
+                    size_t role_pos = req.body.find("\"role\":", obj_start);
+                    if (role_pos == std::string::npos) break;
+                    size_t rs = req.body.find('"', role_pos + 7);
+                    size_t re = req.body.find('"', rs + 1);
+                    std::string role = req.body.substr(rs + 1, re - rs - 1);
+
+                    // Find content
+                    size_t content_pos = req.body.find("\"content\":", obj_start);
+                    if (content_pos == std::string::npos) break;
+                    size_t cs = req.body.find('"', content_pos + 10);
+                    if (cs == std::string::npos) break;
+
+                    // Parse content with escaped quotes
+                    size_t ce = cs + 1;
+                    while (ce < req.body.size()) {
+                        if (req.body[ce] == '"' && req.body[ce-1] != '\\') break;
+                        ce++;
+                    }
+                    std::string content = req.body.substr(cs + 1, ce - cs - 1);
+
+                    // Unescape content
+                    std::string unescaped;
+                    for (size_t i = 0; i < content.size(); i++) {
+                        if (content[i] == '\\' && i + 1 < content.size()) {
+                            char next = content[i + 1];
+                            if (next == '"') { unescaped += '"'; i++; }
+                            else if (next == 'n') { unescaped += '\n'; i++; }
+                            else if (next == 't') { unescaped += '\t'; i++; }
+                            else if (next == '\\') { unescaped += '\\'; i++; }
+                            else unescaped += content[i];
+                        } else {
+                            unescaped += content[i];
+                        }
+                    }
+
+                    // Add to prompt with role prefix
+                    if (role == "system") {
+                        prompt += "[SYSTEM]\n" + unescaped + "\n[/SYSTEM]\n\n";
+                    } else if (role == "user") {
+                        prompt += unescaped;
+                    } else if (role == "assistant") {
+                        prompt += "\n\nAssistant: " + unescaped + "\n\nUser: ";
+                    }
+
+                    // Find end of this object
+                    size_t obj_end = req.body.find('}', ce);
+                    if (obj_end == std::string::npos) break;
+                    pos = obj_end + 1;
+
+                    // Check if we hit end of array
+                    size_t next_comma = req.body.find(',', pos);
+                    size_t arr_end = req.body.find(']', pos);
+                    if (arr_end != std::string::npos && (next_comma == std::string::npos || arr_end < next_comma)) {
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (prompt.empty()) {
+            res.status = 400;
+            res.set_content("{\"error\": {\"message\": \"No messages provided\", \"type\": \"invalid_request_error\"}}", "application/json");
+            return;
+        }
+
+        fprintf(stderr, "[OPENAI-COMPAT] Model: %s, MaxTokens: %d, Prompt: %.100s...\n",
+                model.c_str(), max_tokens, prompt.c_str());
+
+        // Call existing generate function
+        std::string result = generate(prompt, max_tokens);
+
+        // Parse output from Z.E.T.A. JSON response
+        std::string output_text;
+        int tokens_used = 0;
+        size_t out_start = result.find("\"output\":");
+        if (out_start != std::string::npos) {
+            out_start = result.find('"', out_start + 9);
+            if (out_start != std::string::npos) {
+                out_start++;
+                size_t out_end = out_start;
+                while (out_end < result.size()) {
+                    if (result[out_end] == '"' && result[out_end-1] != '\\') break;
+                    out_end++;
+                }
+                output_text = result.substr(out_start, out_end - out_start);
+            }
+        }
+
+        // Extract tokens count
+        size_t tok_pos = result.find("\"tokens\":");
+        if (tok_pos != std::string::npos) {
+            size_t num_start = tok_pos + 9;
+            while (num_start < result.size() && !isdigit(result[num_start])) num_start++;
+            if (num_start < result.size()) {
+                tokens_used = std::stoi(result.substr(num_start));
+            }
+        }
+
+        // Generate unique ID
+        static std::atomic<uint64_t> completion_id{0};
+        uint64_t id = ++completion_id;
+
+        // Build OpenAI-compatible response
+        char response[65536];
+        snprintf(response, sizeof(response),
+            "{"
+            "\"id\": \"chatcmpl-zeta-%lu\","
+            "\"object\": \"chat.completion\","
+            "\"created\": %ld,"
+            "\"model\": \"%s\","
+            "\"choices\": [{"
+                "\"index\": 0,"
+                "\"message\": {"
+                    "\"role\": \"assistant\","
+                    "\"content\": \"%s\""
+                "},"
+                "\"finish_reason\": \"stop\""
+            "}],"
+            "\"usage\": {"
+                "\"prompt_tokens\": %d,"
+                "\"completion_tokens\": %d,"
+                "\"total_tokens\": %d"
+            "},"
+            "\"system_fingerprint\": \"zeta-cognitive-v5.1\""
+            "}",
+            id,
+            (long)time(NULL),
+            model.c_str(),
+            output_text.c_str(),
+            (int)(prompt.size() / 4),  // Rough estimate of prompt tokens
+            tokens_used,
+            (int)(prompt.size() / 4) + tokens_used
+        );
+
+        res.set_header("Connection", "close");
+        res.set_content(response, "application/json");
+    });
+
+    // Also support /v1/models for OpenAI compatibility
+    svr.Get("/v1/models", [](const httplib::Request&, httplib::Response& res) {
+        res.set_header("Access-Control-Allow-Origin", "*");
+        res.set_content(
+            "{"
+            "\"object\": \"list\","
+            "\"data\": ["
+                "{"
+                    "\"id\": \"zeta-cognitive\","
+                    "\"object\": \"model\","
+                    "\"created\": 1703980800,"
+                    "\"owned_by\": \"zetazero\","
+                    "\"permission\": [],"
+                    "\"root\": \"zeta-cognitive\","
+                    "\"parent\": null"
+                "},"
+                "{"
+                    "\"id\": \"zeta-coder\","
+                    "\"object\": \"model\","
+                    "\"created\": 1703980800,"
+                    "\"owned_by\": \"zetazero\","
+                    "\"permission\": [],"
+                    "\"root\": \"zeta-coder\","
+                    "\"parent\": null"
+                "}"
+            "]"
+            "}",
+            "application/json"
+        );
+    });
+
+    // ========================================================================
     // TOKENIZATION ENDPOINTS
     // ========================================================================
 
@@ -4592,11 +4822,14 @@ int main(int argc, char** argv) {
         if (g_server) g_server->stop();
     });
 
-    fprintf(stderr, "\nZ.E.T.A. Server v5.0 listening on port %d\n", port);
+    fprintf(stderr, "\nZ.E.T.A. Server v5.1 listening on port %d\n", port);
     fprintf(stderr, "  POST /generate - Generate with parallel 3B memory\n");
     fprintf(stderr, "  GET  /health   - Health check\n");
     fprintf(stderr, "  GET  /graph    - View memory graph\n");
     fprintf(stderr, "  POST /shutdown - Graceful shutdown\n");
+    fprintf(stderr, "\n  OpenAI-Compatible (for OpenCode, LiteLLM, etc.):\n");
+    fprintf(stderr, "  POST /v1/chat/completions - Chat completions API\n");
+    fprintf(stderr, "  GET  /v1/models           - List available models\n");
 
     // Start new session (versions old data)
     svr.Post("/session/new", [](const httplib::Request& req, httplib::Response& res) {

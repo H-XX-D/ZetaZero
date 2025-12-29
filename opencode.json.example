@@ -1,0 +1,36 @@
+{
+  "$schema": "https://opencode.ai/opencode.schema.json",
+  "provider": {
+    "zeta": {
+      "name": "Z.E.T.A. Cognitive Stack",
+      "api": "http://localhost:8080/v1",
+      "npm": "@ai-sdk/openai-compatible",
+      "env": ["ZETA_API_KEY"],
+      "models": {
+        "zeta-cognitive": {
+          "name": "Z.E.T.A. 14B Cognitive",
+          "limit": {
+            "context": 4096,
+            "output": 4096
+          },
+          "tool_call": true,
+          "reasoning": false,
+          "temperature": true,
+          "attachment": false
+        },
+        "zeta-coder": {
+          "name": "Z.E.T.A. 7B Coder",
+          "limit": {
+            "context": 4096,
+            "output": 4096
+          },
+          "tool_call": true,
+          "reasoning": false,
+          "temperature": true,
+          "attachment": false
+        }
+      }
+    }
+  },
+  "model": "zeta/zeta-cognitive"
+}

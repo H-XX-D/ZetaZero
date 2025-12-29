@@ -184,3 +184,4 @@ node_modules
 
 # Z.E.T.A. local config (use zeta.conf.example as template)
 zeta.conf
+opencode/
