@@ -8,11 +8,15 @@ echo "=========================================="
 # Check for zeta.conf - if present, server reads it automatically
 if [ -f "/app/zeta.conf" ]; then
     echo "Config: /app/zeta.conf (mounted)"
-    # Source it to show config in logs
+    # Source it to set environment variables
+    set -a  # Export all variables
     source /app/zeta.conf 2>/dev/null || true
+    set +a
 elif [ -f "./zeta.conf" ]; then
     echo "Config: ./zeta.conf"
+    set -a  # Export all variables
     source ./zeta.conf 2>/dev/null || true
+    set +a
 else
     echo "Config: Environment variables (no zeta.conf found)"
 fi

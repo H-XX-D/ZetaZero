@@ -12,10 +12,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 CONFIG_FILE="${REPO_ROOT}/zeta.conf"
 
-# Load config
+# Load config (export all variables so child processes inherit them)
 if [[ -f "$CONFIG_FILE" ]]; then
     echo "Loading config from: $CONFIG_FILE"
+    set -a  # Export all variables
     source "$CONFIG_FILE"
+    set +a
 else
     echo "ERROR: Config file not found: $CONFIG_FILE"
     echo "Create zeta.conf in repository root with your settings."
