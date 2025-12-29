@@ -51,24 +51,24 @@ struct zeta_config_t {
     bool loaded;
 };
 
-// Global config instance
+// Global config instance (C++17 compatible - no designated initializers)
 static zeta_config_t g_config = {
-    .model_14b = "",
-    .model_7b_coder = "",
-    .model_embed = "",
-    .model_3b_instruct = "",
-    .model_3b_coder = "",
-    .host = "0.0.0.0",
-    .port = 8080,
-    .gpu_layers = 999,
-    .ctx_14b = 4096,
-    .ctx_7b = 2048,    // Reduced from 8192 to fit extraction context in VRAM
-    .ctx_embed = 512,
-    .batch_size = 2048,
-    .storage_dir = "/storage",
-    .log_file = "/tmp/zeta.log",
-    .password = "zeta1234",
-    .loaded = false
+    "",             // model_14b
+    "",             // model_7b_coder
+    "",             // model_embed
+    "",             // model_3b_instruct
+    "",             // model_3b_coder
+    "0.0.0.0",      // host
+    8080,           // port
+    999,            // gpu_layers
+    4096,           // ctx_14b
+    2048,           // ctx_7b (reduced from 8192 to fit extraction context in VRAM)
+    512,            // ctx_embed
+    2048,           // batch_size
+    "/storage",     // storage_dir
+    "/tmp/zeta.log",// log_file
+    "zeta1234",     // password
+    false           // loaded
 };
 
 // Trim whitespace and quotes from value

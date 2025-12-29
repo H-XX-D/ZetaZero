@@ -425,9 +425,9 @@ zeta_gkv_segment_t* zeta_gkv_capture(
     gkv_ctx->segments[gkv_ctx->num_segments++] = segment;
     gkv_ctx->total_saves++;
 
-    fprintf(stderr, "[GKV] Captured segment for node %lld: %d tokens, %d layers, %zu KB\n",
+    fprintf(stderr, "[GKV] Captured segment for node %lld: %d tokens, %d layers, %u KB\n",
             (long long)node_id, n_tokens, gkv_ctx->n_layer,
-            segment->header.data_size / 1024);
+            (unsigned)(segment->header.data_size / 1024));
 
     return segment;
 }

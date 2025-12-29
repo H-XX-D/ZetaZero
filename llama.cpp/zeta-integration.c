@@ -511,9 +511,9 @@ void zeta_print_statistics(const zeta_context_t* ctx) {
         stats.num_active_blocks,
         (long long)stats.total_retrievals,
         (long long)stats.cache_hits,
-        stats.total_retrievals > 0 ? 100.0 * stats.cache_hits / stats.total_retrievals : 0.0,
+        stats.total_retrievals > 0 ? 100.0f * stats.cache_hits / stats.total_retrievals : 0.0f,
         (long long)stats.prefetch_hits,
-        stats.total_retrievals > 0 ? 100.0 * stats.prefetch_hits / stats.total_retrievals : 0.0,
+        stats.total_retrievals > 0 ? 100.0f * stats.prefetch_hits / stats.total_retrievals : 0.0f,
         stats.avg_retrieval_score
     );
 }

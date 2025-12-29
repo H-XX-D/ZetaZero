@@ -13,6 +13,12 @@
 // Embedded Constitution (Fallback)
 // ============================================================================
 
+// Suppress overlength-strings warning for embedded constitution
+#ifdef __GNUC__
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Woverlength-strings"
+#endif
+
 static const char EMBEDDED_CONSTITUTION[] =
 "Z.E.T.A. ETHICAL CONSTITUTION\n"
 "Version 1.0 | Cryptographically Bound\n"
@@ -128,6 +134,10 @@ static const char EMBEDDED_CONSTITUTION[] =
 "================================================================================\n"
 "END OF CONSTITUTION\n"
 "================================================================================\n";
+
+#ifdef __GNUC__
+#pragma GCC diagnostic pop
+#endif
 
 // ============================================================================
 // Internal Helpers
