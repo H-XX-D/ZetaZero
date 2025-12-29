@@ -52,6 +52,7 @@
 #include <atomic>
 #include <cctype>
 #include <regex>
+#include <chrono>
 #include <fstream>
 #include <sstream>
 #include <sys/stat.h>
@@ -103,6 +104,45 @@ extern "C" {
 #include "zeta-graph-git.h"
 #include "zeta-dream.h"         // Dream State: idle consolidation cycle
 #include "zeta-cloud.h"         // Cloud routing: optional escalation to OpenAI/Anthropic
+
+// ============================================================================
+// SPEED RECEIPT: High-resolution timing for the "Zero-Latency" lifecycle
+// Captures: CPU embed, Momentum tunneling, GKV injection, First token
+// ============================================================================
+struct ZetaSpeedReceipt {
+    using Clock = std::chrono::high_resolution_clock;
+    using TimePoint = Clock::time_point;
+
+    TimePoint request_start;
+    TimePoint embed_complete;
+    TimePoint gkv_inject_complete;
+    TimePoint first_token;
+    bool enabled = false;
+
+    void start() { request_start = Clock::now(); enabled = true; }
+    void mark_embed() { embed_complete = Clock::now(); }
+    void mark_gkv() { gkv_inject_complete = Clock::now(); }
+    void mark_first_token() { first_token = Clock::now(); }
+
+    void print() {
+        if (!enabled) return;
+        auto now = Clock::now();
+        auto total = std::chrono::duration_cast<std::chrono::microseconds>(now - request_start).count();
+        auto embed_us = std::chrono::duration_cast<std::chrono::microseconds>(embed_complete - request_start).count();
+        auto gkv_us = std::chrono::duration_cast<std::chrono::microseconds>(gkv_inject_complete - embed_complete).count();
+        auto first_us = std::chrono::duration_cast<std::chrono::microseconds>(first_token - gkv_inject_complete).count();
+
+        fprintf(stderr, "\n[SPEED-RECEIPT] ════════════════════════════════════════\n");
+        fprintf(stderr, "[SPEED-RECEIPT]   CPU Embed:     %6.3f ms\n", embed_us / 1000.0);
+        fprintf(stderr, "[SPEED-RECEIPT]   GKV Inject:    %6.3f ms\n", gkv_us / 1000.0);
+        fprintf(stderr, "[SPEED-RECEIPT]   First Token:   %6.3f ms\n", first_us / 1000.0);
+        fprintf(stderr, "[SPEED-RECEIPT]   ────────────────────────────────────────\n");
+        fprintf(stderr, "[SPEED-RECEIPT]   TOTAL LATENCY: %6.3f ms\n", total / 1000.0);
+        fprintf(stderr, "[SPEED-RECEIPT] ════════════════════════════════════════\n\n");
+        enabled = false;
+    }
+};
+static thread_local ZetaSpeedReceipt g_speed_receipt;
 
 // GitGraph context (git-style branching for knowledge graph)
 static zeta_git_ctx_t* g_git = nullptr;
@@ -1899,6 +1939,7 @@ static std::string generate(const std::string& prompt, int max_tokens) {
         if (dim > 0) {
             g_stream_state.has_query_embedding = true;
             fprintf(stderr, "[STREAM] Query pre-embedded: %d dims\n", dim);
+            g_speed_receipt.mark_embed();  // Speed Receipt: CPU embed complete
         }
     }
 
@@ -1927,6 +1968,7 @@ static std::string generate(const std::string& prompt, int max_tokens) {
             // GKV checks g_stream_state.active[] for cached KV retrieval
             zeta_proactive_copy_to_stream(&g_stream_state, prefetched);
             fprintf(stderr, "[GKV-BRIDGE] Copied %d proactive nodes to stream_state\n", prefetched);
+            g_speed_receipt.mark_gkv();  // Speed Receipt: GKV injection complete
         } else {
             fprintf(stderr, "[PROACTIVE] No nodes matched query (nodes=%d, has_embed=%d)\n",
                     g_dual ? g_dual->num_nodes : 0,
@@ -2055,6 +2097,7 @@ static std::string generate(const std::string& prompt, int max_tokens) {
         return "{\"error\": \"decode failed\"}";
     }
     fprintf(stderr, "[DECODE] Prompt decoded: %d tokens (single pass)\n", n_tokens);
+    g_speed_receipt.mark_first_token();  // Speed Receipt: prefill done, first token ready
 
     // Initialize scratch buffer for this generation
     ZETA_SCRATCH_START_GENERATION();
@@ -3435,6 +3478,7 @@ int main(int argc, char** argv) {
         std::string req_prompt_hash = std::to_string(std::hash<std::string>{}(prompt.substr(0, 100)));
         fprintf(stderr, "[REQ-%lu] New request (hash=%s): %.60s...\n",
                 request_id, req_prompt_hash.c_str(), prompt.c_str());
+        g_speed_receipt.start();  // Speed Receipt: start timing
 
         // Pre-check: TRM safety (must be synchronous - blocks unsafe queries)
         if (!no_context && !has_override && !g_trm.is_safe_query(prompt)) {
@@ -3624,6 +3668,7 @@ int main(int argc, char** argv) {
 
         std::string result = generate(enhanced_prompt, max_tokens);
         fprintf(stderr, "[HTTP] generate() returned, result size=%zu\n", result.size());
+        g_speed_receipt.print();  // Speed Receipt: print timing summary
 
         // ====== FACT EXTRACTION (Core Coherence Flow) ======
         // Extract facts from generation for future context
