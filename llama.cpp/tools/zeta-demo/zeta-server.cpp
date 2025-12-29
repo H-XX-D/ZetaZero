@@ -1921,6 +1921,10 @@ static std::string generate(const std::string& prompt, int max_tokens) {
                          "[MEMORY]\n%s[/MEMORY]\n", prefetch_context.c_str());
                 fprintf(stderr, "[PROACTIVE] Prefetched %d nodes for 14B context\n", prefetched);
             }
+        } else {
+            fprintf(stderr, "[PROACTIVE] No nodes matched query (nodes=%d, has_embed=%d)\n",
+                    g_dual ? g_dual->num_nodes : 0,
+                    g_stream_state.has_query_embedding ? 1 : 0);
         }
 
         // Start parallel prefetch thread (will tunnel for more as 14B generates)
@@ -2014,7 +2018,12 @@ static std::string generate(const std::string& prompt, int max_tokens) {
         if (gkv_injected > 0) {
             fprintf(stderr, "[GKV] Injected %d cached tokens from %d nodes\n",
                     gkv_injected, g_stream_state.num_active);
+        } else {
+            fprintf(stderr, "[GKV] No cached KV found for %d active nodes\n",
+                    g_stream_state.num_active);
         }
+    } else if (g_gkv_ctx) {
+        fprintf(stderr, "[GKV] Skipped - no active nodes from prefetch\n");
     }
 
     // Safety: truncate if prompt too long for context
