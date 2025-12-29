@@ -106,3 +106,24 @@ ZETA_STORAGE="/storage"
 #   - zeta-cognitive (14B reasoning + memory graph)
 #   - zeta-coder (7B code generation)
 # =============================================================================
+
+# =============================================================================
+# SLURM GPU FARM (Optional - for HPC clusters)
+# =============================================================================
+# Deploy Z.E.T.A. across multiple GPU nodes using Slurm.
+#
+# Architecture:
+#   Coordinator (head node) -> Load balances -> GPU Nodes (compute)
+#                                    |
+#                           Shared Storage (NFS/Lustre)
+#
+# Usage:
+#   1. Build: g++ -std=c++17 -O2 -pthread scripts/slurm/coordinator.cpp -o coordinator
+#   2. Start coordinator: ./coordinator --port 8000
+#   3. Submit nodes: sbatch --array=0-3 scripts/slurm/zeta-array.sbatch
+#   4. Point clients at coordinator: http://headnode:8000/v1
+
+# ZETA_COORDINATOR=""                 # Coordinator URL (e.g., http://headnode:8000)
+# ZETA_BASE_PORT="8080"               # Base port for array jobs (node N uses BASE+N)
+# ZETA_SHARED_STORAGE=""              # Shared filesystem for graph (NFS/Lustre path)
+# =============================================================================
