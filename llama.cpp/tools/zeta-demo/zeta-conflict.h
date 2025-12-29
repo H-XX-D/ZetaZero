@@ -369,9 +369,6 @@ static inline zeta_conflict_result_t zeta_detect_conflict(
     char lower_output[2048];
     zeta_to_lower(lower_output, output, sizeof(lower_output));
 
-    fprintf(stderr, "[CONFLICT_CHECK] Output: %.80s...\n", output);
-    fprintf(stderr, "[CONFLICT_CHECK] Nodes: %d\n", ctx->num_nodes);
-
     int checked = 0;
 
     // Check each active fact node for contradiction
@@ -384,8 +381,6 @@ static inline zeta_conflict_result_t zeta_detect_conflict(
         if (node->source != SOURCE_USER) continue;
 
         checked++;
-        fprintf(stderr, "[CONFLICT_CHECK] Node %d: %s = %.50s (sal=%.2f)\n",
-                i, node->label, node->value, node->salience);
 
         // Extract key entities from this fact
         char entities[8][64];
@@ -394,8 +389,6 @@ static inline zeta_conflict_result_t zeta_detect_conflict(
 
         // Check if any entity appears with negation in output
         for (int e = 0; e < entity_count; e++) {
-            fprintf(stderr, "[CONFLICT_CHECK]   Entity: %s\n", entities[e]);
-
             if (zeta_has_negation_near(output, entities[e])) {
                 result.has_conflict = true;
                 strncpy(result.fact_subject, node->label, sizeof(result.fact_subject) - 1);
@@ -432,11 +425,6 @@ static inline zeta_conflict_result_t zeta_detect_conflict(
             int output_num_count = zeta_extract_numerics(output, output_nums, 16);
 
             for (int fn = 0; fn < fact_num_count; fn++) {
-                fprintf(stderr, "[CONFLICT_CHECK]   Numeric: %s=%s (ctx=%s)\n",
-                        fact_nums[fn].value,
-                        fact_nums[fn].is_year ? "year" : "num",
-                        fact_nums[fn].context);
-
                 for (int on = 0; on < output_num_count; on++) {
                     if (zeta_numerics_conflict(&fact_nums[fn], &output_nums[on])) {
                         result.has_conflict = true;
@@ -462,7 +450,6 @@ static inline zeta_conflict_result_t zeta_detect_conflict(
         }  // End of disabled numeric conflict detection
     }
 
-    fprintf(stderr, "[CONFLICT_CHECK] Checked %d nodes, no conflicts\n", checked);
     return result;
 }
 
@@ -622,20 +609,11 @@ static inline int zeta_check_numeric_conflicts(
 ) {
     zeta_numeric_fact_t new_facts[8];
     int new_count = zeta_extract_numeric_facts(input, new_facts, 8);
-
-    fprintf(stderr, "[INPUT_CONFLICT] Extracted %d numeric facts from input\n", new_count);
-    for (int d = 0; d < new_count; d++) {
-        fprintf(stderr, "[INPUT_CONFLICT]   Fact %d: %s = %lld\n",
-                d, new_facts[d].label, (long long)new_facts[d].numeric);
-    }
-
     if (new_count == 0) return 0;  // No numeric facts in input
 
     int conflicts_found = 0;
     char* p = warning_buffer;
     int remaining = buffer_size - 1;
-
-    fprintf(stderr, "[INPUT_CONFLICT] Searching %d nodes for conflicts\n", ctx->num_nodes);
 
     for (int i = 0; i < new_count; i++) {
         // Search graph for existing node with conflicting value
@@ -684,11 +662,8 @@ static inline int zeta_check_numeric_conflicts(
                 }
             }
         }
-        fprintf(stderr, "[INPUT_CONFLICT] Checked %d active nodes for %s=%lld\n",
-                checked, new_facts[i].label, (long long)new_facts[i].numeric);
     }
 
-    fprintf(stderr, "[INPUT_CONFLICT] Total conflicts found: %d\n", conflicts_found);
     return conflicts_found;
 }
 

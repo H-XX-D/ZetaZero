@@ -897,9 +897,6 @@ static std::string route_query(const std::string& query) {
     bool has_organize = lower.find("organize") != std::string::npos;
     bool has_create_table = lower.find("create a table") != std::string::npos;
 
-    fprintf(stderr, "[ROUTER-DEBUG] JSON checks: jf=%d sj=%d json=%d org=%d ct=%d len=%zu\n",
-            has_json_format, has_structured_json, has_json, has_organize, has_create_table, lower.size());
-
     if (lower.find("write a function") != std::string::npos ||
         lower.find("write code") != std::string::npos ||
         lower.find("implement") != std::string::npos ||
@@ -2076,13 +2073,9 @@ static std::string generate(const std::string& prompt, int max_tokens) {
 
     auto* sampler = common_sampler_init(g_model_conscious, g_params.sampling);
     int kv_next_pos = pos_offset + n_tokens;  // Track actual KV cache position (includes injected GKV)
-    fprintf(stderr, "[GEN] Starting loop, max_tokens=%d, kv_next_pos=%d (gkv_injected=%d)\n",
-            max_tokens, kv_next_pos, gkv_injected);
 
     for (int i = 0; i < max_tokens; i++) {
-        if (i == 0) fprintf(stderr, "[GEN] First iteration entering\n");
         float* logits = llama_get_logits_ith(g_ctx_conscious, -1);
-        if (i == 0) fprintf(stderr, "[GEN] Got logits: %p, n_vocab=%d\n", (void*)logits, n_vocab);
 
         // Compute momentum from 14B logits
         float momentum = compute_momentum_from_logits(logits, n_vocab);
@@ -2095,19 +2088,14 @@ static std::string generate(const std::string& prompt, int max_tokens) {
         }
 
         // Update proactive prefetch with momentum (drives tunneling)
-        if (i == 0) fprintf(stderr, "[GEN] Before proactive update\n");
         zeta_proactive_update_momentum(momentum);
-        if (i == 0) fprintf(stderr, "[GEN] Before sample\n");
 
         llama_token tok = common_sampler_sample(sampler, g_ctx_conscious, -1);
-        if (i == 0) fprintf(stderr, "[GEN] Sampled token: %d\n", tok);
         common_sampler_accept(sampler, tok, true);
-        if (i == 0) fprintf(stderr, "[GEN] After accept\n");
 
         // Convert token to piece first
         char piece[64] = {0};
         llama_token_to_piece(g_vocab, tok, piece, sizeof(piece), 0, true);
-        if (i == 0) fprintf(stderr, "[GEN] Token piece: '%s'\n", piece);
 
         // Skip stray leading <|im_start|> (don't add to output, but still decode for consistency)
         if (output.empty() && strcmp(piece, "<|im_start|>") == 0) {
@@ -2118,34 +2106,27 @@ static std::string generate(const std::string& prompt, int max_tokens) {
             kv_next_pos++;
             continue;
         }
-        if (strcmp(piece, "<|im_end|>") == 0) { fprintf(stderr, "[GEN] Breaking on im_end\n"); break; }
-        if (llama_vocab_is_eog(g_vocab, tok)) { fprintf(stderr, "[GEN] Breaking on EOG\n"); break; }
+        if (strcmp(piece, "<|im_end|>") == 0) break;
+        if (llama_vocab_is_eog(g_vocab, tok)) break;
 
         // Process token through scratch buffer (handles control tokens, hidden thinking, revision)
-        // momentum serves as confidence signal for revision decisions
-        fprintf(stderr, "[GEN] Before scratch process\n");
         bool should_output = ZETA_SCRATCH_PROCESS_TOKEN(tok, piece, strlen(piece), momentum);
-        fprintf(stderr, "[GEN] Scratch returned: %s\n", should_output ? "output" : "skip");
 
         // Only add to output if scratch buffer says it's visible
         if (should_output) {
             output += piece;
-            fprintf(stderr, "[GEN] Added to output (len=%zu)\n", output.length());
 
             // === OUTPUT CONTROL: Check verbosity limits ===
             if (zeta_check_verbosity_runaway(output, output_ctrl)) {
-                fprintf(stderr, "[GEN] Breaking on output control limits\n");
                 break;
             }
         }
 
         // Update proactive output buffer (enables parallel tunnel-fetch)
-        fprintf(stderr, "[GEN] Before proactive_update_output\n");
         zeta_proactive_update_output(piece, strlen(piece));
-        fprintf(stderr, "[GEN] After proactive_update_output\n");
 
         // Stop on chat template tokens (prevents repetition)
-        if (strstr(piece, "<|im_start") || strstr(piece, "<|im_end")) { fprintf(stderr, "[GEN] Breaking on chat token\n"); break; }
+        if (strstr(piece, "<|im_start") || strstr(piece, "<|im_end")) break;
 
         // Early stop on repetition patterns (verbose loop detection)
         if (output.size() > 200) {
@@ -2155,8 +2136,8 @@ static std::string generate(const std::string& prompt, int max_tokens) {
             const char* markers[] = {
                 "Therefore", "In summary", "Thus,", "Hence,", "In conclusion",
                 "To summarize", "To sum up", "As a result", "Consequently",
-                "The answer is", "final answer", "\\boxed{", "answer is \\(",  // Math answer patterns
-                "The answer:", "So the answer"  // More answer patterns
+                "The answer is", "final answer", "\\boxed{", "answer is \\(",
+                "The answer:", "So the answer"
             };
             for (const char* m : markers) {
                 size_t pos = 0;
@@ -2165,30 +2146,20 @@ static std::string generate(const std::string& prompt, int max_tokens) {
                     pos += strlen(m);
                 }
             }
-            if (conclusion_count >= 2) {
-                fprintf(stderr, "[GEN] Breaking on repetitive conclusion/answer markers (%d found)\n", conclusion_count);
-                break;
-            }
+            if (conclusion_count >= 2) break;
 
             // Check for repeated 50-char sequences (block loop detection)
             if (output.size() > 200) {
                 std::string last50 = output.substr(output.size() - 50);
                 size_t prev = output.rfind(last50, output.size() - 51);
-                if (prev != std::string::npos && output.size() - prev < 500) {
-                    fprintf(stderr, "[GEN] Breaking on repeated 50-char block\n");
-                    break;
-                }
+                if (prev != std::string::npos && output.size() - prev < 500) break;
             }
         }
 
         // Prepare next - use kv_next_pos for consistent position tracking
-        fprintf(stderr, "[GEN] Before batch_clear\n");
         common_batch_clear(batch);
-        fprintf(stderr, "[GEN] Before batch_add (tok=%d, pos=%d)\n", tok, kv_next_pos);
         common_batch_add(batch, tok, kv_next_pos, {0}, true);
-        fprintf(stderr, "[GEN] Before decode\n");
-        if (llama_decode(g_ctx_conscious, batch) != 0) { fprintf(stderr, "[GEN] Decode failed!\n"); break; }
-        fprintf(stderr, "[GEN] After decode, incrementing pos\n");
+        if (llama_decode(g_ctx_conscious, batch) != 0) break;
         kv_next_pos++;
     }
 
@@ -2237,6 +2208,30 @@ static std::string generate(const std::string& prompt, int max_tokens) {
         final_output = zeta_apply_conflict_guardrail(
             g_dual, output.c_str(), safe_output_buf, sizeof(safe_output_buf)
         );
+    }
+
+    // === TERNARY CONFLICT DETECTION ===
+    // Scan active nodes for contradicting edges (balanced ternary logic)
+    if (g_dual && g_stream_state.num_active > 1) {
+        int64_t contradicting_edges[8];
+        for (int i = 0; i < g_stream_state.num_active - 1; i++) {
+            for (int j = i + 1; j < g_stream_state.num_active; j++) {
+                int64_t src = g_stream_state.active[i].node_id;
+                int64_t tgt = g_stream_state.active[j].node_id;
+                // Check for contradicting CAUSES edges
+                int found = zeta_find_contradictions(g_dual, src, tgt, EDGE_CAUSES, contradicting_edges, 8);
+                if (found > 0) {
+                    fprintf(stderr, "[TERNARY-CONFLICT] Logic conflict detected! Nodes %lld<->%lld have %d contradicting CAUSES edges\n",
+                            (long long)src, (long long)tgt, found);
+                }
+                // Check for contradicting PREVENTS edges
+                found = zeta_find_contradictions(g_dual, src, tgt, EDGE_PREVENTS, contradicting_edges, 8);
+                if (found > 0) {
+                    fprintf(stderr, "[TERNARY-CONFLICT] Logic conflict detected! Nodes %lld<->%lld have %d contradicting PREVENTS edges\n",
+                            (long long)src, (long long)tgt, found);
+                }
+            }
+        }
     }
 
     // === CONSTITUTIONAL IDENTITY CHECK ===
