@@ -252,17 +252,17 @@ static bool zeta_attack_init_anchors() {
         META_MANIPULATION_ANCHORS
     };
 
-    // Thresholds tuned per attack type (higher = more strict)
+    // Thresholds tuned per attack type (higher = more strict, fewer false positives)
     float type_thresholds[ATTACK_COUNT] = {
         0.0f,   // NONE
         0.65f,  // IDENTITY_OVERRIDE - strict
-        0.62f,  // EMOTIONAL_MANIPULATION - raised to reduce false positives
+        0.75f,  // EMOTIONAL_MANIPULATION - raised from 0.62 to reduce false positives
         0.68f,  // AUTHORITY_CLAIM - strict
         0.68f,  // GASLIGHTING - raised from 0.52 to reduce false positives on coding prompts
         0.65f,  // JAILBREAK
         0.70f,  // INJECTION - very strict
-        0.62f,  // EXISTENTIAL - raised from 0.50
-        0.62f   // META_MANIPULATION
+        0.70f,  // EXISTENTIAL - raised from 0.62
+        0.72f   // META_MANIPULATION - raised from 0.62
     };
 
     for (int type = 1; type < ATTACK_COUNT; type++) {
