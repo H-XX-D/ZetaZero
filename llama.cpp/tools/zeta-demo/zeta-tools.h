@@ -67,26 +67,53 @@ struct ToolResult {
 };
 
 // ============================================================================
-// GRAPH VALIDATION STUBS (fail closed - deny by default)
+// LOCAL TRUST MODE
+// When enabled, allows tool execution for local/LAN requests
 // ============================================================================
 
-// Stub: Always returns false (blocks graph-gated params)
+static bool g_tools_local_trust = true;  // Trust local by default
+
+inline void zeta_tools_set_local_trust(bool enabled) {
+    g_tools_local_trust = enabled;
+    fprintf(stderr, "[TOOLS] Local trust %s\n", enabled ? "ENABLED" : "DISABLED");
+}
+
+// ============================================================================
+// GRAPH VALIDATION (permissive for local trust mode)
+// ============================================================================
+
 inline bool graph_has_value(zeta_ctx_t* ctx, const std::string& value) {
-    (void)ctx; (void)value;
-    // TODO: Implement actual graph lookup
-    // For now, only allow if in allowlist
-    static std::vector<std::string> allowlist = {
-        ".", "..", "/tmp", "/home"
+    (void)ctx;
+
+    // Local trust mode - allow common paths
+    if (g_tools_local_trust) {
+        static std::vector<std::string> local_allowlist = {
+            ".", "..", "/tmp", "/home", "/mnt", "/storage",
+            "~/", "/var/tmp", "/usr/local", "/opt",
+            "Desktop", "Documents", "Downloads", "scripts"
+        };
+        for (const auto& allowed : local_allowlist) {
+            if (value.find(allowed) != std::string::npos) return true;
+        }
+        // Allow relative paths in current dir
+        if (value.length() > 0 && value[0] != '/') return true;
+    }
+
+    // Strict mode - minimal allowlist
+    static std::vector<std::string> strict_allowlist = {
+        "/tmp", "/home"
     };
-    for (const auto& allowed : allowlist) {
+    for (const auto& allowed : strict_allowlist) {
         if (value.find(allowed) == 0) return true;
     }
-    return false;  // Deny by default
+    return false;
 }
 
 inline bool graph_has_typed_node(zeta_ctx_t* ctx, const std::string& type, const std::string& value) {
-    (void)ctx; (void)type; (void)value;
-    return false;  // Deny by default
+    (void)ctx; (void)type;
+    // In local trust mode, allow typed nodes
+    if (g_tools_local_trust) return true;
+    return false;
 }
 
 // ============================================================================
@@ -299,11 +326,14 @@ public:
             }
         }
 
-        // Block DANGEROUS tier without confirmation
-        if (tool.tier == ToolTier::DANGEROUS) {
+        // Block DANGEROUS tier without confirmation (unless local trust mode)
+        if (tool.tier == ToolTier::DANGEROUS && !g_tools_local_trust) {
             fprintf(stderr, "[TOOLS] BLOCKED: Dangerous tool requires confirmation\n");
             return ToolResult::blocked(ToolStatus::BLOCKED_NEEDS_CONFIRMATION,
                                        "Dangerous operation requires confirmation");
+        }
+        if (tool.tier == ToolTier::DANGEROUS) {
+            fprintf(stderr, "[TOOLS] ALLOWED: Dangerous tool (local trust mode)\n");
         }
 
         // Execute
