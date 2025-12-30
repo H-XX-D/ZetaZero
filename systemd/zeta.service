@@ -1,0 +1,57 @@
+[Unit]
+Description=Z.E.T.A. - Zero-latency Embedding & Token Architecture
+Documentation=https://github.com/H-XX-D/ZetaZero
+After=network.target nvidia-persistenced.service
+Wants=nvidia-persistenced.service
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=zeta
+Group=zeta
+
+# Environment
+Environment="CUDA_VISIBLE_DEVICES=0"
+Environment="ZETA_CONFIG=/etc/zeta/zeta.conf"
+EnvironmentFile=-/etc/zeta/environment
+
+# Paths
+WorkingDirectory=/opt/zeta
+ExecStart=/opt/zeta/zeta-server
+ExecReload=/bin/kill -HUP $MAINPID
+
+# Resource Management
+Nice=-10
+IOSchedulingClass=realtime
+IOSchedulingPriority=0
+CPUSchedulingPolicy=fifo
+CPUSchedulingPriority=50
+
+# Memory locking for low-latency (prevents swapping)
+LimitMEMLOCK=infinity
+LimitNOFILE=65536
+
+# GPU access
+SupplementaryGroups=video render
+
+# Restart policy
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=120
+TimeoutStopSec=30
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+ReadWritePaths=/var/lib/zeta /var/log/zeta
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=zeta
+
+[Install]
+WantedBy=multi-user.target

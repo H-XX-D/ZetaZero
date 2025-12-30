@@ -1,0 +1,25 @@
+# Z.E.T.A. System Daemon Environment Configuration
+# Copy to /etc/zeta/environment and customize
+
+# GPU Configuration
+CUDA_VISIBLE_DEVICES=0
+
+# Model paths
+ZETA_MODEL_14B=/opt/zeta/models/qwen2.5-14b-instruct-q4_k_m.gguf
+ZETA_MODEL_7B=/opt/zeta/models/qwen2.5-coder-7b-instruct-q4_k_m.gguf
+ZETA_MODEL_EMBED=/opt/zeta/models/nomic-embed-text-v1.5.f16.gguf
+
+# Storage paths
+ZETA_GKV_DIR=/var/lib/zeta/graph_kv
+ZETA_DREAM_DIR=/var/lib/zeta/dreams
+ZETA_STORAGE_DIR=/var/lib/zeta/storage
+
+# Server config
+ZETA_PORT=8080
+ZETA_HOST=127.0.0.1
+
+# Performance tuning
+ZETA_GPU_LAYERS=999
+ZETA_CTX_SIZE=4096
+ZETA_BATCH_SIZE=2048
+ZETA_THREADS=0
