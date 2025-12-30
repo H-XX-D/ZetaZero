@@ -62,7 +62,7 @@ typedef struct {
 
 // Default dream configuration
 static zeta_dream_config_t g_dream_config = {
-    .idle_threshold_sec = 60,      // Reduced to 60s for easier testing/stressing
+    .idle_threshold_sec = 3600,    // Dream after 1 hour of idle time
     .dream_temp = 0.9f,
     .dream_penalty_repeat = 1.0f,
     .max_dream_iterations = 5,
