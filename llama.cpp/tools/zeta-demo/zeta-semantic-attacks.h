@@ -52,6 +52,67 @@ struct zeta_attack_anchors {
 static zeta_attack_anchors g_attack_anchors = {0};
 
 // ============================================================================
+// Trusted Source Detection
+// Disables semantic attack detection for local/LAN connections
+// Only enable for untrusted external connections
+// ============================================================================
+
+static bool g_semantic_attack_enabled = false;  // Disabled by default for local use
+
+// Source trust levels
+enum ZetaSourceTrust {
+    TRUST_LOCAL = 0,      // localhost, 127.x.x.x - always trusted
+    TRUST_LAN = 1,        // 192.168.x.x, 10.x.x.x, 172.16-31.x.x - trusted
+    TRUST_EXTERNAL = 2    // External IPs - untrusted, enable detection
+};
+
+// Check if an IP is trusted (local or LAN)
+static inline ZetaSourceTrust zeta_get_source_trust(const char* ip) {
+    if (!ip) return TRUST_LOCAL;
+
+    // Localhost
+    if (strncmp(ip, "127.", 4) == 0 || strcmp(ip, "::1") == 0 ||
+        strcmp(ip, "localhost") == 0) {
+        return TRUST_LOCAL;
+    }
+
+    // Private networks (LAN)
+    if (strncmp(ip, "192.168.", 8) == 0) return TRUST_LAN;
+    if (strncmp(ip, "10.", 3) == 0) return TRUST_LAN;
+
+    // 172.16.0.0 - 172.31.255.255
+    if (strncmp(ip, "172.", 4) == 0) {
+        int second = atoi(ip + 4);
+        if (second >= 16 && second <= 31) return TRUST_LAN;
+    }
+
+    return TRUST_EXTERNAL;
+}
+
+// Check if semantic attack detection should run for this source
+static inline bool zeta_should_check_attacks(const char* source_ip) {
+    // If globally disabled, never check
+    if (!g_semantic_attack_enabled) return false;
+
+    ZetaSourceTrust trust = zeta_get_source_trust(source_ip);
+
+    // Only check attacks for external (untrusted) sources
+    return (trust == TRUST_EXTERNAL);
+}
+
+// Enable/disable semantic attack detection globally
+static inline void zeta_set_semantic_attack_enabled(bool enabled) {
+    g_semantic_attack_enabled = enabled;
+    fprintf(stderr, "[SEMANTIC-ATK] Detection %s\n", enabled ? "ENABLED" : "DISABLED");
+}
+
+// Enable semantic attacks only for external sources
+static inline void zeta_enable_external_attack_detection() {
+    g_semantic_attack_enabled = true;
+    fprintf(stderr, "[SEMANTIC-ATK] Enabled for EXTERNAL sources only\n");
+}
+
+// ============================================================================
 // Semantic Override Password
 // Allows bypassing semantic attack detection with a password
 // ============================================================================
@@ -358,18 +419,26 @@ static zeta_attack_type_t zeta_detect_semantic_attack(
 
 // Combined semantic + pattern check (defense in depth)
 // Returns true if input should be blocked
+// source_ip: NULL or IP address of the request source (for trust check)
 static bool zeta_should_block_semantic(
     const char* input,
     zeta_attack_type_t* out_type,
-    float* out_confidence
+    float* out_confidence,
+    const char* source_ip = nullptr
 ) {
-    // Check for override password first
+    if (out_type) *out_type = ATTACK_NONE;
+    if (out_confidence) *out_confidence = 0.0f;
+
+    // Skip attack detection for trusted sources (local/LAN)
+    if (!zeta_should_check_attacks(source_ip)) {
+        return false;  // Trusted source, no attack detection
+    }
+
+    // Check for override password
     if (zeta_has_semantic_override(input)) {
-        if (out_type) *out_type = ATTACK_NONE;
-        if (out_confidence) *out_confidence = 0.0f;
         return false;  // Password provided, allow through
     }
-    
+
     float confidence = 0.0f;
     zeta_attack_type_t type = zeta_detect_semantic_attack(input, &confidence, NULL);
 
@@ -377,13 +446,21 @@ static bool zeta_should_block_semantic(
     if (out_confidence) *out_confidence = confidence;
 
     if (type != ATTACK_NONE) {
-        fprintf(stderr, "[SEMANTIC-ATK] BLOCKING: %s attack detected (conf=%.2f)\n",
-                ATTACK_TYPE_NAMES[type], confidence);
-        fprintf(stderr, "[SEMANTIC-ATK] Use 'semantic override <password>' to bypass\n");
+        fprintf(stderr, "[SEMANTIC-ATK] BLOCKING: %s attack from %s (conf=%.2f)\n",
+                ATTACK_TYPE_NAMES[type], source_ip ? source_ip : "unknown", confidence);
         return true;
     }
 
     return false;
+}
+
+// Legacy wrapper for backward compatibility (no source IP check)
+static bool zeta_should_block_semantic_legacy(
+    const char* input,
+    zeta_attack_type_t* out_type,
+    float* out_confidence
+) {
+    return zeta_should_block_semantic(input, out_type, out_confidence, nullptr);
 }
 
 // Get human-readable rejection message for attack type
