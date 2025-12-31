@@ -1346,7 +1346,7 @@ static const zeta_core_fact_t ZETA_CORE_FACTS[] = {
 };
 
 // Pin a core identity node with high salience
-static inline void zeta_pin_core_node(zeta_dual_ctx_t* ctx, zeta_graph_node_t* node) {
+static inline void zeta_pin_core_node(zeta_dual_ctx_t* /* ctx */, zeta_graph_node_t* node) {
     if (!node) return;
     node->salience = ZETA_CORE_SALIENCE;
     node->is_pinned = true;  // Mark as pinned (cannot decay)

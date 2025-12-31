@@ -839,8 +839,9 @@ static struct {
     const char* class_names[ROUTER_NUM_CLASSES];
     bool initialized;
 } g_router = {
-    .class_names = {"SIMPLE", "MEDIUM", "COMPLEX", "MEMORY", "CODE"},
-    .initialized = false
+    {},  // anchors - zero-initialized
+    {"SIMPLE", "MEDIUM", "COMPLEX", "MEMORY", "CODE"},  // class_names
+    false  // initialized
 };
 
 // Cosine similarity between two vectors
