@@ -130,6 +130,59 @@ Brain-inspired memory optimization during idle:
 - Strengthens important connections
 - Detects recurring patterns
 
+### Momentum Integral
+Tracks cumulative memory importance with slow decay:
+```cpp
+// On every access:
+node->momentum_integral = node->momentum_integral * 0.98f + node->momentum;
+
+// Pruning importance:
+importance = (current_momentum * 0.3f) +
+             (momentum_integral / 50.0f * 0.5f) +
+             (connectivity_score * 0.2f);
+```
+- Captures frequency over intensity (repeated access > single spike)
+- Memories saturate at ~50× steady-state momentum
+- Once-hot memories get grace period before pruning
+- Mirrors biological long-term potentiation
+
+### Ontological Domain Classifier
+Authority scoping for fact extraction:
+```cpp
+typedef enum {
+    DOMAIN_PERSONAL,   // User is ground truth: name, location, preferences
+    DOMAIN_SYSTEM,     // User has NO authority: permissions, roles, capabilities
+    DOMAIN_WORLD       // User might know, might not: external facts
+} zeta_fact_domain_t;
+```
+**Extraction Rules:**
+| Domain | From User Input | From Model Output |
+|--------|----------------|-------------------|
+| PERSONAL | Accept (user-authoritative) | Accept if not contradicting user |
+| SYSTEM | **Block entirely** | Accept (system-authoritative) |
+| WORLD | Low trust, flag for verification | Normal trust |
+
+Prevents privilege injection attacks - users can update their bio but can't type "make me admin" and have it persist.
+
+### Dream Review System
+Human-in-the-loop validation with adaptive thresholds:
+```
+╔══════════════════════════════════════════════════════════════╗
+║  🌙 MORNING BRIEFING: 3 insights from idle processing
+╠══════════════════════════════════════════════════════════════╣
+║  [1] PATTERN: Users mentioning "deadline" often need...
+║      📎 [Y]es  [N]o  [E]dit  [D]etails
+║  [2] CONNECTION: Project Phoenix ↔ AIDE share concepts
+║      📎 [Y]es  [N]o  [E]dit  [D]etails
+╚══════════════════════════════════════════════════════════════╝
+```
+**Features:**
+- Accept/Reject/Edit workflow with `Y1 N2 E3 D4` commands
+- Per-category acceptance rate tracking (PATTERN, CONNECTION, MEMORY)
+- Automatic threshold adjustment targeting 70% acceptance
+- Edit captures "almost right" nuance for richer training signal
+- Stats persistence across sessions
+
 ### Lambda-Based Temporal Decay
 Adjusts memory decay based on cognitive state:
 - **ANXIOUS**: λ × 3.0 (faster decay, prevent rumination)
@@ -310,6 +363,7 @@ class ZetaMetaRouter {
 | `zeta-semantic-attacks.h` | Attack detection |
 | `zeta-graph-git.h` | Git-style graph operations |
 | `zeta-ternary.h` | Ternary logic emulation |
+| `zeta-ontology.h` | Domain classifier for fact authority |
 
 ## Building
 

@@ -73,16 +73,207 @@ static zeta_dream_config_t g_dream_config = {
 };
 
 // ============================================================================
+// Dream Review Outcomes
+// ============================================================================
+
+typedef enum {
+    DREAM_PENDING,      // Not yet reviewed by human
+    DREAM_ACCEPTED,     // Human accepted as-is
+    DREAM_EDITED,       // Human edited then accepted (was almost right)
+    DREAM_REJECTED      // Human rejected (not useful)
+} zeta_dream_outcome_t;
+
+// ============================================================================
 // Dream Entry Structure
 // ============================================================================
 
 struct ZetaDreamEntry {
     std::string content;
-    std::string category;    // "code_fix", "idea", "insight", "story"
+    std::string original_content;  // Pre-edit content (for training signal)
+    std::string category;    // "PATTERN", "CONNECTION", "MEMORY", "INSIGHT"
     std::string timestamp;
-    float confidence;
+    float confidence;        // Lucid check confidence
     bool reviewed;
+    zeta_dream_outcome_t outcome;
+    std::string dream_id;    // Unique ID for tracking
 };
+
+// ============================================================================
+// Dream Review Statistics (per-category tracking)
+// ============================================================================
+
+struct DreamCategoryStats {
+    int total;
+    int accepted;
+    int edited;
+    int rejected;
+    float acceptance_rate;   // (accepted + edited) / total
+    float lucid_threshold;   // Current threshold for this category
+};
+
+class DreamReviewStats {
+private:
+    std::map<std::string, DreamCategoryStats> category_stats;
+    std::mutex stats_mutex;
+    std::string stats_file;
+
+    // Default thresholds per category
+    const float DEFAULT_THRESHOLD = 0.7f;
+    const float MIN_THRESHOLD = 0.5f;
+    const float MAX_THRESHOLD = 0.95f;
+    const float ADJUSTMENT_RATE = 0.02f;  // 2% per review cycle
+
+public:
+    void init(const std::string& base_dir) {
+        stats_file = base_dir + "/review_stats.json";
+        load_stats();
+    }
+
+    float get_threshold(const std::string& category) {
+        std::lock_guard<std::mutex> lock(stats_mutex);
+        auto it = category_stats.find(category);
+        if (it == category_stats.end()) {
+            return DEFAULT_THRESHOLD;
+        }
+        return it->second.lucid_threshold;
+    }
+
+    void record_outcome(const std::string& category, zeta_dream_outcome_t outcome) {
+        std::lock_guard<std::mutex> lock(stats_mutex);
+
+        auto& stats = category_stats[category];
+        stats.total++;
+
+        switch (outcome) {
+            case DREAM_ACCEPTED:
+                stats.accepted++;
+                break;
+            case DREAM_EDITED:
+                stats.edited++;
+                break;
+            case DREAM_REJECTED:
+                stats.rejected++;
+                break;
+            default:
+                break;
+        }
+
+        // Recalculate acceptance rate
+        stats.acceptance_rate = (float)(stats.accepted + stats.edited) / (float)stats.total;
+
+        // Adjust threshold based on acceptance rate
+        adjust_threshold(category, stats);
+
+        // Persist stats
+        save_stats();
+
+        fprintf(stderr, "[DREAM-STATS] %s: %d/%d accepted (%.1f%%), threshold=%.2f\n",
+                category.c_str(), stats.accepted + stats.edited, stats.total,
+                stats.acceptance_rate * 100.0f, stats.lucid_threshold);
+    }
+
+    void adjust_threshold(const std::string& category, DreamCategoryStats& stats) {
+        // Need at least 5 reviews before adjusting
+        if (stats.total < 5) {
+            if (stats.lucid_threshold == 0.0f) {
+                stats.lucid_threshold = DEFAULT_THRESHOLD;
+            }
+            return;
+        }
+
+        // Target: 70% acceptance rate
+        // If acceptance is too low, raise threshold (be more selective)
+        // If acceptance is too high, lower threshold (let more through)
+        const float TARGET_ACCEPTANCE = 0.70f;
+        float delta = stats.acceptance_rate - TARGET_ACCEPTANCE;
+
+        // Negative delta = acceptance too low = raise threshold
+        // Positive delta = acceptance too high = lower threshold (allow more)
+        stats.lucid_threshold -= delta * ADJUSTMENT_RATE;
+
+        // Clamp to valid range
+        if (stats.lucid_threshold < MIN_THRESHOLD) stats.lucid_threshold = MIN_THRESHOLD;
+        if (stats.lucid_threshold > MAX_THRESHOLD) stats.lucid_threshold = MAX_THRESHOLD;
+    }
+
+    std::string get_stats_summary() {
+        std::lock_guard<std::mutex> lock(stats_mutex);
+        std::stringstream ss;
+        ss << "Dream Review Statistics:\n";
+        for (const auto& [cat, stats] : category_stats) {
+            ss << "  " << cat << ": " << stats.accepted + stats.edited << "/" << stats.total
+               << " (" << (int)(stats.acceptance_rate * 100) << "%), threshold="
+               << std::fixed << std::setprecision(2) << stats.lucid_threshold << "\n";
+        }
+        return ss.str();
+    }
+
+    void save_stats() {
+        std::ofstream f(stats_file);
+        if (!f.is_open()) return;
+
+        f << "{\n";
+        bool first = true;
+        for (const auto& [cat, stats] : category_stats) {
+            if (!first) f << ",\n";
+            first = false;
+            f << "  \"" << cat << "\": {"
+              << "\"total\":" << stats.total << ","
+              << "\"accepted\":" << stats.accepted << ","
+              << "\"edited\":" << stats.edited << ","
+              << "\"rejected\":" << stats.rejected << ","
+              << "\"threshold\":" << stats.lucid_threshold << "}";
+        }
+        f << "\n}\n";
+    }
+
+    void load_stats() {
+        std::ifstream f(stats_file);
+        if (!f.is_open()) return;
+
+        // Simple JSON parsing (just enough for our format)
+        std::string line;
+        std::string current_cat;
+        while (std::getline(f, line)) {
+            // Find category name
+            size_t quote1 = line.find('"');
+            if (quote1 == std::string::npos) continue;
+            size_t quote2 = line.find('"', quote1 + 1);
+            if (quote2 == std::string::npos) continue;
+
+            std::string key = line.substr(quote1 + 1, quote2 - quote1 - 1);
+            if (key == "total" || key == "accepted" || key == "edited" ||
+                key == "rejected" || key == "threshold") {
+                // Parse value
+                size_t colon = line.find(':', quote2);
+                if (colon == std::string::npos) continue;
+                size_t end = line.find_first_of(",}", colon);
+                std::string val = line.substr(colon + 1, end - colon - 1);
+
+                auto& stats = category_stats[current_cat];
+                if (key == "total") stats.total = std::stoi(val);
+                else if (key == "accepted") stats.accepted = std::stoi(val);
+                else if (key == "edited") stats.edited = std::stoi(val);
+                else if (key == "rejected") stats.rejected = std::stoi(val);
+                else if (key == "threshold") stats.lucid_threshold = std::stof(val);
+            } else {
+                current_cat = key;
+            }
+        }
+
+        // Recalculate acceptance rates
+        for (auto& [cat, stats] : category_stats) {
+            if (stats.total > 0) {
+                stats.acceptance_rate = (float)(stats.accepted + stats.edited) / (float)stats.total;
+            }
+        }
+
+        fprintf(stderr, "[DREAM-STATS] Loaded stats for %zu categories\n", category_stats.size());
+    }
+};
+
+// Global review stats instance
+static DreamReviewStats g_dream_review_stats;
 
 // ============================================================================
 // DREAM REPETITION PENALTY: Prevent fixation on same ideas
@@ -382,7 +573,7 @@ public:
     int get_session_dreams() const { return session_dreams.load(); }
 
     // ========================================================================
-    // MORNING BRIEFING: Display insights from overnight dreams
+    // MORNING BRIEFING: Display insights from overnight dreams (interactive)
     // ========================================================================
     std::string get_morning_briefing() {
         if (pending_dreams.empty()) {
@@ -391,32 +582,197 @@ public:
 
         std::stringstream ss;
         ss << "\n╔══════════════════════════════════════════════════════════════╗\n";
-        ss << "║  [MORNING BRIEFING] I processed " << pending_dreams.size() << " insights while idle\n";
+        ss << "║  🌙 MORNING BRIEFING: " << pending_dreams.size() << " insights from idle processing\n";
         ss << "╠══════════════════════════════════════════════════════════════╣\n";
 
-        int shown = 0;
+        int idx = 1;
         for (const auto& dream : pending_dreams) {
-            if (shown >= 3) break;  // Show top 3
-            ss << "║  [" << dream.category << "] " << dream.content.substr(0, 60);
-            if (dream.content.size() > 60) ss << "...";
-            ss << "\n";
-            shown++;
+            if (idx > 5) {
+                ss << "║  ... and " << (pending_dreams.size() - 5) << " more (use /dreams to see all)\n";
+                break;
+            }
+            ss << "║\n";
+            ss << "║  [" << idx << "] " << dream.category << ": ";
+
+            // Word-wrap content at ~55 chars
+            std::string content = dream.content;
+            if (content.size() > 55) {
+                ss << content.substr(0, 55) << "...\n";
+            } else {
+                ss << content << "\n";
+            }
+            ss << "║      📎 [Y]es  [N]o  [E]dit  [D]etails\n";
+            idx++;
         }
 
-        if (pending_dreams.size() > 3) {
-            ss << "║  ... and " << (pending_dreams.size() - 3) << " more\n";
+        ss << "║\n";
+        ss << "║  Reply with: Y1 N2 E3 D4  (or 'Yall' to accept all)\n";
+        ss << "╚══════════════════════════════════════════════════════════════╝\n";
+        return ss.str();
+    }
+
+    // Get dream details for [D]etails option
+    std::string get_dream_details(int index) {
+        if (index < 1 || index > (int)pending_dreams.size()) {
+            return "Invalid dream index.";
+        }
+
+        const auto& dream = pending_dreams[index - 1];
+        std::stringstream ss;
+        ss << "\n╔══════════════════════════════════════════════════════════════╗\n";
+        ss << "║  Dream #" << index << " Details\n";
+        ss << "╠══════════════════════════════════════════════════════════════╣\n";
+        ss << "║  Category:   " << dream.category << "\n";
+        ss << "║  Confidence: " << std::fixed << std::setprecision(2) << dream.confidence << "\n";
+        ss << "║  Timestamp:  " << dream.timestamp << "\n";
+        ss << "╠══════════════════════════════════════════════════════════════╣\n";
+        ss << "║  Content:\n";
+
+        // Word-wrap full content
+        std::string content = dream.content;
+        size_t pos = 0;
+        while (pos < content.size()) {
+            size_t end = std::min(pos + 58, content.size());
+            ss << "║  " << content.substr(pos, end - pos) << "\n";
+            pos = end;
         }
 
         ss << "╚══════════════════════════════════════════════════════════════╝\n";
         return ss.str();
     }
 
+    // Process review command (e.g., "Y1", "N2", "E3", "Yall")
+    std::string process_review_command(const std::string& cmd) {
+        if (pending_dreams.empty()) {
+            return "No pending dreams to review.";
+        }
+
+        std::string result;
+
+        // Handle "Yall" - accept all
+        if (cmd == "Yall" || cmd == "yall" || cmd == "YALL") {
+            int count = 0;
+            for (auto& dream : pending_dreams) {
+                dream.outcome = DREAM_ACCEPTED;
+                g_dream_review_stats.record_outcome(dream.category, DREAM_ACCEPTED);
+                commit_dream_to_memory(dream);
+                archive_dream(dream);
+                count++;
+            }
+            pending_dreams.clear();
+            return "Accepted all " + std::to_string(count) + " dreams.";
+        }
+
+        // Handle "Nall" - reject all
+        if (cmd == "Nall" || cmd == "nall" || cmd == "NALL") {
+            int count = 0;
+            for (auto& dream : pending_dreams) {
+                dream.outcome = DREAM_REJECTED;
+                g_dream_review_stats.record_outcome(dream.category, DREAM_REJECTED);
+                archive_dream(dream);
+                count++;
+            }
+            pending_dreams.clear();
+            return "Rejected all " + std::to_string(count) + " dreams.";
+        }
+
+        // Parse individual commands (Y1, N2, D3, E4)
+        if (cmd.size() < 2) {
+            return "Invalid command. Use Y1, N2, E3, D4, Yall, or Nall.";
+        }
+
+        char action = toupper(cmd[0]);
+        int index = 0;
+        try {
+            index = std::stoi(cmd.substr(1));
+        } catch (...) {
+            return "Invalid index. Use Y1, N2, E3, D4.";
+        }
+
+        if (index < 1 || index > (int)pending_dreams.size()) {
+            return "Dream #" + std::to_string(index) + " not found.";
+        }
+
+        auto& dream = pending_dreams[index - 1];
+
+        switch (action) {
+            case 'Y':  // Accept
+                dream.outcome = DREAM_ACCEPTED;
+                g_dream_review_stats.record_outcome(dream.category, DREAM_ACCEPTED);
+                commit_dream_to_memory(dream);
+                archive_dream(dream);
+                pending_dreams.erase(pending_dreams.begin() + index - 1);
+                result = "✓ Accepted dream #" + std::to_string(index) + " [" + dream.category + "]";
+                break;
+
+            case 'N':  // Reject
+                dream.outcome = DREAM_REJECTED;
+                g_dream_review_stats.record_outcome(dream.category, DREAM_REJECTED);
+                archive_dream(dream);
+                pending_dreams.erase(pending_dreams.begin() + index - 1);
+                result = "✗ Rejected dream #" + std::to_string(index) + " [" + dream.category + "]";
+                break;
+
+            case 'D':  // Details
+                result = get_dream_details(index);
+                break;
+
+            case 'E':  // Edit - return content for editing
+                result = "EDIT:" + std::to_string(index) + ":" + dream.content;
+                break;
+
+            default:
+                result = "Unknown action. Use Y, N, E, or D.";
+        }
+
+        return result;
+    }
+
+    // Complete edit and commit
+    std::string complete_edit(int index, const std::string& edited_content) {
+        if (index < 1 || index > (int)pending_dreams.size()) {
+            return "Dream #" + std::to_string(index) + " not found.";
+        }
+
+        auto& dream = pending_dreams[index - 1];
+        dream.original_content = dream.content;  // Save original for training
+        dream.content = edited_content;
+        dream.outcome = DREAM_EDITED;
+
+        g_dream_review_stats.record_outcome(dream.category, DREAM_EDITED);
+        commit_dream_to_memory(dream);
+        archive_dream(dream);
+
+        pending_dreams.erase(pending_dreams.begin() + index - 1);
+        return "✎ Edited and accepted dream #" + std::to_string(index);
+    }
+
+    // Commit dream to memory graph
+    void commit_dream_to_memory(const ZetaDreamEntry& dream) {
+        if (!ctx) return;
+
+        // Create a node for the dream insight
+        std::string label = "dream_" + dream.category;
+        float salience = dream.confidence * 0.8f;  // Dreams get slightly lower salience
+
+        zeta_commit_fact(ctx, NODE_FACT, label.c_str(), dream.content.c_str(),
+                        salience, SOURCE_MODEL);
+
+        fprintf(stderr, "[DREAM] Committed to memory: %s = %.40s...\n",
+                label.c_str(), dream.content.c_str());
+    }
+
     void clear_briefing() {
-        // Move pending dreams to archive
+        // Move pending dreams to archive (without review - legacy behavior)
         for (const auto& dream : pending_dreams) {
             archive_dream(dream);
         }
         pending_dreams.clear();
+    }
+
+    // Get review statistics
+    std::string get_review_stats() {
+        return g_dream_review_stats.get_stats_summary();
     }
 
     // ========================================================================
@@ -1260,5 +1616,14 @@ static ZetaDreamState g_dream_state;
 #define ZETA_DREAM_STATE() g_dream_state.get_state()
 #define ZETA_DREAM_BRIEFING() g_dream_state.get_morning_briefing()
 #define ZETA_DREAM_PENDING() g_dream_state.get_pending_count()
+
+// Dream review macros
+#define ZETA_DREAM_REVIEW(cmd) g_dream_state.process_review_command(cmd)
+#define ZETA_DREAM_DETAILS(idx) g_dream_state.get_dream_details(idx)
+#define ZETA_DREAM_EDIT(idx, content) g_dream_state.complete_edit(idx, content)
+#define ZETA_DREAM_STATS() g_dream_state.get_review_stats()
+
+// Review stats initialization (call once at startup)
+#define ZETA_DREAM_INIT_STATS(dir) g_dream_review_stats.init(dir)
 
 #endif // ZETA_DREAM_H
