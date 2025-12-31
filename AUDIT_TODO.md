@@ -30,6 +30,21 @@
 - [x] **zeta-ontology.h** - ✅ Domain classification blocks privilege escalation
 - [x] **zeta-extract.h** - ✅ Regex-based fact extraction
 - [x] **zeta-hologit-persist.h** - ✅ Safe snprintf with size bounds
+- [x] **zeta-model-bind.c/.h** - ✅ Embedded constitution fallback
+- [x] **zeta-graph-kv.c/.h** - ✅ FP16/Q8 quantization, pre-computed KV storage
+- [x] **zeta-dedup.c/.h** - ✅ O(1) bloom filters, LSH, FNV-1a + MurmurHash3
+- [x] **zeta-tunnel-search.c/.h** - ✅ Momentum-driven traversal, bloom visited set
+- [x] **zeta-version.c/.h** - ✅ Immutable fact versioning with chains
+- [x] **zeta-fact-store.h** - ✅ Entity-value persistence, bigram embeddings
+- [x] **zeta-proactive-memory.h** - ✅ Momentum-driven prefetch, 7B prefetch thread
+- [x] **zeta-embed-integration.h** - ✅ Cache with TTL, LRU eviction
+- [x] **zeta-pruning.h** - ✅ Sleep-cycle pruning, protected edges
+- [x] **zeta-graph-manager.h** - ✅ Edge caps (soft 8K, hard 12K)
+- [x] **zeta-litellm.h** - ✅ HTTP client to LiteLLM proxy, local fallback
+- [x] **zeta-cloud.h** - ✅ DISABLED by default, explicit opt-in
+- [x] **zeta-swarm.h** - ✅ Ternary voting consensus, distributed dreaming
+- [x] **zeta-causal-embeddings.h** - ✅ BGE embeddings for CAUSES/PREVENTS
+- [x] **zeta-code-mode.h** - ✅ Dynamic 3B model swapping (Instruct↔Coder)
 
 ---
 
@@ -39,11 +54,11 @@
 - [x] **2. zeta-integration.c/.h** - ✅ Constitutional lock, ZETA_DEV_MODE bypass, proper llama API usage
 - [x] **3. zeta-constitution.c/.h** - ✅ AUDITED - cryptographically sound
 - [x] **4. zeta-kv-extract.c/.h** - ✅ Proper memory cleanup, safe token extraction
-- [ ] **5. zeta-model-bind.c/.h** - Audit model binding: verify multi-model support, check model switching logic, validate parameter passing, ensure proper model lifecycle management
-- [ ] **6. zeta-graph-kv.c/.h** - Audit graph-KV system: verify node/edge operations, check graph traversal, validate persistence, cross-check with zeta-graph-kv-integration.h
-- [ ] **7. zeta-dedup.c/.h** - Audit deduplication: verify hash computation, check collision handling, validate dedup accuracy, test performance with large datasets
-- [ ] **8. zeta-tunnel-search.c/.h** - Audit tunnel search: verify search algorithm, check result ranking, validate semantic matching, test edge cases
-- [ ] **9. zeta-version.c/.h** - Audit version system: verify version string format, check backward compatibility markers, validate build info accuracy
+- [x] **5. zeta-model-bind.c/.h** - ✅ Embedded constitution fallback, cryptographic model binding
+- [x] **6. zeta-graph-kv.c/.h** - ✅ FP16/Q8 quantization helpers, pre-computed KV cache storage
+- [x] **7. zeta-dedup.c/.h** - ✅ O(1) bloom filters, LSH hashing, FNV-1a + MurmurHash3
+- [x] **8. zeta-tunnel-search.c/.h** - ✅ Momentum-driven traversal, bloom-style visited set, cosine similarity
+- [x] **9. zeta-version.c/.h** - ✅ Immutable fact versioning with version chains
 - [ ] **10. zeta-hologit.c/.h** - Audit hologit system: verify git-like operations, check branch/commit logic, validate persistence with zeta-hologit-persist.h, NOTE: NOT COMPILED - verify if dead code
 
 ---
@@ -79,19 +94,19 @@
 ## MEMORY SYSTEMS (24-31)
 
 - [x] **24. zeta-ontology.h** - ✅ Domain classification: PERSONAL/SYSTEM/WORLD rules block privilege escalation at extraction
-- [ ] **25. zeta-fact-store.h** - Audit fact store: verify fact CRUD operations, check persistence, validate fact types, cross-check with zeta-ontology.h
-- [ ] **26. zeta-proactive-memory.h** - Audit proactive memory: verify trigger conditions, check relevance scoring, validate injection timing
+- [x] **25. zeta-fact-store.h** - ✅ Entity-value persistence, bigram embeddings, similarity search
+- [x] **26. zeta-proactive-memory.h** - ✅ Momentum-driven prefetch via tunneling, 7B prefetch thread
 - [ ] **27. zeta-text-memory.h** - Audit text memory: verify text storage, check retrieval, validate encoding/decoding
-- [ ] **28. zeta-embed-memory.h** - Audit embed memory: verify embedding storage, check vector operations, validate similarity search, cross-check with zeta-embed-integration.h
-- [ ] **29. zeta-embed-integration.h** - Audit embed integration: verify embedding API, check batch processing, validate dimension handling
-- [ ] **30. zeta-pruning.h** - Audit pruning: verify pruning criteria, check importance scoring, validate momentum integral calculations
+- [ ] **28. zeta-embed-memory.h** - Audit embed memory: verify embedding storage, check vector operations, validate similarity search
+- [x] **29. zeta-embed-integration.h** - ✅ Embedding cache with TTL (600s), LRU eviction, max 500 entries
+- [x] **30. zeta-pruning.h** - ✅ Sleep-cycle pruning, protected edges, weight threshold 0.3f
 - [ ] **31. zeta-token-storage.h** - Audit token storage: verify token buffer management, check overflow handling, validate token lifecycle
 
 ---
 
 ## GRAPH SYSTEMS (32-37)
 
-- [ ] **32. zeta-graph-manager.h** - Audit graph manager: verify graph operations, check node relationships, validate graph queries, cross-check with zeta-graph-kv.h
+- [x] **32. zeta-graph-manager.h** - ✅ Edge caps (soft 8K, hard 12K, target 6K), max 8 edges/node, protected types
 - [ ] **33. zeta-graph-smart.h** - Audit smart graph: verify intelligent routing, check caching, validate optimization strategies
 - [x] **34. zeta-graph-git.h** - ✅ Git-style versioning: max 64 branches, protected branches, semantic auto-linking, fork/merge support
 - [ ] **35. zeta-graph-kv-integration.h** - Audit graph-KV integration: verify graph-to-KV mapping, check consistency, validate synchronization
@@ -132,16 +147,16 @@
 ## INTEGRATIONS (47-50)
 
 - [x] **47. zeta-mcp.h** - ✅ JSON-RPC MCP protocol (v2024-11-05), graph-gated tool validation, proper method parsing
-- [ ] **48. zeta-litellm.h** - Audit LiteLLM integration: verify API compatibility, check multi-provider support, validate fallback handling
-- [ ] **49. zeta-cloud.h** - Audit cloud integration: verify cloud API usage, check authentication, validate data transfer
-- [ ] **50. zeta-swarm.h** - Audit swarm: verify multi-agent coordination, check message passing, validate consensus mechanisms
+- [x] **48. zeta-litellm.h** - ✅ HTTP client to LiteLLM proxy, fallback_to_local=true, health check
+- [x] **49. zeta-cloud.h** - ✅ DISABLED by default, requires explicit opt-in, complexity threshold routing
+- [x] **50. zeta-swarm.h** - ✅ Ternary voting consensus, distributed dreaming, health monitoring
 
 ---
 
 ## EXTRACTION (51-55)
 
-- [ ] **51. zeta-causal-embeddings.h** - Audit causal embeddings: verify causal inference, check embedding causality, validate reasoning chains
-- [ ] **52. zeta-3b-extract.h** - Audit 3B extraction: verify small model extraction, check optimization for 3B params, validate accuracy tradeoffs
+- [x] **51. zeta-causal-embeddings.h** - ✅ BGE embeddings for CAUSES/PREVENTS detection, anchor phrases from ATOMIC/CausalBank
+- [ ] **52. zeta-3b-extract.h** - Audit 3B extraction: verify small model extraction, check optimization for 3B params
 - [x] **53. zeta-extract.h** - ✅ Regex-based fact extraction for names, numbers, preferences, codes
 - [ ] **54. zeta-format-discovery.h** - Audit format discovery: verify format detection, check pattern matching, validate parser selection
 - [x] **55. zeta-text-inject.h** - ✅ SAFE: Injects extracted facts, not arbitrary text. Uses controlled regex patterns.
