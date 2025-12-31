@@ -983,7 +983,7 @@ private:
         std::vector<uint8_t> compressed(stored_size);
         size_t bytes_read = fread(compressed.data(), 1, stored_size, f);
         fclose(f);
-        
+
         if (bytes_read != stored_size) {
             std::unique_lock<std::shared_mutex> lock(nodes_mutex_);
             nodes_[node_id].is_prefetching = false;

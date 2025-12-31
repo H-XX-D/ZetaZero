@@ -53,7 +53,7 @@ static inline float* hologit_load_block(int64_t block_id, int* dim_out) {
         fclose(f);
         return NULL;
     }
-    
+
     // Validate dimension before allocation
     if (dim <= 0 || dim > 16384) {  // Max reasonable embedding dimension
         fclose(f);

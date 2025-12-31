@@ -44,7 +44,7 @@ typedef struct {
 static inline zeta_subconscious_extractor_t* zeta_subconscious_extractor_init(llama_model* model_3b) {
     zeta_subconscious_extractor_t* ext = (zeta_subconscious_extractor_t*)calloc(1, sizeof(zeta_subconscious_extractor_t));
     if (!ext) return NULL;
-    
+
     if (model_3b) {
         ext->model = model_3b;
         llama_context_params cparams = llama_context_default_params();
@@ -54,7 +54,7 @@ static inline zeta_subconscious_extractor_t* zeta_subconscious_extractor_init(ll
         ext->vocab = llama_model_get_vocab(model_3b);
         ext->initialized = (ext->ctx != NULL);
     }
-    
+
     return ext;
 }
 
@@ -82,10 +82,10 @@ static inline int zeta_parse_extraction_output(
 ) {
     result->num_facts = 0;
     if (!output || !result) return 0;
-    
+
     char* copy = strdup(output);
     char* line = strtok(copy, "\n");
-    
+
     while (line && result->num_facts < ZETA_EXTRACT_MAX_FACTS) {
         // Skip empty lines
         while (*line == ' ') line++;
@@ -93,7 +93,7 @@ static inline int zeta_parse_extraction_output(
             line = strtok(NULL, "\n");
             continue;
         }
-        
+
         // Parse: ENTITY|VALUE|IMPORTANCE
         char* entity = line;
         char* pipe1 = strchr(entity, '|');
@@ -102,7 +102,7 @@ static inline int zeta_parse_extraction_output(
             continue;
         }
         *pipe1 = '\0';
-        
+
         char* value = pipe1 + 1;
         char* pipe2 = strchr(value, '|');
         if (!pipe2) {
@@ -110,23 +110,23 @@ static inline int zeta_parse_extraction_output(
             continue;
         }
         *pipe2 = '\0';
-        
+
         char* importance_str = pipe2 + 1;
         int importance = atoi(importance_str);
         if (importance < 1) importance = 1;
         if (importance > 4) importance = 4;
-        
+
         // Store fact
         zeta_extracted_fact_t* fact = &result->facts[result->num_facts];
         strncpy(fact->entity, entity, sizeof(fact->entity) - 1);
         strncpy(fact->value, value, sizeof(fact->value) - 1);
         fact->importance = importance;
         fact->confidence = 0.7f + (importance * 0.075f); // 0.775 - 1.0
-        
+
         result->num_facts++;
         line = strtok(NULL, "\n");
     }
-    
+
     free(copy);
     return result->num_facts;
 }
@@ -138,45 +138,45 @@ static inline int zeta_subconscious_extract_with_model(
     zeta_extraction_result_t* result
 ) {
     if (!ext || !ext->initialized || !input || !result) return -1;
-    
+
     result->num_facts = 0;
-    
+
     // Build prompt
     char prompt[2048];
     zeta_build_extraction_prompt(input, prompt, sizeof(prompt));
-    
+
     // Tokenize
     std::vector<llama_token> tokens(1024);
-    int n_tokens = llama_tokenize(ext->vocab, prompt, strlen(prompt), 
+    int n_tokens = llama_tokenize(ext->vocab, prompt, strlen(prompt),
                                    tokens.data(), tokens.size(), true, true);
     if (n_tokens <= 0) {
         fprintf(stderr, "[3B] Tokenization empty (n=%d)\n", n_tokens);
         return -1;
     }
     tokens.resize(n_tokens);
-    
+
     // Clear context
     llama_memory_clear(llama_get_memory(ext->ctx), true);
-    
+
     // Create batch and decode prompt
     llama_batch batch = llama_batch_init(n_tokens, 0, 1);
     for (int i = 0; i < n_tokens; i++) {
         common_batch_add(batch, tokens[i], i, {0}, false);
     }
     batch.logits[batch.n_tokens - 1] = true;
-    
+
     if (llama_decode(ext->ctx, batch) != 0) {
         llama_batch_free(batch);
         return -1;
     }
-    
+
     // Generate output (max 256 tokens)
     std::string output;
     int n_cur = n_tokens;
-    
+
     for (int i = 0; i < 256; i++) {
         float* logits = llama_get_logits_ith(ext->ctx, -1);
-        
+
         // Greedy sampling for deterministic extraction
         llama_token best_token = 0;
         float best_logit = logits[0];
@@ -187,26 +187,26 @@ static inline int zeta_subconscious_extract_with_model(
                 best_token = j;
             }
         }
-        
+
         // Check for EOS
         if (llama_vocab_is_eog(ext->vocab, best_token)) break;
-        
+
         // Check for end marker
         std::string piece = common_token_to_piece(ext->vocab, best_token, true);
         if (piece.find("<|im_end|>") != std::string::npos) break;
-        
+
         output += piece;
-        
+
         // Decode next
         llama_batch_free(batch);
         batch = llama_batch_init(1, 0, 1);
         common_batch_add(batch, best_token, n_cur++, {0}, true);
-        
+
         if (llama_decode(ext->ctx, batch) != 0) break;
     }
-    
+
     llama_batch_free(batch);
-    
+
     // Parse output
     return zeta_parse_extraction_output(output.c_str(), result);
 }
@@ -218,7 +218,7 @@ static inline int zeta_extract_robust_patterns(
 ) {
     if (!input || !result) return 0;
     result->num_facts = 0;
-    
+
     size_t len = strlen(input);
     char* lower = (char*)malloc(len + 1);
     if (!lower) return 0;  // Memory allocation failed
@@ -226,7 +226,7 @@ static inline int zeta_extract_robust_patterns(
         lower[i] = (input[i] >= 'A' && input[i] <= 'Z') ? input[i] + 32 : input[i];
     }
     lower[len] = '\0';
-    
+
     // Helper to extract value after pattern
     #define EXTRACT_VALUE(pattern, entity_name, importance_val) do { \
         const char* match = strstr(lower, pattern); \
@@ -263,14 +263,14 @@ static inline int zeta_extract_robust_patterns(
             } \
         } \
     } while(0)
-    
+
     // Identity patterns (CRITICAL - importance 4)
     EXTRACT_VALUE("my name is ", "user_name", 4);
     EXTRACT_VALUE("i am called ", "user_name", 4);
     EXTRACT_VALUE("call me ", "user_name", 4);
     EXTRACT_VALUE("i'm ", "user_identity", 4);
     EXTRACT_VALUE("i am ", "user_identity", 4);
-    
+
     // Preference patterns (HIGH - importance 3)
     EXTRACT_VALUE("favorite color is ", "favorite_color", 3);
     EXTRACT_VALUE("favourite color is ", "favorite_color", 3);
@@ -283,7 +283,7 @@ static inline int zeta_extract_robust_patterns(
     EXTRACT_VALUE("i love ", "preference", 3);
     EXTRACT_VALUE("i like ", "preference", 3);
     EXTRACT_VALUE("i hate ", "dislike", 3);
-    
+
     // Project patterns (MEDIUM - importance 2)
     EXTRACT_VALUE("codenamed ", "project_codename", 2);
     EXTRACT_VALUE("codename is ", "project_codename", 2);
@@ -292,14 +292,14 @@ static inline int zeta_extract_robust_patterns(
     EXTRACT_VALUE("building ", "building", 2);
     EXTRACT_VALUE("created ", "created", 2);
     EXTRACT_VALUE("developed ", "developed", 2);
-    
+
     // Location patterns (LOW - importance 1)
     EXTRACT_VALUE("i live in ", "location", 1);
     EXTRACT_VALUE("i work at ", "workplace", 1);
     EXTRACT_VALUE("i'm from ", "origin", 1);
-    
+
     #undef EXTRACT_VALUE
-    
+
     free(lower);
     return result->num_facts;
 }
@@ -311,7 +311,7 @@ static inline int zeta_subconscious_extract(
     zeta_extraction_result_t* result
 ) {
     if (!input || !result) return 0;
-    
+
     // Try 3B model extraction first
     if (ext && ext->initialized) {
         int n = zeta_subconscious_extract_with_model(ext, input, result);
@@ -320,7 +320,7 @@ static inline int zeta_subconscious_extract(
             return n;
         }
     }
-    
+
     // Fallback to robust pattern matching
     int n = zeta_extract_robust_patterns(input, result);
     if (n > 0) {

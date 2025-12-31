@@ -1704,13 +1704,19 @@ static std::string generate_chunked_output(const std::string& prompt, int max_to
 
     fprintf(stderr, "[CHUNK] Plan has %zu sections\n", sections.size());
 
+    // Guard: empty sections means plan failed
+    if (sections.empty()) {
+        fprintf(stderr, "[CHUNK] Warning: No sections generated, returning empty\n");
+        return "";
+    }
+
     // Step 2: Generate each section with Context Bridge for continuity
     std::string accumulated_output;
     std::string running_summary;
     std::string context_bridge;  // Last 3 sentences verbatim
     std::vector<std::string> key_entities;  // Track names/proper nouns
 
-    int tokens_per_section = max_tokens / sections.size();
+    int tokens_per_section = max_tokens / (int)sections.size();
     if (tokens_per_section < 100) tokens_per_section = 100;
     if (tokens_per_section > CHUNK_SIZE) tokens_per_section = CHUNK_SIZE;
 
@@ -2754,12 +2760,31 @@ static void load_graph() {
     snprintf(path, sizeof(path), "%s/graph.bin", g_storage_dir.c_str());
     FILE* f = fopen(path, "rb");
     if (f) {
-        size_t r = fread(&g_dual->num_nodes, sizeof(int), 1, f);
-        r += fread(&g_dual->num_edges, sizeof(int), 1, f);
-        r += fread(g_dual->nodes, sizeof(zeta_graph_node_t), g_dual->num_nodes, f);
-        r += fread(g_dual->edges, sizeof(zeta_graph_edge_t), g_dual->num_edges, f);
+        int num_nodes = 0, num_edges = 0;
+        size_t r = fread(&num_nodes, sizeof(int), 1, f);
+        r += fread(&num_edges, sizeof(int), 1, f);
+        
+        // Validate counts before reading into fixed-size buffers
+        if (r != 2 || num_nodes < 0 || num_nodes > ZETA_MAX_GRAPH_NODES ||
+            num_edges < 0 || num_edges > ZETA_MAX_EDGES) {
+            fprintf(stderr, "[LOAD] Invalid graph file: nodes=%d edges=%d\n", num_nodes, num_edges);
+            fclose(f);
+            return;
+        }
+        
+        g_dual->num_nodes = num_nodes;
+        g_dual->num_edges = num_edges;
+        
+        size_t nodes_read = fread(g_dual->nodes, sizeof(zeta_graph_node_t), num_nodes, f);
+        size_t edges_read = fread(g_dual->edges, sizeof(zeta_graph_edge_t), num_edges, f);
         fclose(f);
-        (void)r;  // Suppress unused warning
+        
+        if ((int)nodes_read != num_nodes || (int)edges_read != num_edges) {
+            fprintf(stderr, "[LOAD] Truncated graph file, resetting\n");
+            g_dual->num_nodes = 0;
+            g_dual->num_edges = 0;
+            return;
+        }
         // Update next IDs to avoid conflicts with loaded data
         int64_t max_node_id = 0;
         int64_t max_edge_id = 0;
