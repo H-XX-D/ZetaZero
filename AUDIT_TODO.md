@@ -70,8 +70,8 @@
 - [x] **18. zeta-trm.h** - ✅ Temporal Recursive Memory: lambda validation (MIN=0.0001, MAX=1.0), HRM sync callbacks, git-style temporal branching
 - [x] **19. zeta-dual-process.h** - ✅ Whitespace cleanup committed. Main cognitive engine, no security issues found.
 - [x] **20. zeta-dream.h** - ✅ Dream state processing: idle_threshold=3600s, lucid validation, category-based thresholds, human review tracking
-- [ ] **21. zeta-hsm.h** - Audit HSM (Hierarchical State Machine): verify state transitions, check event handling, validate state persistence
-- [ ] **22. zeta-critic.h** - Audit critic module: verify evaluation logic, check scoring functions, validate feedback loops
+- [x] **21. zeta-hsm.h** - ✅ 4-tier storage (HOT→WARM→WARM-DENSE→COLD), tensor-aware delta encoding, predictive prefetch
+- [x] **22. zeta-critic.h** - ✅ Semantic self-verification: 7B verifies 14B outputs, pattern matching fallback, domain-specific checks
 - [ ] **23. zeta-task-eval.h** - Audit task evaluation: verify task scoring, check completion detection, validate metrics
 
 ---
@@ -144,7 +144,7 @@
 - [ ] **52. zeta-3b-extract.h** - Audit 3B extraction: verify small model extraction, check optimization for 3B params, validate accuracy tradeoffs
 - [x] **53. zeta-extract.h** - ✅ Regex-based fact extraction for names, numbers, preferences, codes
 - [ ] **54. zeta-format-discovery.h** - Audit format discovery: verify format detection, check pattern matching, validate parser selection
-- [ ] **55. zeta-text-inject.h** - ⚠️ SECURITY REVIEW: Audit text injection: verify safe injection, check escaping, validate context handling
+- [x] **55. zeta-text-inject.h** - ✅ SAFE: Injects extracted facts, not arbitrary text. Uses controlled regex patterns.
 
 ---
 
@@ -157,9 +157,9 @@
 
 ## SYSTEM/CONFIG/UTILS (58-60)
 
-- [ ] **58. zeta-system.h** - Audit system module: verify system info, check resource monitoring, validate metrics collection - ⚠️ VERIFY NOT A DAEMON
-- [ ] **59. zeta-config.h** - Audit config module: verify config loading from ./zeta.conf ~/ZetaZero/zeta.conf /etc/zeta/zeta.conf, check defaults, validate parsing
-- [ ] **60. zeta-utils.h** - Audit utils: verify utility functions, check edge cases, validate consistency across codebase
+- [x] **58. zeta-system.h** - ✅ VERIFIED NOT A DAEMON - in-process module coordination only
+- [x] **59. zeta-config.h** - ✅ Shell-style config parser, searches ./zeta.conf → ~/ZetaZero/zeta.conf → /etc/zeta/zeta.conf
+- [x] **60. zeta-utils.h** - ✅ Dream-suggested utilities: IS_VALID_CONTEXT macro, custom_strlen, is_context_valid helpers
 
 ---
 
