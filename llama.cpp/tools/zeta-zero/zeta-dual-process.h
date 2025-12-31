@@ -942,6 +942,10 @@ static inline void zeta_update_momentum(zeta_dual_ctx_t* ctx, float momentum) {
     // Compute smoothed momentum
     float sum = 0;
     int count = (ctx->momentum_idx < 64) ? ctx->momentum_idx : 64;
+    if (count <= 0) {
+        ctx->current_momentum = momentum;
+        return;
+    }
     for (int i = 0; i < count; i++) {
         sum += ctx->momentum_history[i];
     }
