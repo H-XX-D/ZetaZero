@@ -268,11 +268,11 @@ static inline std::string zeta_extract_turn2_instruction(const char* prompt) {
 static inline int zeta_check_verbosity_runaway(const std::string& output,
                                                 const ZetaOutputControl& ctrl) {
     int status = 0;
-    
+
     // Soft warning at 80% of limit
     int soft_char_limit = (int)(ctrl.max_chars * 0.8f);
     int soft_word_limit = (int)(ctrl.max_words * 0.8f);
-    
+
     // Character limit check
     if ((int)output.size() >= ctrl.max_chars) {
         fprintf(stderr, "[OUTPUT_CTRL] Char limit reached (%zu >= %d) - stopping\n",

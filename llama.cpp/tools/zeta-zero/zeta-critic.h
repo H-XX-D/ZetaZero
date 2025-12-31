@@ -519,10 +519,13 @@ static void zeta_parse_semantic_response(const std::string& response, zeta_criti
                     std::transform(severity.begin(), severity.end(), severity.begin(), ::toupper);
                     if (severity.find("CRIT") != std::string::npos) {
                         strncpy(result.severity[result.issue_count], "CRITICAL", 15);
+                        result.severity[result.issue_count][15] = '\0';
                     } else if (severity.find("WARN") != std::string::npos) {
                         strncpy(result.severity[result.issue_count], "WARNING", 15);
+                        result.severity[result.issue_count][15] = '\0';
                     } else {
                         strncpy(result.severity[result.issue_count], "INFO", 15);
+                        result.severity[result.issue_count][15] = '\0';
                     }
 
                     result.issue_count++;
@@ -543,6 +546,7 @@ static void zeta_parse_semantic_response(const std::string& response, zeta_criti
                 strncpy(result.issues[result.issue_count], line.c_str(), 511);
                 result.issues[result.issue_count][511] = 0;
                 strncpy(result.severity[result.issue_count], "WARNING", 15);
+                result.severity[result.issue_count][15] = '\0';
                 result.issue_count++;
                 result.has_issues = true;
             }
@@ -589,28 +593,36 @@ static zeta_critic_result_t zeta_critic_analyze(const char* prompt, const char* 
     // Check complexity violations
     if (zeta_check_complexity_violation(prompt, response, issue) && idx < 4) {
         strncpy(result.issues[idx], issue, 511);
+        result.issues[idx][511] = '\0';
         strncpy(result.severity[idx], "CRITICAL", 15);
+        result.severity[idx][15] = '\0';
         idx++;
     }
 
     // Check language mismatch (e.g., asked for Python, got Rust)
     if (zeta_check_language_mismatch(prompt, response, issue) && idx < 4) {
         strncpy(result.issues[idx], issue, 511);
+        result.issues[idx][511] = '\0';
         strncpy(result.severity[idx], "CRITICAL", 15);
+        result.severity[idx][15] = '\0';
         idx++;
     }
 
     // Check bug identification
     if (zeta_check_bug_identification(prompt, response, issue) && idx < 4) {
         strncpy(result.issues[idx], issue, 511);
+        result.issues[idx][511] = '\0';
         strncpy(result.severity[idx], "WARNING", 15);
+        result.severity[idx][15] = '\0';
         idx++;
     }
 
     // Check HFT requirements
     if (zeta_check_hft_requirements(prompt, response, issue) && idx < 4) {
         strncpy(result.issues[idx], issue, 511);
+        result.issues[idx][511] = '\0';
         strncpy(result.severity[idx], "CRITICAL", 15);
+        result.severity[idx][15] = '\0';
         idx++;
     }
 
@@ -618,7 +630,9 @@ static zeta_critic_result_t zeta_critic_analyze(const char* prompt, const char* 
     float redundancy_score = 0.0f;
     if (zeta_check_redundancy(response, issue, &redundancy_score) && idx < 4) {
         strncpy(result.issues[idx], issue, 511);
+        result.issues[idx][511] = '\0';
         strncpy(result.severity[idx], "WARNING", 15);
+        result.severity[idx][15] = '\0';
         idx++;
     }
 

@@ -612,6 +612,10 @@ void zeta_update_query_and_prefetch(
 
     // Compute prediction and prefetch
     float* prediction = (float*)malloc(ctx->summary_dim * sizeof(float));
+    if (!prediction) {
+        fprintf(stderr, "zeta: malloc failed in prefetch\n");
+        return;
+    }
     zeta_compute_prediction_vector(ctx, prediction);
     zeta_prefetch_predicted_blocks(ctx, prediction);
     free(prediction);
@@ -623,6 +627,11 @@ void zeta_compute_prediction_vector(
 ) {
     // p = q_curr + gamma * (q_curr - q_prev)
     float* delta = (float*)malloc(ctx->summary_dim * sizeof(float));
+    if (!delta) {
+        // Fallback: just copy current query
+        vector_copy(prediction_out, ctx->query_curr, ctx->summary_dim);
+        return;
+    }
     vector_sub(delta, ctx->query_curr, ctx->query_prev, ctx->summary_dim);
     vector_add_scaled(prediction_out, ctx->query_curr, delta, ctx->momentum_gamma, ctx->summary_dim);
     free(delta);
@@ -888,6 +897,11 @@ int zeta_retrieve_multihop(
 
     // Track which blocks we've already included (by block_id)
     int64_t* seen_ids = (int64_t*)malloc(max_results * sizeof(int64_t));
+    if (!seen_ids) {
+        // Malloc failed - return what we have from hop 1
+        fprintf(stderr, "zeta: malloc failed in graph_retrieve\n");
+        return found;
+    }
     for (int i = 0; i < found; i++) {
         seen_ids[i] = ctx->blocks[indices_out[i]].block_id;
     }

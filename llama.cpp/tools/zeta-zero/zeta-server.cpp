@@ -2550,7 +2550,9 @@ static std::string generate(const std::string& prompt, int max_tokens) {
                 fprintf(stderr, "[SCRATCH] 14B found issues, will refine\n");
                 critic_result.has_issues = true;
                 strncpy(critic_result.issues[0], self_eval.c_str(), 511);
+                critic_result.issues[0][511] = '\0';  // Ensure null-termination
                 strncpy(critic_result.severity[0], "WARNING", 15);
+                critic_result.severity[0][15] = '\0'; // Ensure null-termination
                 critic_result.issue_count = 1;
             }
         }

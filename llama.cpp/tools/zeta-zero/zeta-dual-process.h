@@ -2095,13 +2095,15 @@ static inline int zeta_cognitive_merge(
         snprintf(merge_label, sizeof(merge_label), "cognitive_merge_%ld_%ld",
                  (long)conscious_branch_id, (long)subconscious_branch_id);
 
-        int64_t merge_node = zeta_create_node(dual_ctx, NODE_EVENT, merge_label,
+        int64_t merge_node_id = zeta_create_node(dual_ctx, NODE_EVENT, merge_label,
                                               "Merged conscious/subconscious insights", 0.95f);
 
-        // Copy merged embedding to the node
-        if (merge_node >= 0 && merge_node < ZETA_MAX_GRAPH_NODES) {
-            memcpy(dual_ctx->nodes[merge_node].embedding, merged,
-                   merge_dim * sizeof(float));
+        // Copy merged embedding to the node - use zeta_find_node_by_id, NOT direct array access!
+        if (merge_node_id >= 0) {
+            zeta_graph_node_t* merge_node = zeta_find_node_by_id(dual_ctx, merge_node_id);
+            if (merge_node) {
+                memcpy(merge_node->embedding, merged, merge_dim * sizeof(float));
+            }
         }
 
         merged_insights++;

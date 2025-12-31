@@ -52,12 +52,12 @@ static inline void zeta_cyclic_init(void) {
 static inline void zeta_cyclic_push(const char* text, bool is_input, float momentum) {
     zeta_cyclic_init();
     pthread_mutex_lock(&g_cyclic.lock);
-    
+
     if (is_input) {
         strncpy(g_cyclic.last_input, text, sizeof(g_cyclic.last_input) - 1);
         g_cyclic.last_input[sizeof(g_cyclic.last_input) - 1] = '\0';  // Ensure null termination
     }
-    
+
     int next = (g_cyclic.tail + 1) % 64;
     if (next != g_cyclic.head) {
         zeta_cyclic_entry_t* entry = &g_cyclic.queue[g_cyclic.tail];
@@ -72,7 +72,7 @@ static inline void zeta_cyclic_push(const char* text, bool is_input, float momen
     } else {
         fprintf(stderr, "[CYCLIC:PUSH] WARNING: Queue full, dropping message!\n");
     }
-    
+
     pthread_mutex_unlock(&g_cyclic.lock);
 }
 
@@ -84,7 +84,7 @@ static inline int zeta_find_entity_refs(
     int max_refs
 ) {
     if (!ctx || !text || !entity_ids) return 0;
-    
+
     int found = 0;
     char lower[4096];
     size_t len = strlen(text);
@@ -93,11 +93,11 @@ static inline int zeta_find_entity_refs(
         lower[i] = (text[i] >= 'A' && text[i] <= 'Z') ? text[i] + 32 : text[i];
     }
     lower[len] = '\0';
-    
+
     for (int i = 0; i < ctx->num_nodes && found < max_refs; i++) {
         if (!ctx->nodes[i].is_active) continue;
         if (strlen(ctx->nodes[i].value) < 2) continue;
-        
+
         char val_lower[256];
         size_t vlen = strlen(ctx->nodes[i].value);
         if (vlen >= sizeof(val_lower)) vlen = sizeof(val_lower) - 1;
@@ -106,12 +106,12 @@ static inline int zeta_find_entity_refs(
             val_lower[j] = (c >= 'A' && c <= 'Z') ? c + 32 : c;
         }
         val_lower[vlen] = '\0';
-        
+
         if (strstr(lower, val_lower)) {
             entity_ids[found++] = ctx->nodes[i].node_id;
         }
     }
-    
+
     return found;
 }
 
@@ -123,18 +123,18 @@ static inline int zeta_process_output_cyclic(
     float momentum
 ) {
     if (!ctx || !output_text) return 0;
-    
+
     int operations = 0;
-    
+
     // Find entity references in output
     int64_t output_refs[32];
     int n_output_refs = zeta_find_entity_refs(ctx, output_text, output_refs, 32);
-    
+
     // Find entity references in query
     int64_t query_refs[32];
-    int n_query_refs = original_query ? 
+    int n_query_refs = original_query ?
         zeta_find_entity_refs(ctx, original_query, query_refs, 32) : 0;
-    
+
     // REMOVED: EDGE_RELATED creation - was causing edge explosion
     // Correlations now come from:
     // 1. Semantic similarity (embeddings) during tunnel/surface
@@ -143,30 +143,30 @@ static inline int zeta_process_output_cyclic(
     (void)n_output_refs;
     (void)query_refs;
     (void)output_refs;
-    
+
     // Affirmation/negation detection for salience adjustment
     char lower[2048];
     size_t len = strlen(output_text);
     if (len >= sizeof(lower)) len = sizeof(lower) - 1;
     for (size_t i = 0; i < len; i++) {
-        lower[i] = (output_text[i] >= 'A' && output_text[i] <= 'Z') 
+        lower[i] = (output_text[i] >= 'A' && output_text[i] <= 'Z')
                     ? output_text[i] + 32 : output_text[i];
     }
     lower[len] = '\0';
-    
+
     // Boost salience on affirmation
-    if (strstr(lower, "yes,") || strstr(lower, "correct") || 
+    if (strstr(lower, "yes,") || strstr(lower, "correct") ||
         strstr(lower, "exactly") || strstr(lower, "right,")) {
         for (int i = 0; i < n_output_refs; i++) {
             zeta_graph_node_t* node = zeta_find_node_by_id(ctx, output_refs[i]);
             if (node) {
                 node->salience = fminf(1.0f, node->salience + 0.1f);
-                fprintf(stderr, "[3B:CYCLIC] Affirmed: %s -> %.2f\n", 
+                fprintf(stderr, "[3B:CYCLIC] Affirmed: %s -> %.2f\n",
                         node->value, node->salience);
             }
         }
     }
-    
+
     return operations;
 }
 
@@ -176,30 +176,30 @@ static inline int zeta_process_output_cyclic(
 #endif
 static inline void* zeta_subconscious_worker(void* arg) {
     zeta_dual_ctx_t* ctx = (zeta_dual_ctx_t*)arg;
-    
+
     fprintf(stderr, "[3B] Parallel worker started\n");
-    
+
     while (g_cyclic.running) {
         pthread_mutex_lock(&g_cyclic.lock);
-        
+
         while (g_cyclic.head == g_cyclic.tail && g_cyclic.running) {
             pthread_cond_wait(&g_cyclic.cond, &g_cyclic.lock);
         }
-        
+
         if (!g_cyclic.running) {
             pthread_mutex_unlock(&g_cyclic.lock);
             break;
         }
-        
+
         zeta_cyclic_entry_t entry = g_cyclic.queue[g_cyclic.head];
         fprintf(stderr, "[CYCLIC:POP] Retrieved: %.60s... is_input=%d\n", entry.text, entry.is_input);
         char last_input[4096];
         strncpy(last_input, g_cyclic.last_input, sizeof(last_input) - 1);
         last_input[sizeof(last_input) - 1] = '\0';  // Ensure null termination
         g_cyclic.head = (g_cyclic.head + 1) % 64;
-        
+
         pthread_mutex_unlock(&g_cyclic.lock);
-        
+
         if (entry.is_input) {
             // INPUT: Extract facts and create nodes (skip questions)
             // Detect questions - don't extract from queries
@@ -208,16 +208,16 @@ static inline void* zeta_subconscious_worker(void* arg) {
             size_t len = strlen(text);
             if (len > 0 && text[len-1] == '?') is_question = true;
             // Check for question words at start
-            const char* qwords[] = {"what ", "who ", "where ", "when ", "why ", "how ", 
+            const char* qwords[] = {"what ", "who ", "where ", "when ", "why ", "how ",
                                     "is ", "are ", "do ", "does ", "can ", "will ", "would ",
                                     "could ", "should ", "which ", "tell me", NULL};
             char lower[256] = {0};
-            for (int i = 0; i < 255 && text[i]; i++) 
+            for (int i = 0; i < 255 && text[i]; i++)
                 lower[i] = (text[i] >= 'A' && text[i] <= 'Z') ? text[i] + 32 : text[i];
             for (int q = 0; qwords[q] && !is_question; q++) {
                 if (strncmp(lower, qwords[q], strlen(qwords[q])) == 0) is_question = true;
             }
-            
+
             int facts = 0;
             if (!is_question) {
                 // Pass from_user=true to enable ontology-based domain blocking
@@ -228,12 +228,12 @@ static inline void* zeta_subconscious_worker(void* arg) {
             fprintf(stderr, "[3B:WORKER] INPUT: %d facts extracted (ontology-checked)\n", facts);
         } else {
             // OUTPUT: CORRELATIONS ONLY - no new identity nodes
-            int ops = zeta_process_output_cyclic(ctx, entry.text, last_input, 
+            int ops = zeta_process_output_cyclic(ctx, entry.text, last_input,
                                                   entry.momentum);
             fprintf(stderr, "[3B:WORKER] OUTPUT: %d correlations\n", ops);
         }
     }
-    
+
     fprintf(stderr, "[3B] Parallel worker stopped\n");
     return NULL;
 }
