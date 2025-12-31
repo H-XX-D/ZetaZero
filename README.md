@@ -391,6 +391,32 @@ cmake --build build --target zeta-server
 - `GET /git/status` - Graph memory status
 - `POST /memory/query` - Semantic memory search
 
+## Repository Structure
+
+```
+ZetaZero/
+├── llama.cpp/                    # llama.cpp fork with Z.E.T.A. integration
+│   ├── zeta-*.c/.h              # Core C implementation (memory, integration, etc.)
+│   ├── zeta-*.m/.metal          # Metal/GPU acceleration (macOS)
+│   ├── zeta/                    # CMake library target
+│   └── tools/zeta-demo/         # Server and demo application
+│       ├── zeta-server.cpp      # HTTP server implementation
+│       ├── zeta-demo.cpp        # CLI demo
+│       ├── zeta-*.h             # C++ headers (modules, features)
+│       └── CMakeLists.txt       # Build configuration
+├── benchmarks/                   # Performance and evaluation tests
+├── docs/                         # Documentation and design notes
+├── scripts/                      # Utility and deployment scripts
+├── ui/                           # Web interface
+└── archive_20251219/            # Historical snapshot (do not modify)
+```
+
+**Key Files:**
+- `llama.cpp/tools/zeta-demo/zeta-server.cpp` - Main server entry point
+- `llama.cpp/tools/zeta-demo/zeta-dual-process.h` - Dual-process cognitive engine
+- `llama.cpp/zeta-memory.c/.h` - Core memory subsystem
+- `llama.cpp/zeta-integration.c/.h` - llama.cpp integration layer
+
 ## Contact
 
 For consulting, integration, or enterprise inquiries: todd@hendrixxdesign.com
