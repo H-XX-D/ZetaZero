@@ -48,15 +48,28 @@ static inline float* hologit_load_block(int64_t block_id, int* dim_out) {
 
     int64_t stored_id;
     int dim;
-    fread(&stored_id, sizeof(int64_t), 1, f);
-    fread(&dim, sizeof(int), 1, f);
+    if (fread(&stored_id, sizeof(int64_t), 1, f) != 1 ||
+        fread(&dim, sizeof(int), 1, f) != 1) {
+        fclose(f);
+        return NULL;
+    }
+    
+    // Validate dimension before allocation
+    if (dim <= 0 || dim > 16384) {  // Max reasonable embedding dimension
+        fclose(f);
+        return NULL;
+    }
 
     float* summary = (float*)malloc(dim * sizeof(float));
     if (!summary) {
         fclose(f);
         return NULL;
     }
-    fread(summary, sizeof(float), dim, f);
+    if (fread(summary, sizeof(float), dim, f) != (size_t)dim) {
+        free(summary);
+        fclose(f);
+        return NULL;
+    }
     fclose(f);
 
     if (dim_out) *dim_out = dim;

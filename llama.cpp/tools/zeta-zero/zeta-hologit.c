@@ -471,8 +471,11 @@ zeta_hologit_t* zeta_hologit_load(const char* path) {
     if (!f) return NULL;
 
     uint32_t magic, version;
-    fread(&magic, sizeof(magic), 1, f);
-    fread(&version, sizeof(version), 1, f);
+    if (fread(&magic, sizeof(magic), 1, f) != 1 ||
+        fread(&version, sizeof(version), 1, f) != 1) {
+        fclose(f);
+        return NULL;
+    }
 
     if (magic != 0x5A455441 || version != 1) {
         fclose(f);
@@ -480,8 +483,12 @@ zeta_hologit_t* zeta_hologit_load(const char* path) {
     }
 
     int num_blocks, num_edges;
-    fread(&num_blocks, sizeof(num_blocks), 1, f);
-    fread(&num_edges, sizeof(num_edges), 1, f);
+    if (fread(&num_blocks, sizeof(num_blocks), 1, f) != 1 ||
+        fread(&num_edges, sizeof(num_edges), 1, f) != 1 ||
+        num_blocks < 0 || num_edges < 0) {
+        fclose(f);
+        return NULL;
+    }
 
     zeta_hologit_t* hg = zeta_hologit_init(num_blocks * 2, 4096);  // Assume 4096 dim
     if (!hg) {
@@ -489,25 +496,47 @@ zeta_hologit_t* zeta_hologit_load(const char* path) {
         return NULL;
     }
 
-    fread(&hg->correlation_decay, sizeof(float), 1, f);
-    fread(&hg->correlation_boost, sizeof(float), 1, f);
-    fread(&hg->stability_threshold, sizeof(float), 1, f);
+    if (fread(&hg->correlation_decay, sizeof(float), 1, f) != 1 ||
+        fread(&hg->correlation_boost, sizeof(float), 1, f) != 1 ||
+        fread(&hg->stability_threshold, sizeof(float), 1, f) != 1) {
+        zeta_hologit_free(hg);
+        fclose(f);
+        return NULL;
+    }
 
     // Read edges
     hg->num_edges = num_edges;
     for (int i = 0; i < num_edges; i++) {
-        fread(&hg->edges[i], sizeof(zeta_edge_t), 1, f);
+        if (fread(&hg->edges[i], sizeof(zeta_edge_t), 1, f) != 1) {
+            zeta_hologit_free(hg);
+            fclose(f);
+            return NULL;
+        }
     }
 
     // Read block metadata
     hg->num_blocks = num_blocks;
     for (int i = 0; i < num_blocks; i++) {
         zeta_block_meta_t* m = &hg->block_meta[i];
-        fread(&m->block_id, sizeof(m->block_id), 1, f);
-        fread(&m->num_edges, sizeof(m->num_edges), 1, f);
-        fread(m->edge_targets, sizeof(int64_t), m->num_edges, f);
-        fread(m->edge_weights, sizeof(float), m->num_edges, f);
-        fread(&m->is_stable, sizeof(m->is_stable), 1, f);
+        if (fread(&m->block_id, sizeof(m->block_id), 1, f) != 1 ||
+            fread(&m->num_edges, sizeof(m->num_edges), 1, f) != 1) {
+            zeta_hologit_free(hg);
+            fclose(f);
+            return NULL;
+        }
+        // Validate edge count before reading
+        if (m->num_edges < 0 || m->num_edges > ZETA_MAX_EDGES_PER_BLOCK) {
+            zeta_hologit_free(hg);
+            fclose(f);
+            return NULL;
+        }
+        if (fread(m->edge_targets, sizeof(int64_t), m->num_edges, f) != (size_t)m->num_edges ||
+            fread(m->edge_weights, sizeof(float), m->num_edges, f) != (size_t)m->num_edges ||
+            fread(&m->is_stable, sizeof(m->is_stable), 1, f) != 1) {
+            zeta_hologit_free(hg);
+            fclose(f);
+            return NULL;
+        }
     }
 
     fclose(f);

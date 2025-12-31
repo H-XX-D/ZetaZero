@@ -244,19 +244,40 @@ static inline int zeta_fact_store_load(zeta_fact_store_t* store) {
     }
     
     char magic[5] = {0};
-    fread(magic, 1, 4, f);
+    if (fread(magic, 1, 4, f) != 4) {
+        fprintf(stderr, "[FACT] Failed to read facts file header\n");
+        fclose(f);
+        return -1;
+    }
     if (strcmp(magic, "ZFCT") != 0) {
         fprintf(stderr, "[FACT] Invalid facts file\n");
         fclose(f);
         return -1;
     }
     
-    fread(&store->num_facts, sizeof(int), 1, f);
-    fread(&store->next_fact_id, sizeof(int64_t), 1, f);
-    fread(&store->embed_dim, sizeof(int), 1, f);
+    int num_facts_read;
+    if (fread(&num_facts_read, sizeof(int), 1, f) != 1 ||
+        fread(&store->next_fact_id, sizeof(int64_t), 1, f) != 1 ||
+        fread(&store->embed_dim, sizeof(int), 1, f) != 1) {
+        fprintf(stderr, "[FACT] Failed to read facts file metadata\n");
+        fclose(f);
+        return -1;
+    }
+    
+    // Validate num_facts before using
+    if (num_facts_read < 0 || num_facts_read > ZETA_MAX_FACTS) {
+        fprintf(stderr, "[FACT] Invalid fact count: %d\n", num_facts_read);
+        fclose(f);
+        return -1;
+    }
+    store->num_facts = num_facts_read;
     
     for (int i = 0; i < store->num_facts; i++) {
-        fread(&store->facts[i], sizeof(zeta_fact_t), 1, f);
+        if (fread(&store->facts[i], sizeof(zeta_fact_t), 1, f) != 1) {
+            fprintf(stderr, "[FACT] Failed to read fact %d\n", i);
+            fclose(f);
+            return -1;
+        }
     }
     
     fclose(f);
