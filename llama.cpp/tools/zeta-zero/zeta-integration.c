@@ -459,6 +459,11 @@ void zeta_compute_mean_query(
     int head_dim,
     float* mean_out
 ) {
+    // Validate inputs to prevent division by zero
+    if (n_heads <= 0 || head_dim <= 0) {
+        return;
+    }
+
     int total_dim = n_heads * head_dim;
     memset(mean_out, 0, total_dim * sizeof(float));
 

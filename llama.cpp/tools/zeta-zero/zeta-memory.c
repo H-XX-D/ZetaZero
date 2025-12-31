@@ -151,6 +151,12 @@ void zeta_compute_summary(
     int dim,
     float* summary_out
 ) {
+    // Validate inputs to prevent division by zero
+    if (token_count <= 0 || dim <= 0) {
+        if (dim > 0) memset(summary_out, 0, dim * sizeof(float));
+        return;
+    }
+
     // Mean pooling: s = (1/L) * sum(k_i)
     memset(summary_out, 0, dim * sizeof(float));
 
