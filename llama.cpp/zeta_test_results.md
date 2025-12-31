@@ -199,8 +199,8 @@ llama.cpp/
 ├── zeta-memory.c          # Added cross-session persistence, .zeta format
 ├── zeta-integration.h     # Added superposition injection API
 ├── zeta-integration.c     # Added logit biasing, memory attention
-├── tools/zeta-demo/
-│   └── zeta-demo.cpp      # Demo with full Z.E.T.A. pipeline
+├── tools/zeta-zero/
+│   └── zeta-zero.cpp      # Demo with full Z.E.T.A. pipeline
 └── ggml/src/ggml-metal/
     ├── ggml-metal-impl.h  # Extended kernel args with memory params
     └── ggml-metal-ops.cpp # Added memory parameter API

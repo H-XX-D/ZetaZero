@@ -2,16 +2,16 @@
 # Deploy ZetaZero to Z6 (192.168.0.165)
 
 SERVER="xx@192.168.0.165"
-REMOTE_DIR="~/ZetaZero/llama.cpp/tools/zeta-demo"
+REMOTE_DIR="~/ZetaZero/llama.cpp/tools/zeta-zero"
 
 echo "Deploying to $SERVER..."
 
 # Ensure remote directory exists
 ssh $SERVER "mkdir -p $REMOTE_DIR"
 
-# Copy all header and cpp files from tools/zeta-demo
-scp llama.cpp/tools/zeta-demo/*.h $SERVER:$REMOTE_DIR/
-scp llama.cpp/tools/zeta-demo/*.cpp $SERVER:$REMOTE_DIR/
+# Copy all header and cpp files from tools/zeta-zero
+scp llama.cpp/tools/zeta-zero/*.h $SERVER:$REMOTE_DIR/
+scp llama.cpp/tools/zeta-zero/*.cpp $SERVER:$REMOTE_DIR/
 
 # Copy the new scripts
 scp scripts/steer_dreams.sh $SERVER:~/ZetaZero/scripts/

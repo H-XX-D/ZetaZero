@@ -85,7 +85,7 @@ O = O_ctx + Σ(αₖ · O_mem_k)
 llama.cpp/
 ├── zeta-memory.h/c         # Memory manager (mmap, prefetch, sublimation)
 ├── zeta-integration.h/c    # Llama hooks + superposition injection
-├── tools/zeta-demo/        # Demonstration CLI tool
+├── tools/zeta-zero/        # Demonstration CLI tool
 ├── common/common.cpp       # Env var bridging for kernel params
 ├── common/arg.cpp          # CLI argument definitions
 └── ggml/src/ggml-metal/
@@ -104,7 +104,7 @@ llama.cpp/
 ```bash
 cd llama.cpp/build
 cmake ..
-make llama-zeta-demo
+make llama-zeta-zero
 ```
 
 ---
@@ -421,10 +421,10 @@ The Z.E.T.A. proof-of-concept demonstrates:
 
 ```bash
 # Build
-cd llama.cpp/build && cmake .. && make llama-zeta-demo
+cd llama.cpp/build && cmake .. && make llama-zeta-zero
 
 # Run with Z.E.T.A.
-./bin/llama-zeta-demo \
+./bin/llama-zeta-zero \
   -m /path/to/model.gguf \
   -p "Your prompt here" \
   -n 100 \

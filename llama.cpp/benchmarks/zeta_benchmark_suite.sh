@@ -8,7 +8,7 @@ set -e
 
 # Configuration
 MODEL="${MODEL:-/Users/hendrixx./models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf}"
-ZETA_DEMO="./bin/llama-zeta-demo"
+ZETA_DEMO="./bin/llama-zeta-zero"
 LLAMA_CLI="./bin/llama-cli"
 RESULTS_DIR="./benchmarks/results"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)

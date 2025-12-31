@@ -1,7 +1,7 @@
-# Z.E.T.A. Demo Tool
+# Z.E.T.A. Zero - CLI Demo Tool
 # Z.E.T.A.(TM) | Patent Pending | (C) 2025 All rights reserved.
 
-set(TARGET llama-zeta-demo)
+set(TARGET llama-zeta-zero)
 add_executable(${TARGET} zeta-demo.cpp)
 
 # Include Z.E.T.A. sources directly (simpler than separate library)
@@ -53,8 +53,8 @@ endif()
 
 install(TARGETS ${TARGET} RUNTIME)
 
-# Z.E.T.A. Server (HTTP API)
-set(SERVER_TARGET zeta-server)
+# Z.E.T.A. Zero Server (HTTP API)
+set(SERVER_TARGET zeta-zero-server)
 add_executable(${SERVER_TARGET} zeta-server.cpp)
 
 target_sources(${SERVER_TARGET} PRIVATE

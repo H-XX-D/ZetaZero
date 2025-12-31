@@ -10,7 +10,7 @@ cd "$(dirname "$0")/.."
 
 # Configuration
 MODEL="${MODEL:-/Users/hendrixx./ZetaZero/zzv3/Models/tinyllama-zeta.gguf}"
-ZETA_DEMO="./build/bin/llama-zeta-demo"
+ZETA_DEMO="./build/bin/llama-zeta-zero"
 RESULTS_DIR="./benchmarks/results"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 CSV_FILE="${RESULTS_DIR}/quick_${TIMESTAMP}.csv"

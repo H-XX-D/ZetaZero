@@ -7,8 +7,8 @@ set -e
 
 FAMILY="${1:-qwen}"
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CODE_MODE_H="$SRC_DIR/llama.cpp/tools/zeta-demo/zeta-code-mode.h"
-SERVER_CPP="$SRC_DIR/llama.cpp/tools/zeta-demo/zeta-server.cpp"
+CODE_MODE_H="$SRC_DIR/llama.cpp/tools/zeta-zero/zeta-code-mode.h"
+SERVER_CPP="$SRC_DIR/llama.cpp/tools/zeta-zero/zeta-server.cpp"
 
 echo "=== ZetaZero Architecture Adapter ==="
 echo "Target Family: $FAMILY"

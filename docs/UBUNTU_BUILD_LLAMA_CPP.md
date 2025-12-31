@@ -1,6 +1,6 @@
 # Ubuntu build: llama.cpp (ZetaLm fork)
 
-This repo contains a `llama.cpp/` fork with the `llama-zeta-demo` tool.
+This repo contains a `llama.cpp/` fork with the `llama-zeta-zero` tool.
 
 ## 1) Install dependencies (Ubuntu)
 
@@ -15,7 +15,7 @@ This repo contains a `llama.cpp/` fork with the `llama-zeta-demo` tool.
 ```
 
 Outputs are placed under:
-- `llama.cpp/build-ubuntu/bin/llama-zeta-demo`
+- `llama.cpp/build-ubuntu/bin/llama-zeta-zero`
 - `llama.cpp/build-ubuntu/bin/llama-cli`
 
 ## 3) Smoke check

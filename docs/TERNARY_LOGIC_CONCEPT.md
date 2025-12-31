@@ -46,7 +46,7 @@ We convert high-dimensional float embeddings (e.g., 4096 dims) into compact **Tr
 - **Sparsity**: The '0' state allows for sparse representation of concepts.
 
 ## Implementation
-The core logic is defined in `llama.cpp/tools/zeta-demo/zeta-ternary.h`.
+The core logic is defined in `llama.cpp/tools/zeta-zero/zeta-ternary.h`.
 
 ```cpp
 // Example: Consensus

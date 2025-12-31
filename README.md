@@ -399,9 +399,9 @@ ZetaZero/
 │   ├── zeta-*.c/.h              # Core C implementation (memory, integration, etc.)
 │   ├── zeta-*.m/.metal          # Metal/GPU acceleration (macOS)
 │   ├── zeta/                    # CMake library target
-│   └── tools/zeta-demo/         # Server and demo application
+│   └── tools/zeta-zero/         # Server and demo application
 │       ├── zeta-server.cpp      # HTTP server implementation
-│       ├── zeta-demo.cpp        # CLI demo
+│       ├── zeta-demo.cpp        # CLI demo (llama-zeta-zero binary)
 │       ├── zeta-*.h             # C++ headers (modules, features)
 │       └── CMakeLists.txt       # Build configuration
 ├── benchmarks/                   # Performance and evaluation tests
@@ -412,8 +412,8 @@ ZetaZero/
 ```
 
 **Key Files:**
-- `llama.cpp/tools/zeta-demo/zeta-server.cpp` - Main server entry point
-- `llama.cpp/tools/zeta-demo/zeta-dual-process.h` - Dual-process cognitive engine
+- `llama.cpp/tools/zeta-zero/zeta-server.cpp` - Main server entry point
+- `llama.cpp/tools/zeta-zero/zeta-dual-process.h` - Dual-process cognitive engine
 - `llama.cpp/zeta-memory.c/.h` - Core memory subsystem
 - `llama.cpp/zeta-integration.c/.h` - llama.cpp integration layer
 

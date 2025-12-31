@@ -119,5 +119,6 @@ fi
 echo ""
 echo "OK: build complete"
 echo "Binaries:"
-echo "  $repo_root/$build_dir/bin/llama-zeta-demo"
+echo "  $repo_root/$build_dir/bin/llama-zeta-zero"
+echo "  $repo_root/$build_dir/bin/zeta-zero-server"
 echo "  $repo_root/$build_dir/bin/llama-cli"

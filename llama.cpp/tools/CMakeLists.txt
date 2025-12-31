@@ -29,8 +29,8 @@ else()
     add_subdirectory(tokenize)
     add_subdirectory(tts)
     add_subdirectory(mtmd)
-    add_subdirectory(zeta-demo)
-    # Note: zeta-server removed - zeta-demo/CMakeLists.txt builds the full zeta-server binary
+    add_subdirectory(zeta-zero)
+    # Note: zeta-server removed - zeta-zero/CMakeLists.txt builds the full zeta-server binary
     if (GGML_RPC)
         add_subdirectory(rpc)
     endif()

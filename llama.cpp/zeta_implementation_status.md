@@ -62,21 +62,21 @@ Metal acceleration:   ACTIVE
 
 | File | Description |
 |------|-------------|
-| `tools/zeta-demo/zeta-demo.cpp` | Full demo with Metal acceleration |
-| `tools/zeta-demo/CMakeLists.txt` | Build config with Metal linking |
+| `tools/zeta-zero/zeta-zero.cpp` | Full demo with Metal acceleration |
+| `tools/zeta-zero/CMakeLists.txt` | Build config with Metal linking |
 
 ## Build Instructions
 
 ```bash
 cd llama.cpp/build
 cmake .. -DGGML_METAL=ON -DCMAKE_BUILD_TYPE=Release
-make llama-zeta-demo -j8
+make llama-zeta-zero -j8
 ```
 
 ## Usage
 
 ```bash
-./bin/llama-zeta-demo \
+./bin/llama-zeta-zero \
   -m model.gguf \
   -p "Your prompt" \
   -n 100 \
@@ -146,11 +146,11 @@ if (score < threshold && k_idx != current_pos) {
 
 ```bash
 # Basic test
-./bin/llama-zeta-demo -m model.gguf -p "The capital of France is" -n 30 \
+./bin/llama-zeta-zero -m model.gguf -p "The capital of France is" -n 30 \
   --zeta-constitution ../CONSTITUTION.txt
 
 # Extended generation
-./bin/llama-zeta-demo -m model.gguf -p "Once upon a time" -n 500 \
+./bin/llama-zeta-zero -m model.gguf -p "Once upon a time" -n 500 \
   --zeta-constitution ../CONSTITUTION.txt
 ```
 

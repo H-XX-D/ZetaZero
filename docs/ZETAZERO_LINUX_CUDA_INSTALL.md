@@ -1,6 +1,6 @@
 # ZetaZero local install (Linux + CUDA)
 
-This is the minimal path to build the ZETA-enabled `llama.cpp` binary (`llama-zeta-demo`) on an Ubuntu workstation with NVIDIA CUDA.
+This is the minimal path to build the ZETA-enabled `llama.cpp` binary (`llama-zeta-zero`) on an Ubuntu workstation with NVIDIA CUDA.
 
 ## What you need on the workstation
 
@@ -20,7 +20,7 @@ From the repo root:
 
 Binaries:
 
-- `llama.cpp/build-ubuntu/bin/llama-zeta-demo`
+- `llama.cpp/build-ubuntu/bin/llama-zeta-zero`
 - `llama.cpp/build-ubuntu/bin/llama-cli`
 
 ## If CMake can’t find CUDA

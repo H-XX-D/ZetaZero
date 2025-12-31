@@ -12,7 +12,7 @@ fi
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
-zeta_demo="$repo_root/$build_dir/bin/llama-zeta-demo"
+zeta_demo="$repo_root/$build_dir/bin/llama-zeta-zero"
 llama_cli="$repo_root/$build_dir/bin/llama-cli"
 
 if [[ ! -x "$zeta_demo" ]]; then
@@ -25,7 +25,7 @@ if [[ ! -x "$llama_cli" ]]; then
   exit 1
 fi
 
-echo "== llama-zeta-demo --help =="
+echo "== llama-zeta-zero --help =="
 "$zeta_demo" --help | head -n 40
 
 echo ""
