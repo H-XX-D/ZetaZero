@@ -1,0 +1,88 @@
+AIDE Dual License
+
+Copyright © 2024-2025 >X< / Todd Hendricks. All rights reserved.
+
+================================================================================
+                              DUAL LICENSE AGREEMENT
+================================================================================
+
+This project is available under TWO separate licenses. Choose the one that
+applies to your use case:
+
+================================================================================
+PART A: MIT LICENSE (Open Source Components)
+================================================================================
+
+The following components are licensed under the MIT License:
+
+- AIDE application source code (Electron and Swift versions)
+- Build scripts and configuration files
+- Documentation (README, setup guides)
+
+MIT License:
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+================================================================================
+PART B: PROPRIETARY LICENSE (Protected Content)
+================================================================================
+
+The following components are PROPRIETARY and NOT covered by the MIT License:
+
+- Dee Dee mascot character, personality, voice, and related assets
+- AI Mastery curriculum (12 courses)
+- Tutorial content and guided projects
+- Learning library content
+- Premium educational materials
+- Brand assets, logos, and visual identity
+
+TERMS FOR PROPRIETARY CONTENT:
+
+1. RESTRICTIONS
+   - Unauthorized copying, reproduction, or distribution is prohibited
+   - Modification or derivative works require written consent
+   - Commercial use requires a paid license
+   - Resale or redistribution of educational content is prohibited
+
+2. PERMITTED USE
+   - Personal learning through official AIDE application
+   - Access according to subscription tier (Free/Pro/Pro+)
+
+3. OWNERSHIP
+   All intellectual property rights for proprietary content remain exclusively
+   with >X< / Todd Hendricks.
+
+4. LICENSING
+   Commercial licensing available for:
+   - Educational institutions
+   - Corporate training programs
+   - Resellers and distributors
+
+================================================================================
+                                    SUMMARY
+================================================================================
+
+✅ OPEN SOURCE (MIT):          App code, scripts, technical docs
+🔒 PROPRIETARY:                Dee Dee, AI Mastery, Tutorials, Learning content
+
+For commercial licensing inquiries: [Contact Email]
+
+>X< / Todd Hendricks
+AIDE - AI Development Environment
+https://h-xx-d.github.io/aide/

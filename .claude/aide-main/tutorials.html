@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AIDE Tutorials - Learn to Build</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1e1e1e;
+            color: #d4d4d4;
+            display: flex;
+            height: 100vh;
+        }
+        
+        /* Sidebar */
+        .sidebar {
+            width: 320px;
+            background: #252526;
+            border-right: 1px solid #3c3c3c;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .sidebar-header {
+            padding: 20px;
+            background: #2d2d2d;
+            border-bottom: 1px solid #3c3c3c;
+        }
+        
+        .sidebar-header h1 {
+            font-size: 18px;
+            color: #a78bfa;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .progress-section {
+            padding: 15px 20px;
+            border-bottom: 1px solid #3c3c3c;
+        }
+        
+        .progress-text {
+            font-size: 12px;
+            color: #888;
+            margin-bottom: 8px;
+        }
+        
+        .progress-bar {
+            height: 6px;
+            background: #3c3c3c;
+            border-radius: 3px;
+            overflow: hidden;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #a78bfa, #8b5cf6);
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+        
+        .tutorial-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 10px;
+        }
+        
+        .tutorial-item {
+            display: flex;
+            align-items: center;
+            padding: 12px 15px;
+            margin-bottom: 4px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        
+        .tutorial-item:hover {
+            background: #2d2d2d;
+        }
+        
+        .tutorial-item.active {
+            background: rgba(167, 139, 250, 0.15);
+            border: 1px solid rgba(167, 139, 250, 0.3);
+        }
+        
+        .tutorial-item.completed .tutorial-num {
+            background: #22c55e;
+        }
+        
+        .tutorial-num {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            background: #3c3c3c;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: bold;
+            margin-right: 12px;
+            flex-shrink: 0;
+        }
+        
+        .tutorial-info {
+            flex: 1;
+        }
+        
+        .tutorial-title {
+            font-size: 13px;
+            font-weight: 500;
+            margin-bottom: 2px;
+        }
+        
+        .tutorial-reward {
+            font-size: 11px;
+            color: #888;
+        }
+        
+        /* Content Area */
+        .content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        
+        .content-header {
+            padding: 20px 30px;
+            background: #2d2d2d;
+            border-bottom: 1px solid #3c3c3c;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .content-header h2 {
+            font-size: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .reward-badge {
+            padding: 6px 14px;
+            background: rgba(167, 139, 250, 0.1);
+            border: 1px solid rgba(167, 139, 250, 0.3);
+            border-radius: 20px;
+            font-size: 13px;
+        }
+        
+        .content-body {
+            flex: 1;
+            overflow-y: auto;
+            padding: 30px;
+        }
+        
+        .markdown-content {
+            max-width: 800px;
+            line-height: 1.7;
+        }
+        
+        .markdown-content h1 { font-size: 28px; margin: 20px 0 15px; color: #fff; }
+        .markdown-content h2 { font-size: 22px; margin: 25px 0 12px; color: #a78bfa; border-bottom: 1px solid #3c3c3c; padding-bottom: 8px; }
+        .markdown-content h3 { font-size: 18px; margin: 20px 0 10px; color: #d4d4d4; }
+        .markdown-content p { margin: 12px 0; }
+        .markdown-content ul, .markdown-content ol { margin: 12px 0; padding-left: 25px; }
+        .markdown-content li { margin: 6px 0; }
+        .markdown-content code { background: #2d2d2d; padding: 2px 6px; border-radius: 4px; font-family: 'Fira Code', monospace; }
+        .markdown-content pre { background: #1a1a1a; padding: 15px; border-radius: 8px; overflow-x: auto; margin: 15px 0; }
+        .markdown-content pre code { background: none; padding: 0; }
+        .markdown-content blockquote { border-left: 3px solid #a78bfa; padding-left: 15px; margin: 15px 0; color: #888; }
+        .markdown-content details { background: #2d2d2d; padding: 12px 15px; border-radius: 8px; margin: 15px 0; }
+        .markdown-content summary { cursor: pointer; font-weight: 500; color: #a78bfa; }
+        .markdown-content table { border-collapse: collapse; margin: 15px 0; width: 100%; }
+        .markdown-content th, .markdown-content td { border: 1px solid #3c3c3c; padding: 10px; text-align: left; }
+        .markdown-content th { background: #2d2d2d; }
+        
+        /* Welcome screen */
+        .welcome {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            color: #888;
+        }
+        
+        .welcome i {
+            font-size: 60px;
+            color: rgba(167, 139, 250, 0.5);
+            margin-bottom: 20px;
+        }
+        
+        .welcome h2 {
+            font-size: 24px;
+            color: #d4d4d4;
+            margin-bottom: 10px;
+        }
+        
+        .welcome p {
+            text-align: center;
+            max-width: 400px;
+        }
+        
+        /* Close button */
+        .close-btn {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            width: 30px;
+            height: 30px;
+            border: none;
+            background: #3c3c3c;
+            color: #888;
+            border-radius: 6px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+        }
+        
+        .close-btn:hover {
+            background: #ef4444;
+            color: #fff;
+        }
+    </style>
+</head>
+<body>
+    <button class="close-btn" onclick="window.close()" title="Close"><i class="fas fa-times"></i></button>
+    
+    <div class="sidebar">
+        <div class="sidebar-header">
+            <h1><i class="fas fa-graduation-cap"></i> Learn to Build</h1>
+        </div>
+        
+        <div class="progress-section">
+            <div class="progress-text"><span id="progressCount">0</span> / 13 Completed</div>
+            <div class="progress-bar">
+                <div class="progress-fill" id="progressFill"></div>
+            </div>
+        </div>
+        
+        <div class="tutorial-list" id="tutorialList">
+            <!-- Tutorials loaded here -->
+        </div>
+    </div>
+    
+    <div class="content">
+        <div class="content-header" id="contentHeader" style="display: none;">
+            <h2 id="tutorialTitle">Select a Tutorial</h2>
+            <div class="reward-badge" id="tutorialReward">🎁 Reward</div>
+        </div>
+        
+        <div class="content-body">
+            <div class="welcome" id="welcomeScreen">
+                <i class="fas fa-graduation-cap"></i>
+                <h2>Welcome to AIDE Tutorials!</h2>
+                <p>Learn to build real projects with AI.<br>Each tutorial unlocks a new outfit for Dede!</p>
+                <p style="margin-top: 20px; font-size: 14px;">← Select a tutorial to begin</p>
+            </div>
+            <div class="markdown-content" id="markdownContent" style="display: none;"></div>
+        </div>
+    </div>
+    
+    <script>
+        const tutorials = [
+            { id: 1, title: "Dede's Floor is Lava", emoji: "🎮", reward: "Hula Skirt", file: "PROJECT_1_DEDES_GAME.md" },
+            { id: 2, title: "Word Calculator", emoji: "📝", reward: "Pocket Protector", file: "PROJECT_2_WORD_CALCULATOR.md" },
+            { id: 3, title: "Portfolio Website", emoji: "🎨", reward: "Sunglasses", file: "PROJECT_3_PORTFOLIO_WEBSITE.md" },
+            { id: 4, title: "Virtual Smart Home", emoji: "🏠", reward: "Bow Tie", file: "PROJECT_4_VIRTUAL_SMART_HOME.md" },
+            { id: 5, title: "Kanban Board", emoji: "📋", reward: "Cape", file: "PROJECT_5_KANBAN_BOARD.md" },
+            { id: 6, title: "Real-Time Chat", emoji: "💬", reward: "Headphones", file: "PROJECT_6_REALTIME_CHAT_APP.md" },
+            { id: 7, title: "Journaling App", emoji: "📔", reward: "Reading Glasses", file: "PROJECT_7_JOURNALING_APP.md" },
+            { id: 8, title: "Budgeting App", emoji: "💰", reward: "Calculator Watch", file: "PROJECT_8_BUDGETING_APP.md" },
+            { id: 9, title: "Health Monitoring", emoji: "🩺", reward: "Stethoscope", file: "PROJECT_9_HEALTH_MONITORING_APP.md" },
+            { id: 10, title: "Store App", emoji: "🛒", reward: "Shopping Bag", file: "PROJECT_10_STORE_APP.md" },
+            { id: 11, title: "Recipe Book", emoji: "🍳", reward: "Chef Hat", file: "PROJECT_11_RECIPE_BOOK_APP.md" },
+            { id: 12, title: "Platformer Game", emoji: "🏃", reward: "🎓 Graduation Cap", file: "PROJECT_12_PLATFORMER_GAME.md" },
+            { id: 13, title: "Your Dream Project", emoji: "🌟", reward: "Matrix Dede", file: "PROJECT_13_EXTRA_CREDIT_YOUR_DREAM.md" }
+        ];
+        
+        let completed = JSON.parse(localStorage.getItem('completedTutorials') || '[]');
+        let currentTutorial = null;
+        
+        function renderList() {
+            const list = document.getElementById('tutorialList');
+            list.innerHTML = tutorials.map(t => `
+                <div class="tutorial-item ${completed.includes(t.id) ? 'completed' : ''}" 
+                     data-id="${t.id}" onclick="selectTutorial(${t.id})">
+                    <div class="tutorial-num">${completed.includes(t.id) ? '✓' : t.id}</div>
+                    <div class="tutorial-info">
+                        <div class="tutorial-title">${t.emoji} ${t.title}</div>
+                        <div class="tutorial-reward">🎁 ${t.reward}</div>
+                    </div>
+                </div>
+            `).join('');
+            
+            updateProgress();
+        }
+        
+        function updateProgress() {
+            const count = completed.length;
+            document.getElementById('progressCount').textContent = count;
+            document.getElementById('progressFill').style.width = (count / 13 * 100) + '%';
+        }
+        
+        async function selectTutorial(id) {
+            const tutorial = tutorials.find(t => t.id === id);
+            if (!tutorial) return;
+            
+            currentTutorial = tutorial;
+            
+            // Update active state
+            document.querySelectorAll('.tutorial-item').forEach(el => {
+                el.classList.toggle('active', parseInt(el.dataset.id) === id);
+            });
+            
+            // Update header
+            document.getElementById('contentHeader').style.display = 'flex';
+            document.getElementById('tutorialTitle').innerHTML = `${tutorial.emoji} Project ${tutorial.id}: ${tutorial.title}`;
+            document.getElementById('tutorialReward').textContent = `🎁 ${tutorial.reward}`;
+            
+            // Load content
+            document.getElementById('welcomeScreen').style.display = 'none';
+            document.getElementById('markdownContent').style.display = 'block';
+            
+            try {
+                const response = await fetch('./Tutorials/' + tutorial.file);
+                const text = await response.text();
+                document.getElementById('markdownContent').innerHTML = parseMarkdown(text);
+            } catch (e) {
+                document.getElementById('markdownContent').innerHTML = '<p>Error loading tutorial. Make sure the Tutorials folder exists.</p>';
+            }
+        }
+        
+        function parseMarkdown(md) {
+            return md
+                // Code blocks first (before other processing)
+                .replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code class="language-$1">$2</code></pre>')
+                // Headers
+                .replace(/^### (.*$)/gm, '<h3>$1</h3>')
+                .replace(/^## (.*$)/gm, '<h2>$1</h2>')
+                .replace(/^# (.*$)/gm, '<h1>$1</h1>')
+                // Bold and italic
+                .replace(/\*\*\*(.*?)\*\*\*/g, '<strong><em>$1</em></strong>')
+                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                .replace(/\*(.*?)\*/g, '<em>$1</em>')
+                // Inline code
+                .replace(/`([^`]+)`/g, '<code>$1</code>')
+                // Lists
+                .replace(/^\- (.*$)/gm, '<li>$1</li>')
+                .replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>')
+                // Blockquotes
+                .replace(/^> (.*$)/gm, '<blockquote>$1</blockquote>')
+                // Details/summary
+                .replace(/<details>/g, '<details>')
+                .replace(/<\/details>/g, '</details>')
+                .replace(/<summary>(.*?)<\/summary>/g, '<summary>$1</summary>')
+                // Paragraphs
+                .replace(/\n\n/g, '</p><p>')
+                .replace(/^(.+)$/gm, function(m) {
+                    if (m.startsWith('<')) return m;
+                    return '<p>' + m + '</p>';
+                })
+                // Clean up
+                .replace(/<p><\/p>/g, '')
+                .replace(/<p>(<h[123]>)/g, '$1')
+                .replace(/(<\/h[123]>)<\/p>/g, '$1');
+        }
+        
+        // Initialize
+        renderList();
+    </script>
+</body>
+</html>

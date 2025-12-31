@@ -1,0 +1,93 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+renderer.bundle.js
+renderer.bundle.js.map
+*.map
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# IDE
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Sensitive business documents - NEVER COMMIT
+*.pdf
+filed_statement_of_information.pdf
+ein_tax_id.pdf
+operating_agreement.pdf
+acknowledgement_letter.pdf
+state_welcome_letter.pdf
+certificate.pdf
+filed_articles.pdf
+
+# Certificates and keys
+*.pfx
+*.p12
+*.pem
+*.key
+*.cer
+*.crt
+*.cert
+
+# Environment and secrets
+.env
+.env.*
+.env.local
+.env.production
+secrets/
+*.secret
+config/secrets.json
+
+# API keys and tokens
+*api*key*
+*token*
+*credential*
+*password*
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Provider/Reseller architecture files
+PROVIDER_ARCHITECTURE.md
+BUSINESS_API_SETUP.md
+backend/database/
+backend/routes/auth.js
+backend/routes/payments.js
+backend/routes/account.js
+backend/services/auth.js
+backend/services/payments.js
+backend/services/billing.js
+
+# Documentation files
+*.md
+!README.md
+!RELEASE_NOTES.md
+AIDE-Swift/
+screenshot-annotator.html
+SCREENSHOT_GUIDE.md
+!Tutorials/*.md
+!website/*.md

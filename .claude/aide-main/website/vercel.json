@@ -1,0 +1,6 @@
+{
+  "routes": [
+    { "src": "/print", "dest": "/print.html" }
+  ]
+}
+

@@ -396,26 +396,29 @@ cmake --build build --target zeta-server
 ```
 ZetaZero/
 ├── llama.cpp/                    # llama.cpp fork with Z.E.T.A. integration
-│   ├── zeta-*.c/.h              # Core C implementation (memory, integration, etc.)
-│   ├── zeta-*.m/.metal          # Metal/GPU acceleration (macOS)
-│   ├── zeta/                    # CMake library target
-│   └── tools/zeta-zero/         # Server and demo application
+│   ├── zeta/                    # CMake library target (references zeta-zero sources)
+│   └── tools/zeta-zero/         # ALL Z.E.T.A. source code consolidated here
 │       ├── zeta-server.cpp      # HTTP server implementation
 │       ├── zeta-demo.cpp        # CLI demo (llama-zeta-zero binary)
-│       ├── zeta-*.h             # C++ headers (modules, features)
+│       ├── zeta-*.c             # Core C implementation (memory, integration, etc.)
+│       ├── zeta-*.h             # All headers (C and C++ modules)
+│       ├── zeta-*.m/.metal      # Metal/GPU acceleration (macOS)
+│       ├── zeta-*.cu/.cuh       # CUDA acceleration (NVIDIA)
+│       ├── docs/                # Implementation documentation
 │       └── CMakeLists.txt       # Build configuration
 ├── benchmarks/                   # Performance and evaluation tests
 ├── docs/                         # Documentation and design notes
 ├── scripts/                      # Utility and deployment scripts
 ├── ui/                           # Web interface
+├── zeta.conf                     # Runtime configuration
 └── archive_20251219/            # Historical snapshot (do not modify)
 ```
 
 **Key Files:**
 - `llama.cpp/tools/zeta-zero/zeta-server.cpp` - Main server entry point
 - `llama.cpp/tools/zeta-zero/zeta-dual-process.h` - Dual-process cognitive engine
-- `llama.cpp/zeta-memory.c/.h` - Core memory subsystem
-- `llama.cpp/zeta-integration.c/.h` - llama.cpp integration layer
+- `llama.cpp/tools/zeta-zero/zeta-memory.c/.h` - Core memory subsystem
+- `llama.cpp/tools/zeta-zero/zeta-integration.c/.h` - llama.cpp integration layer
 
 ## Contact
 

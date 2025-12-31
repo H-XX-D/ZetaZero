@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Dee Dee Voice Chat</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --border: #30363d;
+    --text: #c9d1d9;
+    --text-muted: #8b949e;
+    --accent: #58a6ff;
+    --accent-glow: rgba(88, 166, 255, 0.3);
+}
+
+html, body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    height: 100%;
+    overflow: hidden;
+    border-radius: 12px;
+}
+
+.container {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    padding: 16px;
+}
+
+/* Titlebar */
+.titlebar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border);
+    -webkit-app-region: drag;
+}
+
+.titlebar h1 {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+}
+
+.close-btn {
+    width: 24px;
+    height: 24px;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    -webkit-app-region: no-drag;
+}
+
+.close-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text);
+}
+
+/* Chat area */
+.chat-area {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.message {
+    max-width: 85%;
+    padding: 10px 14px;
+    border-radius: 12px;
+    font-size: 13px;
+    line-height: 1.4;
+}
+
+.message.user {
+    align-self: flex-end;
+    background: var(--accent);
+    color: white;
+    border-bottom-right-radius: 4px;
+}
+
+.message.assistant {
+    align-self: flex-start;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-bottom-left-radius: 4px;
+}
+
+/* Voice indicator */
+.voice-area {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    padding: 20px 0;
+}
+
+.mic-btn {
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    border: 2px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    transition: all 0.2s;
+}
+
+.mic-btn:hover {
+    border-color: var(--accent);
+    box-shadow: 0 0 20px var(--accent-glow);
+}
+
+.mic-btn.listening {
+    background: var(--accent);
+    border-color: var(--accent);
+    animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 0 var(--accent-glow); }
+    50% { box-shadow: 0 0 0 15px transparent; }
+}
+
+.status {
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.status.listening {
+    color: var(--accent);
+}
+
+/* Input area */
+.input-area {
+    display: flex;
+    gap: 8px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+}
+
+.input-area input {
+    flex: 1;
+    padding: 10px 14px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface);
+    color: var(--text);
+    font-size: 13px;
+}
+
+.input-area input:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+.input-area button {
+    padding: 10px 16px;
+    border: none;
+    border-radius: 8px;
+    background: var(--accent);
+    color: white;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+}
+
+.input-area button:hover {
+    filter: brightness(1.1);
+}
+
+/* Pro badge */
+.pro-badge {
+    background: linear-gradient(135deg, #f59e0b, #d97706);
+    color: white;
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-weight: 600;
+    margin-left: 8px;
+}
+</style>
+</head>
+<body>
+<div class="container">
+    <div class="titlebar">
+        <h1>🎤 Dee Dee Voice Chat <span class="pro-badge">PRO</span></h1>
+        <button class="close-btn" id="closeBtn">✕</button>
+    </div>
+    
+    <div class="chat-area" id="chatArea">
+        <div class="message assistant">
+            Hey! I'm Dee Dee. Click the mic or just start talking - I'm listening for "Hey Dee Dee"! 🎙️
+        </div>
+    </div>
+    
+    <div class="voice-area">
+        <button class="mic-btn" id="micBtn">🎤</button>
+        <div class="status" id="status">Click to start listening...</div>
+    </div>
+    
+    <div class="input-area">
+        <input type="text" id="textInput" placeholder="Or type a message...">
+        <button id="sendBtn">Send</button>
+    </div>
+</div>
+
+<!-- Dee Dee Personality & TTS Modules -->
+<script src="src/renderer/deedee-personality.js"></script>
+<script src="src/renderer/deedee-tts.js"></script>
+
+<script>
+const { ipcRenderer } = require('electron');
+
+const chatArea = document.getElementById('chatArea');
+const micBtn = document.getElementById('micBtn');
+const status = document.getElementById('status');
+const textInput = document.getElementById('textInput');
+const sendBtn = document.getElementById('sendBtn');
+const closeBtn = document.getElementById('closeBtn');
+
+let isListening = false;
+let recognition = null;
+
+// Close button
+closeBtn.addEventListener('click', () => {
+    window.close();
+});
+
+// Initialize speech recognition
+if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    recognition = new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = 'en-US';
+    
+    recognition.onstart = () => {
+        isListening = true;
+        micBtn.classList.add('listening');
+        status.textContent = 'Listening...';
+        status.classList.add('listening');
+    };
+    
+    recognition.onend = () => {
+        isListening = false;
+        micBtn.classList.remove('listening');
+        status.textContent = 'Click to start listening...';
+        status.classList.remove('listening');
+    };
+    
+    recognition.onresult = (event) => {
+        let transcript = '';
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+            transcript += event.results[i][0].transcript;
+        }
+        
+        if (event.results[event.resultIndex].isFinal) {
+            addMessage(transcript, 'user');
+            processCommand(transcript.toLowerCase().trim());
+        }
+    };
+    
+    recognition.onerror = (event) => {
+        console.error('Speech recognition error:', event.error);
+        status.textContent = 'Error: ' + event.error;
+        isListening = false;
+        micBtn.classList.remove('listening');
+    };
+}
+
+// Mic button toggle
+micBtn.addEventListener('click', () => {
+    if (!recognition) {
+        status.textContent = 'Speech recognition not supported';
+        return;
+    }
+    
+    if (isListening) {
+        recognition.stop();
+    } else {
+        recognition.start();
+    }
+});
+
+// Text input
+sendBtn.addEventListener('click', sendTextMessage);
+textInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') sendTextMessage();
+});
+
+function sendTextMessage() {
+    const text = textInput.value.trim();
+    if (!text) return;
+    
+    addMessage(text, 'user');
+    textInput.value = '';
+    processCommand(text.toLowerCase());
+}
+
+function addMessage(text, type) {
+    const msg = document.createElement('div');
+    msg.className = `message ${type}`;
+    msg.textContent = text;
+    chatArea.appendChild(msg);
+    chatArea.scrollTop = chatArea.scrollHeight;
+}
+
+// Pop culture personality phrases
+const deedeePhrases = {
+    greetings: [
+        "Howdy there, partner! *beep*",
+        "I'll be back!",
+        "May the Force be with you!",
+        "I ain't going back, Brody!",
+        "G'day, mate!",
+        "Well, hello there! *beep boop*",
+    ],
+    helping: [
+        "I've got a bad feeling about this!",
+        "I'll be back!",
+        "No disassemble!",
+        "Elementary, my dear Watson!",
+        "I can do this all day!",
+        "To infinity and beyond!",
+        "I ain't going back, Brody!",
+        "Yippee-ki-yay, motherfucker! *beep*",
+        "Welcome to the party, pal!",
+    ],
+    goodbye: [
+        "I'll be back! *beep*",
+        "May the Force be with you!",
+        "Hasta la vista, baby! *beep*",
+        "See you later, alligator!",
+        "I ain't going back, Brody!",
+        "Vaya con Dios! *beep*",
+    ],
+    getPhrase(category) {
+        const phrases = this[category] || [];
+        return phrases[Math.floor(Math.random() * phrases.length)] || "I'm here to help! *beep*";
+    }
+};
+
+function processCommand(text) {
+    // Simple responses for now - would connect to AI API
+    setTimeout(() => {
+        let response = deedeePhrases.getPhrase('helping') + " AI responses coming soon when you connect your API key. 🚀";
+        let category = 'helping';
+        
+        if (text.includes('hide') || text.includes('bye')) {
+            response = deedeePhrases.getPhrase('goodbye') + " Say 'Hey Dee Dee' to bring me back. 👋";
+            category = 'goodbye';
+            setTimeout(() => {
+                ipcRenderer.send('voice-hide');
+            }, 1000);
+        } else if (text.includes('hello') || text.includes('hi') || text.includes('hey')) {
+            response = deedeePhrases.getPhrase('greetings') + " How can I help you code today? 💻";
+            category = 'greetings';
+        } else if (text.includes('open') || text.includes('ide') || text.includes('editor')) {
+            response = deedeePhrases.getPhrase('helping') + " Opening the full IDE for you! 🚀";
+            setTimeout(() => {
+                ipcRenderer.send('mascot-double-clicked');
+            }, 500);
+        }
+        
+        addMessage(response, 'assistant');
+        
+        // Speak response with TTS if available
+        if (window.deedeeTTS && window.deedeeTTS.isSupported()) {
+            window.deedeeTTS.init().then(() => {
+                window.deedeeTTS.speakPhrase(category).catch(() => {});
+            });
+        }
+    }, 500);
+}
+</script>
+</body>
+</html>
+

@@ -4,21 +4,21 @@
 set(TARGET llama-zeta-zero)
 add_executable(${TARGET} zeta-demo.cpp)
 
-# Include Z.E.T.A. sources directly (simpler than separate library)
+# Include Z.E.T.A. sources directly (all sources now local)
 target_sources(${TARGET} PRIVATE
-    ${CMAKE_SOURCE_DIR}/zeta-memory.c
-    ${CMAKE_SOURCE_DIR}/zeta-integration.c
-    ${CMAKE_SOURCE_DIR}/zeta-kv-extract.c
-    ${CMAKE_SOURCE_DIR}/zeta-constitution.c
-    ${CMAKE_SOURCE_DIR}/zeta-model-bind.c
-    ${CMAKE_SOURCE_DIR}/zeta-graph-kv.c
-    ${CMAKE_SOURCE_DIR}/zeta-dedup.c
-    ${CMAKE_SOURCE_DIR}/zeta-tunnel-search.c
-    ${CMAKE_SOURCE_DIR}/zeta-version.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/zeta-memory.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/zeta-integration.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/zeta-kv-extract.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/zeta-constitution.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/zeta-model-bind.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/zeta-graph-kv.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/zeta-dedup.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/zeta-tunnel-search.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/zeta-version.c
 )
 
 target_include_directories(${TARGET} PRIVATE
-    ${CMAKE_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_SOURCE_DIR}/include
 )
 
@@ -27,9 +27,9 @@ target_compile_features(${TARGET} PRIVATE cxx_std_17)
 
 # Metal support (macOS/iOS only)
 if(APPLE)
-    target_sources(${TARGET} PRIVATE ${CMAKE_SOURCE_DIR}/zeta-metal.m)
+    target_sources(${TARGET} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/zeta-metal.m)
 
-    set_source_files_properties(${CMAKE_SOURCE_DIR}/zeta-metal.m PROPERTIES
+    set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/zeta-metal.m PROPERTIES
         COMPILE_FLAGS "-fobjc-arc"
     )
 
@@ -41,7 +41,7 @@ if(APPLE)
     # Copy Metal kernels to build directory
     add_custom_command(TARGET ${TARGET} POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            ${CMAKE_SOURCE_DIR}/zeta-kernels.metal
+            ${CMAKE_CURRENT_SOURCE_DIR}/zeta-kernels.metal
             $<TARGET_FILE_DIR:${TARGET}>/zeta-kernels.metal
         COMMENT "Copying Z.E.T.A. Metal kernels"
     )
@@ -58,19 +58,19 @@ set(SERVER_TARGET zeta-zero-server)
 add_executable(${SERVER_TARGET} zeta-server.cpp)
 
 target_sources(${SERVER_TARGET} PRIVATE
-    ${CMAKE_SOURCE_DIR}/zeta-memory.c
-    ${CMAKE_SOURCE_DIR}/zeta-integration.c
-    ${CMAKE_SOURCE_DIR}/zeta-kv-extract.c
-    ${CMAKE_SOURCE_DIR}/zeta-constitution.c
-    ${CMAKE_SOURCE_DIR}/zeta-model-bind.c
-    ${CMAKE_SOURCE_DIR}/zeta-graph-kv.c
-    ${CMAKE_SOURCE_DIR}/zeta-dedup.c
-    ${CMAKE_SOURCE_DIR}/zeta-tunnel-search.c
-    ${CMAKE_SOURCE_DIR}/zeta-version.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/zeta-memory.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/zeta-integration.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/zeta-kv-extract.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/zeta-constitution.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/zeta-model-bind.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/zeta-graph-kv.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/zeta-dedup.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/zeta-tunnel-search.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/zeta-version.c
 )
 
 target_include_directories(${SERVER_TARGET} PRIVATE
-    ${CMAKE_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}/vendor/cpp-httplib
 )
@@ -93,18 +93,18 @@ if(GGML_CUDA)
 
     # Add CUDA sources to both targets
     target_sources(${TARGET} PRIVATE
-        ${CMAKE_SOURCE_DIR}/zeta-constitution-cuda.cu
-        ${CMAKE_SOURCE_DIR}/zeta-constitution-bridge.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/zeta-constitution-cuda.cu
+        ${CMAKE_CURRENT_SOURCE_DIR}/zeta-constitution-bridge.c
     )
 
     target_sources(${SERVER_TARGET} PRIVATE
-        ${CMAKE_SOURCE_DIR}/zeta-constitution-cuda.cu
-        ${CMAKE_SOURCE_DIR}/zeta-constitution-bridge.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/zeta-constitution-cuda.cu
+        ${CMAKE_CURRENT_SOURCE_DIR}/zeta-constitution-bridge.c
     )
 
     # Set CUDA properties
     set_source_files_properties(
-        ${CMAKE_SOURCE_DIR}/zeta-constitution-cuda.cu
+        ${CMAKE_CURRENT_SOURCE_DIR}/zeta-constitution-cuda.cu
         PROPERTIES LANGUAGE CUDA
     )
 
@@ -125,10 +125,10 @@ if(GGML_CUDA)
 else()
     # CPU-only bridge (no CUDA)
     target_sources(${TARGET} PRIVATE
-        ${CMAKE_SOURCE_DIR}/zeta-constitution-bridge.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/zeta-constitution-bridge.c
     )
     target_sources(${SERVER_TARGET} PRIVATE
-        ${CMAKE_SOURCE_DIR}/zeta-constitution-bridge.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/zeta-constitution-bridge.c
     )
 
     message(STATUS "[Z.E.T.A.] CUDA not available, using CPU constitutional binding")

@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AIDE - AI Development Environment</title>
+    <script>
+        // GitHub Pages 404.html fallback routing
+        // Get base path (handles both root and subdirectory deployments)
+        const basePath = window.location.pathname.split('/').slice(0, -1).join('/') || '';
+        const pathname = window.location.pathname;
+        
+        // Redirect /print to print.html
+        if (pathname.endsWith('/print') || pathname.endsWith('/print/')) {
+            window.location.replace(basePath + '/print.html');
+        } else {
+            // Redirect to home page
+            window.location.replace(basePath + '/');
+        }
+    </script>
+</head>
+<body>
+    <p>Redirecting...</p>
+</body>
+</html>
+

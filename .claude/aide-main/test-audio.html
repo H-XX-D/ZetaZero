@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dee Dee Audio Test</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            color: #333;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        
+        h1 {
+            text-align: center;
+            color: #667eea;
+            margin-bottom: 10px;
+        }
+        
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 30px;
+        }
+        
+        .section {
+            margin-bottom: 30px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 10px;
+        }
+        
+        .section h2 {
+            color: #667eea;
+            margin-bottom: 15px;
+            font-size: 1.3em;
+        }
+        
+        .audio-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+        
+        .audio-item {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            border: 2px solid #e0e0e0;
+            transition: all 0.3s;
+        }
+        
+        .audio-item:hover {
+            border-color: #667eea;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
+        }
+        
+        .audio-item.playing {
+            border-color: #667eea;
+            background: #f0f4ff;
+        }
+        
+        .audio-item .phrase {
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 8px;
+            font-size: 0.95em;
+        }
+        
+        .audio-item .filename {
+            font-size: 0.8em;
+            color: #999;
+            margin-bottom: 10px;
+            font-family: monospace;
+        }
+        
+        .audio-item .status {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        
+        .status-badge {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.75em;
+            font-weight: bold;
+        }
+        
+        .status-badge.exists {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        .status-badge.missing {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        
+        .audio-controls {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+        
+        button {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9em;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+        
+        .btn-play {
+            background: #667eea;
+            color: white;
+        }
+        
+        .btn-play:hover {
+            background: #5568d3;
+        }
+        
+        .btn-play:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        
+        .btn-tts {
+            background: #28a745;
+            color: white;
+        }
+        
+        .btn-tts:hover {
+            background: #218838;
+        }
+        
+        audio {
+            width: 100%;
+            margin-top: 10px;
+        }
+        
+        .tts-controls {
+            margin-top: 20px;
+            padding: 15px;
+            background: white;
+            border-radius: 8px;
+        }
+        
+        .tts-input {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #e0e0e0;
+            border-radius: 6px;
+            font-size: 1em;
+            margin-bottom: 10px;
+        }
+        
+        .tts-input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .stats {
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            margin-top: 20px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+        }
+        
+        .stat {
+            text-align: center;
+        }
+        
+        .stat-value {
+            font-size: 2em;
+            font-weight: bold;
+            color: #667eea;
+        }
+        
+        .stat-label {
+            font-size: 0.9em;
+            color: #666;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎤 Dee Dee Audio Test</h1>
+        <p class="subtitle">Test audio files and TTS for Dee Dee's personality phrases</p>
+        
+        <div class="stats">
+            <div class="stat">
+                <div class="stat-value" id="totalPhrases">0</div>
+                <div class="stat-label">Total Phrases</div>
+            </div>
+            <div class="stat">
+                <div class="stat-value" id="audioFiles">0</div>
+                <div class="stat-label">Audio Files</div>
+            </div>
+            <div class="stat">
+                <div class="stat-value" id="ttsReady">-</div>
+                <div class="stat-label">TTS Ready</div>
+            </div>
+        </div>
+        
+        <div class="section">
+            <h2>📁 Audio Files</h2>
+            <p style="color: #666; margin-bottom: 15px;">Click "Play Audio" to play the file, or "Test TTS" to hear the text-to-speech version</p>
+            <div class="audio-grid" id="audioGrid"></div>
+        </div>
+        
+        <div class="section">
+            <h2>🎙️ Test TTS</h2>
+            <div class="tts-controls">
+                <input type="text" class="tts-input" id="ttsInput" placeholder="Enter a phrase to test TTS (e.g., 'I'll be back!')" value="I'll be back!">
+                <button class="btn-tts" onclick="testTTS()">🔊 Speak with TTS</button>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // Load personality phrases
+        const phrases = [
+            { phrase: "I'll be back!", file: "terminator_ill_be_back.mp3", category: "Terminator" },
+            { phrase: "Hasta la vista, baby!", file: "terminator_hasta_la_vista.mp3", category: "Terminator" },
+            { phrase: "May the Force be with you!", file: "starwars_may_the_force.mp3", category: "Star Wars" },
+            { phrase: "It's a trap!", file: "starwars_its_a_trap.mp3", category: "Star Wars" },
+            { phrase: "Live long and prosper!", file: "startrek_live_long.mp3", category: "Star Trek" },
+            { phrase: "Make it so!", file: "startrek_make_it_so.mp3", category: "Star Trek" },
+            { phrase: "It's a me, Mario!", file: "mario_its_a_me.mp3", category: "Mario" },
+            { phrase: "I am Groot!", file: "groot_i_am_groot.mp3", category: "Groot" },
+            { phrase: "D'oh!", file: "simpsons_doh.mp3", category: "Simpsons" },
+            { phrase: "I'm Batman!", file: "batman_im_batman.mp3", category: "Batman" },
+            { phrase: "How you doin'?", file: "friends_how_you_doin.mp3", category: "Friends" },
+            { phrase: "Pivot!", file: "friends_pivot.mp3", category: "Friends" },
+            { phrase: "To infinity and beyond!", file: "toystory_infinity.mp3", category: "Toy Story" },
+            { phrase: "Hakuna Matata!", file: "lionking_hakuna.mp3", category: "Lion King" },
+            { phrase: "Just keep swimming!", file: "nemo_just_keep_swimming.mp3", category: "Finding Nemo" },
+            { phrase: "Great Scott!", file: "backtothefuture_great_scott.mp3", category: "Back to the Future" },
+        ];
+        
+        const audioBasePath = 'assets/audio/soundbites/';
+        let currentAudio = null;
+        
+        // Check if files exist and render
+        async function checkFiles() {
+            const grid = document.getElementById('audioGrid');
+            let audioCount = 0;
+            
+            for (const item of phrases) {
+                const filePath = audioBasePath + item.file;
+                const exists = await checkFileExists(filePath);
+                if (exists) audioCount++;
+                
+                const audioItem = document.createElement('div');
+                audioItem.className = 'audio-item';
+                audioItem.innerHTML = `
+                    <div class="phrase">"${item.phrase}"</div>
+                    <div class="filename">${item.file}</div>
+                    <div class="status">
+                        <span class="status-badge ${exists ? 'exists' : 'missing'}">
+                            ${exists ? '✅ File Exists' : '❌ Missing'}
+                        </span>
+                        <span style="color: #999; font-size: 0.8em;">${item.category}</span>
+                    </div>
+                    <div class="audio-controls">
+                        <button class="btn-play" ${!exists ? 'disabled' : ''} onclick="playAudio('${filePath}', this)">
+                            ${exists ? '▶️ Play Audio' : 'No File'}
+                        </button>
+                        <button class="btn-tts" onclick="playTTS('${item.phrase}')">🔊 Test TTS</button>
+                    </div>
+                    ${exists ? `<audio id="audio-${item.file}" src="${filePath}" preload="none"></audio>` : ''}
+                `;
+                grid.appendChild(audioItem);
+            }
+            
+            document.getElementById('totalPhrases').textContent = phrases.length;
+            document.getElementById('audioFiles').textContent = audioCount;
+            document.getElementById('ttsReady').textContent = 'speechSynthesis' in window ? '✅' : '❌';
+        }
+        
+        async function checkFileExists(url) {
+            try {
+                const response = await fetch(url, { method: 'HEAD' });
+                return response.ok;
+            } catch {
+                return false;
+            }
+        }
+        
+        function playAudio(filePath, button) {
+            // Stop current audio
+            if (currentAudio) {
+                currentAudio.pause();
+                currentAudio.currentTime = 0;
+            }
+            
+            const audio = document.getElementById(`audio-${filePath.split('/').pop()}`);
+            if (!audio) return;
+            
+            currentAudio = audio;
+            
+            // Update UI
+            document.querySelectorAll('.audio-item').forEach(item => {
+                item.classList.remove('playing');
+            });
+            button.closest('.audio-item').classList.add('playing');
+            
+            audio.play().catch(e => {
+                console.error('Play failed:', e);
+                alert('Could not play audio. Make sure the file exists and is accessible.');
+            });
+            
+            audio.onended = () => {
+                button.closest('.audio-item').classList.remove('playing');
+            };
+        }
+        
+        function playTTS(phrase) {
+            if (!('speechSynthesis' in window)) {
+                alert('TTS not supported in this browser');
+                return;
+            }
+            
+            // Cancel any ongoing speech
+            window.speechSynthesis.cancel();
+            
+            const utterance = new SpeechSynthesisUtterance(phrase);
+            
+            // Try to use a good voice
+            const voices = window.speechSynthesis.getVoices();
+            const preferredVoice = voices.find(v => 
+                v.name.includes('Samantha') || 
+                v.name.includes('Alex') || 
+                v.name.includes('Victoria')
+            ) || voices[0];
+            
+            if (preferredVoice) {
+                utterance.voice = preferredVoice;
+            }
+            
+            utterance.rate = 1.0;
+            utterance.pitch = 1.0;
+            utterance.volume = 0.8;
+            
+            // Character-specific adjustments
+            const lower = phrase.toLowerCase();
+            if (lower.includes("i'll be back") || lower.includes("hasta la vista")) {
+                utterance.pitch = 0.6;
+                utterance.rate = 0.75;
+            } else if (lower.includes("it's a me, mario")) {
+                utterance.pitch = 1.3;
+                utterance.rate = 1.1;
+            } else if (lower.includes("i am groot")) {
+                utterance.pitch = 0.4;
+                utterance.rate = 0.5;
+            } else if (lower.includes("d'oh")) {
+                utterance.pitch = 1.1;
+            } else if (lower.includes("i'm batman")) {
+                utterance.pitch = 0.65;
+                utterance.rate = 0.8;
+            }
+            
+            window.speechSynthesis.speak(utterance);
+        }
+        
+        function testTTS() {
+            const input = document.getElementById('ttsInput');
+            if (input.value.trim()) {
+                playTTS(input.value);
+            }
+        }
+        
+        // Load voices when available
+        if ('speechSynthesis' in window) {
+            window.speechSynthesis.onvoiceschanged = () => {
+                console.log('Voices loaded:', window.speechSynthesis.getVoices().length);
+            };
+        }
+        
+        // Initialize
+        checkFiles();
+        
+        // Allow Enter key in TTS input
+        document.getElementById('ttsInput').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                testTTS();
+            }
+        });
+    </script>
+</body>
+</html>

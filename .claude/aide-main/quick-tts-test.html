@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Quick TTS Test</title>
+    <style>
+        body {
+            font-family: system-ui;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .test-box {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        button {
+            padding: 12px 24px;
+            margin: 5px;
+            border: none;
+            border-radius: 6px;
+            background: #667eea;
+            color: white;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background: #5568d3;
+        }
+        .phrase-list {
+            margin-top: 20px;
+        }
+        .phrase-item {
+            padding: 10px;
+            margin: 5px 0;
+            background: #f8f9fa;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        .phrase-item:hover {
+            background: #e9ecef;
+        }
+    </style>
+</head>
+<body>
+    <div class="test-box">
+        <h1>🎤 Dee Dee TTS Test</h1>
+        <p>Click any phrase below to hear it spoken with character-specific TTS voices:</p>
+        
+        <div class="phrase-list">
+            <div class="phrase-item" onclick="speak('I\'ll be back!')">
+                🤖 "I'll be back!" (Terminator - Deep, slow)
+            </div>
+            <div class="phrase-item" onclick="speak('Hasta la vista, baby!')">
+                🤖 "Hasta la vista, baby!" (Terminator)
+            </div>
+            <div class="phrase-item" onclick="speak('May the Force be with you!')">
+                ⭐ "May the Force be with you!" (Star Wars - British accent)
+            </div>
+            <div class="phrase-item" onclick="speak('It\'s a trap!')">
+                ⭐ "It's a trap!" (Star Wars)
+            </div>
+            <div class="phrase-item" onclick="speak('Live long and prosper!')">
+                🖖 "Live long and prosper!" (Star Trek - British accent)
+            </div>
+            <div class="phrase-item" onclick="speak('Make it so!')">
+                🖖 "Make it so!" (Star Trek)
+            </div>
+            <div class="phrase-item" onclick="speak('It\'s a me, Mario!')">
+                🍄 "It's a me, Mario!" (Mario - High pitch, Italian accent)
+            </div>
+            <div class="phrase-item" onclick="speak('I am Groot!')">
+                🌳 "I am Groot!" (Groot - Very deep, very slow)
+            </div>
+            <div class="phrase-item" onclick="speak('D\'oh!')">
+                🟡 "D'oh!" (Simpsons - Cartoon-like)
+            </div>
+            <div class="phrase-item" onclick="speak('I\'m Batman!')">
+                🦇 "I'm Batman!" (Batman - Deep, gravelly)
+            </div>
+            <div class="phrase-item" onclick="speak('How you doin\'?')">
+                👋 "How you doin'?" (Friends)
+            </div>
+            <div class="phrase-item" onclick="speak('Pivot!')">
+                👋 "Pivot!" (Friends)
+            </div>
+            <div class="phrase-item" onclick="speak('To infinity and beyond!')">
+                🚀 "To infinity and beyond!" (Toy Story)
+            </div>
+            <div class="phrase-item" onclick="speak('Hakuna Matata!')">
+                🦁 "Hakuna Matata!" (Lion King)
+            </div>
+            <div class="phrase-item" onclick="speak('Just keep swimming!')">
+                🐠 "Just keep swimming!" (Finding Nemo)
+            </div>
+            <div class="phrase-item" onclick="speak('Great Scott!')">
+                ⚡ "Great Scott!" (Back to the Future)
+            </div>
+        </div>
+        
+        <div style="margin-top: 30px; padding-top: 20px; border-top: 2px solid #eee;">
+            <h3>Custom Test:</h3>
+            <input type="text" id="customPhrase" placeholder="Enter any phrase..." style="width: 70%; padding: 10px; font-size: 16px;">
+            <button onclick="speak(document.getElementById('customPhrase').value)">Speak</button>
+        </div>
+    </div>
+    
+    <script>
+        function speak(phrase) {
+            if (!phrase) return;
+            
+            if (!('speechSynthesis' in window)) {
+                alert('TTS not supported in this browser');
+                return;
+            }
+            
+            window.speechSynthesis.cancel();
+            
+            const utterance = new SpeechSynthesisUtterance(phrase);
+            
+            // Get voices
+            const voices = window.speechSynthesis.getVoices();
+            const lower = phrase.toLowerCase();
+            
+            // Character-specific voice selection and adjustments
+            let voiceType = 'default';
+            let preferredVoice = voices.find(v => v.name.includes('Samantha')) || voices[0];
+            
+            if (lower.includes("i'll be back") || lower.includes("hasta la vista") || lower.includes("i need your clothes")) {
+                voiceType = 'terminator';
+                preferredVoice = voices.find(v => v.name.includes('Alex') || v.name.includes('Daniel')) || voices[0];
+                utterance.pitch = 0.5;
+                utterance.rate = 0.65;
+            } else if (lower.includes("it's a me, mario") || lower.includes("here we go")) {
+                voiceType = 'mario';
+                utterance.pitch = 1.4;
+                utterance.rate = 1.15;
+            } else if (lower.includes("i am groot")) {
+                voiceType = 'groot';
+                utterance.pitch = 0.4;
+                utterance.rate = 0.5;
+            } else if (lower.includes("d'oh") || lower.includes("don't have a cow") || lower.includes("eat my shorts")) {
+                voiceType = 'simpsons';
+                utterance.pitch = 1.1;
+                utterance.rate = 1.0;
+            } else if (lower.includes("i'm batman") || lower.includes("to the batmobile") || lower.includes("to the batcave")) {
+                voiceType = 'batman';
+                preferredVoice = voices.find(v => v.name.includes('Alex') || v.name.includes('Daniel')) || voices[0];
+                utterance.pitch = 0.65;
+                utterance.rate = 0.8;
+            } else if (lower.includes("may the force") || lower.includes("use the force") || lower.includes("it's a trap") || lower.includes("hello there")) {
+                voiceType = 'starwars';
+                preferredVoice = voices.find(v => v.name.includes('UK English') || v.name.includes('Daniel')) || voices[0];
+                utterance.rate = 0.92;
+                utterance.pitch = 1.0;
+            } else if (lower.includes("live long and prosper") || lower.includes("make it so") || lower.includes("engage") || lower.includes("beam me up")) {
+                voiceType = 'startrek';
+                preferredVoice = voices.find(v => v.name.includes('UK English') || v.name.includes('Daniel')) || voices[0];
+                utterance.rate = 0.85;
+                utterance.pitch = 1.0;
+            } else {
+                utterance.rate = 1.0;
+                utterance.pitch = 1.0;
+            }
+            
+            if (preferredVoice) {
+                utterance.voice = preferredVoice;
+            }
+            
+            utterance.volume = 0.8;
+            
+            console.log(`Speaking: "${phrase}" with voice type: ${voiceType}, pitch: ${utterance.pitch}, rate: ${utterance.rate}`);
+            
+            window.speechSynthesis.speak(utterance);
+        }
+        
+        // Load voices
+        if ('speechSynthesis' in window) {
+            // Some browsers need this
+            setTimeout(() => {
+                const voices = window.speechSynthesis.getVoices();
+                console.log(`Loaded ${voices.length} voices`);
+            }, 100);
+            
+            window.speechSynthesis.onvoiceschanged = () => {
+                const voices = window.speechSynthesis.getVoices();
+                console.log(`Voices changed: ${voices.length} voices available`);
+            };
+        }
+        
+        // Enter key support
+        document.getElementById('customPhrase').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                speak(e.target.value);
+            }
+        });
+    </script>
+</body>
+</html>

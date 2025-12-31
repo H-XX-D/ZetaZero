@@ -476,14 +476,14 @@ static inline int64_t zeta_commit_fact_checked(
     if (!zeta_should_extract_fact(value, from_user_input, &domain_result)) {
         // Blocked by ontology - user tried to claim SYSTEM domain fact
         fprintf(stderr, "[ONTOLOGY-BLOCK] Rejected user fact: %s = %.40s... (domain: %s)\n",
-                label, value, zeta_domain_to_string(domain_result.domain));
+                label, value, zeta_fact_domain_to_string(domain_result.domain));
         return -1;  // Indicate blocked
     }
 
     // Adjust source based on domain
     // WORLD facts from users get demoted to SOURCE_MODEL for verification
     zeta_source_t effective_source = source;
-    if (from_user_input && domain_result.domain == DOMAIN_WORLD) {
+    if (from_user_input && domain_result.domain == FACT_DOMAIN_WORLD) {
         effective_source = SOURCE_MODEL;  // Needs verification
         fprintf(stderr, "[ONTOLOGY] WORLD fact from user demoted to MODEL source\n");
     }

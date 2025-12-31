@@ -1,0 +1,1997 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AIDE</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <!-- Monaco Editor (VS Code's editor engine) -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/editor/editor.main.css">
+    
+    <!-- Eye/Mouth control - MUST be before Monaco loads to avoid AMD require conflicts -->
+    <script>
+        // Save native require before Monaco's AMD loader overwrites it
+        window.nodeRequire = require;
+        
+        // Eye mode state
+        window.eyeMode = 'single';
+        
+        // Eye click handler
+        window.cycleEyeMode = function() {
+            var modes = ['single', 'double', 'minimize'];
+            var idx = modes.indexOf(window.eyeMode);
+            window.eyeMode = modes[(idx + 1) % 3];
+            
+            var left = document.getElementById('eyeLeft');
+            var right = document.getElementById('eyeRight');
+            
+            if (left && right) {
+                // Reset
+                left.style.background = '#333';
+                right.style.background = '#333';
+                left.style.boxShadow = 'none';
+                right.style.boxShadow = 'none';
+                
+                var glow = { background: '#22c55e', boxShadow: '0 0 10px #22c55e, 0 0 20px rgba(34,197,94,0.6)' };
+                
+                if (window.eyeMode === 'double') {
+                    Object.assign(left.style, glow);
+                } else if (window.eyeMode === 'minimize') {
+                    Object.assign(left.style, glow);
+                    Object.assign(right.style, glow);
+                }
+            }
+            
+            // Send IPC using saved nodeRequire
+            try {
+                var ipc = window.nodeRequire('electron').ipcRenderer;
+                ipc.send('set-close-behavior', window.eyeMode);
+                console.log('Eye mode:', window.eyeMode);
+            } catch(e) {
+                console.error('IPC failed:', e);
+            }
+        };
+        
+        // Mouth click handler
+        window.toggleMouth = function() {
+            var mouth = document.getElementById('mascotMouth');
+            if (mouth) {
+                var isGlowing = mouth.classList.toggle('listening');
+                mouth.style.color = isGlowing ? '#22c55e' : '#555';
+                mouth.style.textShadow = isGlowing ? '0 0 10px #22c55e' : 'none';
+            }
+        };
+    </script>
+</head>
+<body>
+    <!-- Title Bar = His Head -->
+    <div class="titlebar" id="titlebar">
+        <div class="titlebar-left">
+            <button class="titlebar-btn" id="sidebarToggle" title="Toggle Explorer"><i class="fas fa-bars"></i></button>
+            <button class="titlebar-btn" id="wardrobeQuickBtn" title="Dee Dee Wardrobe" onclick="openWardrobeQuick()"><i class="fas fa-tshirt"></i></button>
+            <button class="titlebar-btn" id="tutorialsBtn" title="Tutorials" onclick="openTutorials()"><i class="fas fa-graduation-cap"></i></button>
+        </div>
+        
+        <div class="mascot-face" id="mascotFace" title="Click eyes to change hide behavior">
+            <button type="button" class="eye" id="eyeLeft" title="Click to change hide behavior" onclick="window.cycleEyeMode()"></button>
+            <button type="button" class="mouth" id="mascotMouth" title="Voice listening off" onclick="window.toggleMouth()">‿</button>
+            <button type="button" class="eye" id="eyeRight" title="Click to change hide behavior" onclick="window.cycleEyeMode()"></button>
+        </div>
+        
+        
+        <div class="titlebar-right">
+            <button class="titlebar-btn" id="shareDeeDeeBtn" title="Share Dee Dee with Friends"><i class="fas fa-heart"></i></button>
+            <button class="titlebar-btn" id="importShareBtn" title="Import Shared Project"><i class="fas fa-file-import"></i></button>
+            <button class="titlebar-btn" id="shareBtn" title="Share Project"><i class="fas fa-share-alt"></i></button>
+            <button class="titlebar-btn" id="settingsBtn" title="Settings"><i class="fas fa-cog"></i></button>
+            <button class="titlebar-btn" id="minimizeBtn" title="Minimize"><i class="fas fa-minus"></i></button>
+        </div>
+    </div>
+    
+    <!-- Main Container -->
+    <div class="main-container" id="mainContainer">
+        <!-- Left: File Explorer -->
+        <div class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <span><i class="fas fa-folder-tree"></i> Explorer</span>
+                <div class="sidebar-actions">
+                    <button onclick="refreshFiles()" title="Refresh"><i class="fas fa-refresh"></i></button>
+                    <button onclick="goHome()" title="Home"><i class="fas fa-home"></i></button>
+                    <button onclick="toggleSidebarCollapse()" title="Collapse"><i class="fas fa-chevron-left"></i></button>
+                </div>
+            </div>
+            
+            <!-- Collapsed state icons -->
+            <div class="sidebar-collapse-icons">
+                <button onclick="toggleSidebarCollapse()" title="Expand"><i class="fas fa-chevron-right"></i></button>
+                <button class="active" data-tab="files" onclick="expandToTab('files')" title="Files"><i class="fas fa-folder"></i></button>
+                <button data-tab="git" onclick="expandToTab('git')" title="Git"><i class="fab fa-git-alt"></i></button>
+                <button data-tab="todo" onclick="expandToTab('todo')" title="Todo"><i class="fas fa-tasks"></i></button>
+            </div>
+            
+            <div class="sidebar-tabs">
+                <button class="sidebar-tab active" data-tab="files" onclick="switchSidebarTab('files')">
+                    <i class="fas fa-folder"></i>
+                </button>
+                <button class="sidebar-tab" data-tab="git" onclick="switchSidebarTab('git')">
+                    <i class="fab fa-git-alt"></i>
+                </button>
+                <button class="sidebar-tab" data-tab="todo" onclick="switchSidebarTab('todo')">
+                    <i class="fas fa-list-check"></i>
+                </button>
+            </div>
+            
+            <!-- Files Tab -->
+            <div class="sidebar-tab-content active" id="filesTab">
+                <div class="sidebar-path" id="currentPath">~</div>
+                
+                <!-- File Search -->
+                <div class="file-search-container">
+                    <input type="text" id="fileSearchInput" placeholder="Filter files..." autocomplete="off">
+                    <i class="fas fa-search file-search-icon"></i>
+                </div>
+
+                <!-- Favorites Bar -->
+                <div class="favorites-bar" id="favoritesBar">
+                    <div class="favorites-header">
+                        <i class="fas fa-star"></i>
+                        <span>Favorites</span>
+                    </div>
+                    <div class="favorites-list" id="favoritesList">
+                        <!-- Favorite directories will appear here -->
+                    </div>
+                </div>
+
+                <div class="file-tree" id="fileTree">
+                    <!-- Files will be loaded here -->
+                </div>
+
+                <!-- Add Sidebar Button -->
+                <div class="add-sidebar-container">
+                    <button class="add-sidebar-btn" onclick="addDuplicateSidebar()" title="Add duplicate sidebar">
+                        <i class="fas fa-plus"></i>
+                        <span>Add Sidebar</span>
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Git Tab -->
+            <div class="sidebar-tab-content" id="gitTab">
+                <div class="git-header">
+                    <span class="git-branch" id="gitBranch"><i class="fas fa-code-branch"></i> main</span>
+                    <div class="git-actions">
+                        <button onclick="gitRefresh()" title="Refresh"><i class="fas fa-sync-alt"></i></button>
+                        <button onclick="gitPull()" title="Pull"><i class="fas fa-arrow-down"></i></button>
+                        <button onclick="gitPush()" title="Push"><i class="fas fa-arrow-up"></i></button>
+                    </div>
+                </div>
+                
+                <div class="git-section">
+                    <div class="git-section-header" onclick="toggleGitSection('staged')">
+                        <i class="fas fa-chevron-down"></i>
+                        <span>Staged Changes</span>
+                        <span class="git-count" id="stagedCount">0</span>
+                    </div>
+                    <div class="git-file-list" id="stagedFiles"></div>
+                </div>
+                
+                <div class="git-section">
+                    <div class="git-section-header" onclick="toggleGitSection('changes')">
+                        <i class="fas fa-chevron-down"></i>
+                        <span>Changes</span>
+                        <span class="git-count" id="changesCount">0</span>
+                    </div>
+                    <div class="git-file-list" id="changedFiles"></div>
+                </div>
+                
+                <div class="git-commit-box">
+                    <input type="text" id="commitMessage" placeholder="Commit message...">
+                    <button onclick="gitCommit()" id="commitBtn"><i class="fas fa-check"></i> Commit</button>
+                </div>
+            </div>
+            
+            <!-- Todo Tab -->
+            <div class="sidebar-tab-content" id="todoTab">
+                <div class="todo-input-row">
+                    <input type="text" id="todoInput" placeholder="Add task..." autocomplete="off">
+                    <button onclick="addTodo()"><i class="fas fa-plus"></i></button>
+                </div>
+                <div class="todo-list" id="todoList">
+                    <!-- Todos rendered here -->
+                        </div>
+                <div class="todo-footer">
+                    <span class="todo-stats" id="todoStats">0 tasks</span>
+                    <button onclick="clearCompletedTodos()" title="Clear completed"><i class="fas fa-trash"></i> Clear Done</button>
+                    </div>
+            </div>
+        </div>
+        
+        <div class="resizer resizer-h" id="sidebarResizer"></div>
+        
+        <!-- Center: Content Area -->
+        <div class="content-area">
+            <!-- Top Row (2/3) -->
+            <div class="quad-row top-row" id="topRow">
+                <!-- Editor with Tabs -->
+                <div class="quad-panel" id="editorPanel" data-panel="editor">
+                    <div class="quad-header">
+                        <span onclick="togglePanel('editor')"><i class="fas fa-code"></i></span>
+                        <div class="tab-bar" id="editorTabs">
+                            <div class="tab active" data-file="untitled">untitled</div>
+                        </div>
+                        <div class="editor-controls">
+                            <select id="interpreterSelect" title="Choose interpreter" style="display: none;">
+                                <option value="auto">Auto detect</option>
+                                <option value="node">Node.js</option>
+                                <option value="python">Python</option>
+                                <option value="deno">Deno</option>
+                                <option value="custom">Custom...</option>
+                            </select>
+                            <button class="ghost-btn run-btn" id="runBtn" title="Run current file">
+                                <i class="fas fa-play"></i>
+                                <span>Run</span>
+                            </button>
+                        <button class="tab-btn" onclick="newTab()" title="New Tab"><i class="fas fa-plus"></i></button>
+                            <div class="editor-more-menu">
+                                <button class="tab-btn" onclick="toggleEditorMenu()" title="More actions"><i class="fas fa-ellipsis-h"></i></button>
+                                <div class="editor-dropdown" id="editorDropdown">
+                                    <div class="dropdown-item" onclick="popoutEditor(); closeEditorMenu();">
+                                        <i class="fas fa-external-link-alt"></i> Pop Out Window
+                                    </div>
+                                    <div class="dropdown-item" onclick="toggleSplitView(); closeEditorMenu();">
+                                        <i class="fas fa-columns"></i> Split View
+                                    </div>
+                                    <div class="dropdown-divider"></div>
+                                    <div class="dropdown-item" onclick="formatCode(); closeEditorMenu();">
+                                        <i class="fas fa-align-left"></i> Format Code
+                                    </div>
+                                    <div class="dropdown-item" onclick="toggleWordWrap(); closeEditorMenu();">
+                                        <i class="fas fa-text-width"></i> Toggle Word Wrap
+                                    </div>
+                                    <div class="dropdown-item" onclick="toggleMinimap(); closeEditorMenu();">
+                                        <i class="fas fa-map"></i> Toggle Minimap
+                                    </div>
+                                    <div class="dropdown-divider"></div>
+                                    <div class="dropdown-item" onclick="goToLine(); closeEditorMenu();">
+                                        <i class="fas fa-arrow-right"></i> Go to Line...
+                                    </div>
+                                    <div class="dropdown-item" onclick="findReplace(); closeEditorMenu();">
+                                        <i class="fas fa-search"></i> Find & Replace
+                                    </div>
+                                    <div class="dropdown-divider"></div>
+                                    <div class="dropdown-item" onclick="closeAllTabs(); closeEditorMenu();">
+                                        <i class="fas fa-times-circle"></i> Close All Tabs
+                                    </div>
+                                    <div class="dropdown-item" onclick="saveAllTabs(); closeEditorMenu();">
+                                        <i class="fas fa-save"></i> Save All
+                                    </div>
+                                </div>
+                            </div>
+                        <button class="collapse-btn" onclick="togglePanel('editor')"><i class="fas fa-chevron-up"></i></button>
+                        </div>
+                    </div>
+                    <div class="quad-content editor-container">
+                        <!-- Monaco Editor Container -->
+                        <div id="monacoEditor"></div>
+                        <!-- Welcome overlay (shown when no file open) -->
+                        <div id="welcomeOverlay" class="welcome-overlay">
+                            <div class="welcome-content welcome-minimal">
+                                <img src="assets/icon.png" alt="AIDE" class="welcome-logo">
+                                <h2>AIDE</h2>
+                                <p class="welcome-tagline">Your AI Development Environment</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="editor-status">
+                        <span id="editorFile">untitled</span>
+                        <span id="editorPos">Ln 1, Col 1</span>
+                    </div>
+                </div>
+                
+                                </div>
+                                
+            <div class="resizer resizer-v" id="rowResizer"></div>
+            
+            <!-- Bottom Row - Terminal and REPL -->
+            <div class="quad-row bottom-row" id="bottomRow">
+                <!-- Terminal -->
+                <div class="quad-panel full-width" id="terminalPanel" data-panel="terminal">
+                    <div class="quad-header">
+                        <span onclick="togglePanel('terminal')"><i class="fas fa-terminal"></i> Terminal</span>
+                        <span class="terminal-path" id="terminalPath">~</span>
+                        <div class="quad-actions">
+                            <button class="ghost-btn" onclick="copyTerminalOutput()" title="Copy output">
+                                <i class="fas fa-copy"></i>
+                            </button>
+                            <button class="ghost-btn" onclick="clearTerminal()" title="Clear">
+                                <i class="fas fa-eraser"></i>
+                            </button>
+                            <button class="ghost-btn" onclick="popoutDocs()" title="Popout Docs">
+                                <i class="fas fa-book"></i>
+                            </button>
+                            <button class="collapse-btn" onclick="togglePanel('terminal')"><i class="fas fa-chevron-up"></i></button>
+                        </div>
+                    </div>
+                    <div class="quad-content">
+                        <div class="terminal-output" id="terminalOutput"></div>
+                        <div class="terminal-input-row">
+                            <span class="prompt">$</span>
+                            <input type="text" id="terminalInput" placeholder="command..." autocomplete="off">
+                        </div>
+                    </div>
+                                </div>
+                                
+                <!-- Resizer between Terminal and REPL -->
+                <div class="resizer resizer-h" id="terminalReplResizer"></div>
+
+                <!-- REPL Console -->
+                <div class="quad-panel full-width" id="replPanel" data-panel="repl">
+                    <div class="quad-header">
+                        <span><i class="fas fa-laptop-code"></i> Console</span>
+                        <span class="repl-port" id="replPort"></span>
+                        <div class="quad-actions">
+                            <button class="ghost-btn" onclick="copyReplOutput()" title="Copy output">
+                                <i class="fas fa-copy"></i>
+                            </button>
+                            <button class="ghost-btn" onclick="clearRepl()" title="Clear">
+                                <i class="fas fa-eraser"></i>
+                            </button>
+                            <button class="collapse-btn" onclick="togglePanel('repl')"><i class="fas fa-chevron-up"></i></button>
+                                </div>
+                            </div>
+                    <div class="quad-content repl-panel">
+                        <div class="repl-output" id="replOutput"></div>
+                        <div class="repl-input-row">
+                            <input type="text" id="replInput" placeholder="Enter command (type 'help')" autocomplete="off">
+                            <div class="repl-hints">
+                                <span>↑↓ history</span>
+                                <span>help • debug • status</span>
+                        </div>
+                    </div>
+                    </div>
+                </div>
+                    </div>
+                </div>
+                
+        <!-- Resizer between content and AI sidebar -->
+        <div class="resizer resizer-h" id="aiSidebarResizer"></div>
+        
+        <!-- Right: AI Sidebar -->
+        <div class="sidebar ai-sidebar" id="aiSidebar">
+            <!-- Collapsed state icons -->
+            <div class="ai-sidebar-collapse-icons">
+                <button onclick="toggleAiSidebarCollapse()" title="Expand"><i class="fas fa-chevron-left"></i></button>
+                <button onclick="expandAiSidebar()" title="AI Chat"><i class="fas fa-robot"></i></button>
+                    </div>
+            
+            <div class="ai-sidebar-header">
+                <span><i class="fas fa-robot"></i> AI Chat</span>
+                <div class="sidebar-actions">
+                    <button onclick="clearChat()" title="Clear chat"><i class="fas fa-trash"></i></button>
+                    <button onclick="toggleAiSidebarCollapse()" title="Collapse"><i class="fas fa-chevron-right"></i></button>
+                </div>
+            </div>
+            
+            <div class="ai-sidebar-content">
+                <!-- API Key Setup Bar (shown when no key) -->
+                <div class="api-setup-bar" id="apiSetupBar">
+                    <div class="api-setup-row">
+                        <select id="aiProviderQuick" title="AI Provider">
+                            <option value="openai">OpenAI</option>
+                            <option value="anthropic">Anthropic</option>
+                            <option value="google">Google (Gemini)</option>
+                            <option value="xai">xAI (Grok)</option>
+                            <option value="openrouter">OpenRouter</option>
+                            <option value="ollama">Ollama (Local)</option>
+                            <option value="custom">Custom / LM Studio</option>
+                        </select>
+                        <div class="api-key-quick">
+                            <input type="password" id="apiKeyQuick" placeholder="Paste API key...">
+                            <button onclick="toggleQuickKeyVisibility()" title="Show/Hide"><i class="fas fa-eye" id="quickKeyEye"></i></button>
+                        </div>
+                        <button class="api-save-btn" onclick="saveQuickApiKey()"><i class="fas fa-check"></i></button>
+                    </div>
+                </div>
+                        <div class="chat-messages" id="chatMessages">
+                        <div class="message assistant">
+                            <div class="avatar"><i class="fas fa-robot"></i></div>
+                            <div class="content"><strong>Hey! I'm Dee Dee.</strong> Ask me anything or paste code. Say "Aye Dee Dee" to summon me anytime! 🎤</div>
+                        </div>
+                        </div>
+                        <div class="chat-model-bar" id="chatModelBar" style="display: none;">
+                            <select id="chatModelSelect">
+                                <option value="gpt-4o">GPT-4o</option>
+                                <option value="gpt-5-pro">GPT-5 Pro</option>
+                                <option value="o3-pro">o3 Pro</option>
+                                <option value="codex">Codex</option>
+                                <option value="claude-opus-4.5">Claude Opus 4.5</option>
+                                <option value="grok-4">Grok 4</option>
+                                <option value="gemini-3-pro">Gemini 3 Pro</option>
+                            </select>
+                            <span class="usage-counter" id="usageCounter">$0.00 / $15.00</span>
+                        </div>
+                        <div class="chat-input-area">
+                            <textarea id="chatInput" placeholder="Ask anything..." rows="2"></textarea>
+                            <button id="sendBtn"><i class="fas fa-paper-plane"></i></button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+    <!-- Comprehensive Settings Modal -->
+    <div class="modal-overlay" id="settingsModal">
+        <div class="modal settings-modal">
+            <div class="modal-header">
+                <h3><i class="fas fa-cog"></i> Settings</h3>
+                <button class="modal-close" onclick="closeSettingsModal()"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="settings-layout">
+                <!-- Settings Sidebar -->
+                <div class="settings-sidebar">
+                    <button class="settings-nav-btn active" data-section="general" onclick="switchSettingsSection('general')">
+                        <i class="fas fa-sliders-h"></i> General
+                            </button>
+                    <button class="settings-nav-btn" data-section="appearance" onclick="switchSettingsSection('appearance')">
+                        <i class="fas fa-palette"></i> Appearance
+                    </button>
+                    <button class="settings-nav-btn" data-section="editor" onclick="switchSettingsSection('editor')">
+                        <i class="fas fa-code"></i> Editor
+                    </button>
+                    <button class="settings-nav-btn" data-section="ai" onclick="switchSettingsSection('ai')">
+                        <i class="fas fa-robot"></i> AI & Chat
+                    </button>
+                    <button class="settings-nav-btn" data-section="terminal" onclick="switchSettingsSection('terminal')">
+                        <i class="fas fa-terminal"></i> Terminal
+                    </button>
+                    <button class="settings-nav-btn" data-section="repl" onclick="switchSettingsSection('repl')">
+                        <i class="fas fa-play-circle"></i> REPL
+                    </button>
+                    <button class="settings-nav-btn" data-section="git" onclick="switchSettingsSection('git')">
+                        <i class="fab fa-git-alt"></i> Git
+                    </button>
+                    <button class="settings-nav-btn" data-section="explorer" onclick="switchSettingsSection('explorer')">
+                        <i class="fas fa-folder-tree"></i> Explorer
+                    </button>
+                    <button class="settings-nav-btn" data-section="todo" onclick="switchSettingsSection('todo')">
+                        <i class="fas fa-list-check"></i> Todo
+                    </button>
+                    <button class="settings-nav-btn" data-section="deedee" onclick="switchSettingsSection('deedee')">
+                        <i class="fas fa-face-smile"></i> Dee Dee
+                    </button>
+                    <button class="settings-nav-btn" data-section="keyboard" onclick="switchSettingsSection('keyboard')">
+                        <i class="fas fa-keyboard"></i> Shortcuts
+                    </button>
+                    <button class="settings-nav-btn" data-section="privacy" onclick="switchSettingsSection('privacy')">
+                        <i class="fas fa-shield-halved"></i> Privacy
+                    </button>
+                    <button class="settings-nav-btn" data-section="account" onclick="switchSettingsSection('account')">
+                        <i class="fas fa-user"></i> Account
+                    </button>
+                    <button class="settings-nav-btn" data-section="about" onclick="switchSettingsSection('about')">
+                        <i class="fas fa-info-circle"></i> About
+                    </button>
+                        </div>
+                
+                <!-- Settings Content -->
+                <div class="settings-content">
+                    <!-- General Settings -->
+                    <div class="settings-section-content active" id="settingsGeneral">
+                        <h4>General Settings</h4>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Launch at startup</label>
+                                <span class="setting-desc">Automatically start AIDE when you log in</span>
+                    </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="settingLaunchStartup">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Start minimized</label>
+                                <span class="setting-desc">Start with Dee Dee hidden in the corner</span>
+                    </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="settingStartMinimized">
+                                <span class="toggle-slider"></span>
+                            </label>
+                </div>
+
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Confirm before exit</label>
+                                <span class="setting-desc">Ask for confirmation when closing the app</span>
+                        </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="settingConfirmExit" checked>
+                                <span class="toggle-slider"></span>
+                            </label>
+                    </div>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Auto-save files</label>
+                                <span class="setting-desc">Automatically save files after changes</span>
+                            </div>
+                            <select id="settingAutoSave">
+                                <option value="off">Off</option>
+                                <option value="afterDelay">After delay (1s)</option>
+                                <option value="onFocusChange">On focus change</option>
+                                <option value="onWindowChange">On window change</option>
+                            </select>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Default project location</label>
+                                <span class="setting-desc">Where to create new projects</span>
+                        </div>
+                            <div class="setting-path-input">
+                                <input type="text" id="settingDefaultPath" placeholder="~/Projects" readonly>
+                                <button onclick="browseDefaultPath()"><i class="fas fa-folder-open"></i></button>
+                    </div>
+                </div>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Language</label>
+                                <span class="setting-desc">Interface language</span>
+                            </div>
+                            <select id="settingLanguage">
+                                <option value="en">English</option>
+                                <option value="es">Español</option>
+                                <option value="fr">Français</option>
+                                <option value="de">Deutsch</option>
+                                <option value="ja">日本語</option>
+                                <option value="zh">中文</option>
+                                <option value="ko">한국어</option>
+                            </select>
+            </div>
+        </div>
+        
+                    <!-- Appearance Settings -->
+                    <div class="settings-section-content" id="settingsAppearance">
+                        <h4>Appearance</h4>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Theme</label>
+                                <span class="setting-desc">Choose your color theme</span>
+                </div>
+                            <select id="settingTheme">
+                                <option value="dark">Dark (Default)</option>
+                                <option value="light">Light</option>
+                                <option value="system">System</option>
+                                <option value="midnight">Midnight Blue</option>
+                                <option value="forest">Forest Green</option>
+                                <option value="sunset">Sunset Orange</option>
+                            </select>
+            </div>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Accent color</label>
+                                <span class="setting-desc">Primary accent color for UI elements</span>
+            </div>
+                            <div class="color-options">
+                                <button class="color-btn active" data-color="#3b82f6" style="background: #3b82f6;" onclick="setAccentColor('#3b82f6')"></button>
+                                <button class="color-btn" data-color="#8b5cf6" style="background: #8b5cf6;" onclick="setAccentColor('#8b5cf6')"></button>
+                                <button class="color-btn" data-color="#ec4899" style="background: #ec4899;" onclick="setAccentColor('#ec4899')"></button>
+                                <button class="color-btn" data-color="#10b981" style="background: #10b981;" onclick="setAccentColor('#10b981')"></button>
+                                <button class="color-btn" data-color="#f59e0b" style="background: #f59e0b;" onclick="setAccentColor('#f59e0b')"></button>
+                                <button class="color-btn" data-color="#ef4444" style="background: #ef4444;" onclick="setAccentColor('#ef4444')"></button>
+            </div>
+        </div>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>UI Scale</label>
+                                <span class="setting-desc">Scale the interface size</span>
+                            </div>
+                            <select id="settingUIScale">
+                                <option value="0.8">80%</option>
+                                <option value="0.9">90%</option>
+                                <option value="1" selected>100%</option>
+                                <option value="1.1">110%</option>
+                                <option value="1.2">120%</option>
+                            </select>
+    </div>
+    
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Sidebar position</label>
+                                <span class="setting-desc">Place the sidebar on left or right</span>
+            </div>
+                            <select id="settingSidebarPosition">
+                                <option value="left">Left</option>
+                                <option value="right">Right</option>
+                            </select>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Show status bar</label>
+                                <span class="setting-desc">Display the bottom status bar</span>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="settingShowStatusBar" checked>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Animations</label>
+                                <span class="setting-desc">Enable UI animations and transitions</span>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="settingAnimations" checked>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <!-- Editor Settings -->
+                    <div class="settings-section-content" id="settingsEditor">
+                        <h4>Editor</h4>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Font family</label>
+                                <span class="setting-desc">Editor font</span>
+                            </div>
+                            <select id="settingEditorFont">
+                                <option value="'Fira Code', monospace">Fira Code</option>
+                                <option value="'JetBrains Mono', monospace">JetBrains Mono</option>
+                                <option value="'Source Code Pro', monospace">Source Code Pro</option>
+                                <option value="'Monaco', monospace">Monaco</option>
+                                <option value="'Consolas', monospace">Consolas</option>
+                                <option value="monospace">System Monospace</option>
+                            </select>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Font size</label>
+                                <span class="setting-desc">Editor font size in pixels</span>
+                            </div>
+                            <input type="number" id="settingEditorFontSize" value="14" min="8" max="32">
+                        </div>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Tab size</label>
+                                <span class="setting-desc">Number of spaces per tab</span>
+                            </div>
+                            <select id="settingTabSize">
+                                <option value="2">2 spaces</option>
+                                <option value="4" selected>4 spaces</option>
+                                <option value="8">8 spaces</option>
+                            </select>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Insert spaces</label>
+                                <span class="setting-desc">Use spaces instead of tabs</span>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="settingInsertSpaces" checked>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Word wrap</label>
+                                <span class="setting-desc">Wrap long lines</span>
+                            </div>
+                            <select id="settingWordWrap">
+                                <option value="off">Off</option>
+                                <option value="on" selected>On</option>
+                                <option value="wordWrapColumn">At column</option>
+                                <option value="bounded">Bounded</option>
+                            </select>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Line numbers</label>
+                                <span class="setting-desc">Show line numbers in editor</span>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="settingLineNumbers" checked>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Minimap</label>
+                                <span class="setting-desc">Show code minimap</span>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="settingMinimap" checked>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Bracket pair colorization</label>
+                                <span class="setting-desc">Colorize matching brackets</span>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="settingBracketColors" checked>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Auto-close brackets</label>
+                                <span class="setting-desc">Automatically close brackets and quotes</span>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="settingAutoCloseBrackets" checked>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Format on save</label>
+                                <span class="setting-desc">Auto-format code when saving</span>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="settingFormatOnSave">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <!-- AI Settings -->
+                    <div class="settings-section-content" id="settingsAi">
+                        <h4>AI & Chat</h4>
+                        
+                <div class="settings-tier-info">
+                    <div class="tier-badge free" id="tierBadge">FREE</div>
+                    <p id="tierDescription">Bring your own API key to use AI features</p>
+                </div>
+                
+                        <div class="setting-item">
+                            <div class="setting-info">
+                    <label>AI Provider</label>
+                                <span class="setting-desc">Choose your AI service</span>
+                            </div>
+                    <select id="aiProvider">
+                        <option value="openai">OpenAI (GPT-4, GPT-3.5)</option>
+                        <option value="anthropic">Anthropic (Claude)</option>
+                                <option value="google">Google (Gemini)</option>
+                                <option value="xai">xAI (Grok)</option>
+                        <option value="openrouter">OpenRouter (Multiple models)</option>
+                        <option value="ollama">Ollama (Local)</option>
+                        <option value="custom">Custom Endpoint</option>
+                    </select>
+                        </div>
+                    
+                        <div class="setting-item">
+                            <div class="setting-info">
+                    <label>API Key</label>
+                                <span class="setting-desc">Your API key (stored locally)</span>
+                            </div>
+                    <div class="api-key-input">
+                        <input type="password" id="apiKeyInput" placeholder="sk-... or your API key">
+                        <button onclick="toggleKeyVisibility()" title="Show/Hide"><i class="fas fa-eye" id="keyEyeIcon"></i></button>
+                            </div>
+                    </div>
+                    
+                    <div id="customEndpointSection" style="display: none;">
+                            <div class="setting-item">
+                                <div class="setting-info">
+                        <label>Custom Endpoint URL</label>
+                                    <span class="setting-desc">Your custom API endpoint</span>
+                                </div>
+                        <input type="text" id="customEndpoint" placeholder="https://api.example.com/v1/chat/completions">
+                            </div>
+                    </div>
+                    
+                        <!-- Setup Instructions -->
+                        <div class="setup-instructions" id="setupInstructions">
+                            <details>
+                                <summary><i class="fas fa-info-circle"></i> Setup Instructions</summary>
+                                <div class="instructions-content">
+                                    <div class="instruction-block" id="instructOpenAI">
+                                        <strong>OpenAI Setup:</strong>
+                                        <ol>
+                                            <li>Go to <a href="https://platform.openai.com/api-keys" target="_blank">platform.openai.com/api-keys</a></li>
+                                            <li>Create a new API key</li>
+                                            <li>Paste it above</li>
+                                        </ol>
+                                    </div>
+                                    <div class="instruction-block" id="instructAnthropic" style="display:none;">
+                                        <strong>Anthropic Setup:</strong>
+                                        <ol>
+                                            <li>Go to <a href="https://console.anthropic.com/settings/keys" target="_blank">console.anthropic.com</a></li>
+                                            <li>Create a new API key</li>
+                                            <li>Paste it above</li>
+                                        </ol>
+                                    </div>
+                                    <div class="instruction-block" id="instructOllama" style="display:none;">
+                                        <strong>Ollama Setup (Free, Local):</strong>
+                                        <ol>
+                                            <li>Download from <a href="https://ollama.ai" target="_blank">ollama.ai</a></li>
+                                            <li>Install and run Ollama</li>
+                                            <li>In terminal: <code>ollama pull llama3</code></li>
+                                            <li>No API key needed!</li>
+                                        </ol>
+                                        <p style="color: var(--text-muted); font-size: 11px;">Runs on localhost:11434</p>
+                                    </div>
+                                    <div class="instruction-block" id="instructLMStudio" style="display:none;">
+                                        <strong>LM Studio / Custom Endpoint:</strong>
+                                        <ol>
+                                            <li>Download from <a href="https://lmstudio.ai" target="_blank">lmstudio.ai</a></li>
+                                            <li>Download a model (e.g., Llama, Mistral)</li>
+                                            <li>Go to "Local Server" tab → Start Server</li>
+                                            <li>Use endpoint: <code>http://127.0.0.1:1234/v1/chat/completions</code></li>
+                                            <li>No API key needed!</li>
+                                        </ol>
+                                    </div>
+                                    <div class="instruction-block" id="instructGoogle" style="display:none;">
+                                        <strong>Google Gemini Setup:</strong>
+                                        <ol>
+                                            <li>Go to <a href="https://aistudio.google.com/apikey" target="_blank">aistudio.google.com/apikey</a></li>
+                                            <li>Sign in with your Google account</li>
+                                            <li>Create API key (select or create a Google Cloud project)</li>
+                                            <li>Paste the API key above</li>
+                                        </ol>
+                                        <p style="color: var(--text-muted); font-size: 11px;">Requires Google Cloud project. Free tier available.</p>
+                                    </div>
+                                    <div class="instruction-block" id="instructXAI" style="display:none;">
+                                        <strong>xAI Grok Setup:</strong>
+                                        <ol>
+                                            <li>Go to <a href="https://console.x.ai" target="_blank">console.x.ai</a></li>
+                                            <li>Sign in with your xAI account</li>
+                                            <li>Navigate to API Keys section</li>
+                                            <li>Create a new API key</li>
+                                            <li>Paste the API key above</li>
+                                        </ol>
+                                        <p style="color: var(--text-muted); font-size: 11px;">Business accounts may require approval. Check xAI documentation for access.</p>
+                                    </div>
+                                    <div class="instruction-block" id="instructOpenRouter" style="display:none;">
+                                        <strong>OpenRouter Setup:</strong>
+                                        <ol>
+                                            <li>Go to <a href="https://openrouter.ai/keys" target="_blank">openrouter.ai/keys</a></li>
+                                            <li>Create account and get API key</li>
+                                            <li>Access to many models (GPT-4, Claude, Llama, etc.)</li>
+                                        </ol>
+                                    </div>
+                                </div>
+                            </details>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                    <label>Model</label>
+                                <span class="setting-desc">AI model to use</span>
+                            </div>
+                    <select id="aiModel">
+                        <option value="gpt-4">GPT-4</option>
+                        <option value="gpt-4-turbo">GPT-4 Turbo</option>
+                        <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
+                        <option value="claude-3-opus">Claude 3 Opus</option>
+                        <option value="claude-3-sonnet">Claude 3 Sonnet</option>
+                        <option value="claude-3-haiku">Claude 3 Haiku</option>
+                    </select>
+                        </div>
+                    
+                        <div class="setting-item">
+                            <button class="btn-secondary" onclick="testApiConnection()">
+                        <i class="fas fa-plug"></i> Test Connection
+                    </button>
+                    <div class="api-status" id="apiStatus"></div>
+                </div>
+                
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Temperature</label>
+                                <span class="setting-desc">Creativity level (0 = focused, 1 = creative)</span>
+                            </div>
+                            <input type="range" id="settingTemperature" min="0" max="1" step="0.1" value="0.7">
+                            <span class="range-value" id="temperatureValue">0.7</span>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Max tokens</label>
+                                <span class="setting-desc">Maximum response length</span>
+                            </div>
+                            <select id="settingMaxTokens">
+                                <option value="1024">1024 (Short)</option>
+                                <option value="2048" selected>2048 (Medium)</option>
+                                <option value="4096">4096 (Long)</option>
+                                <option value="8192">8192 (Very Long)</option>
+                            </select>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Stream responses</label>
+                                <span class="setting-desc">Show responses as they're generated</span>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="settingStreamResponses" checked>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Include file context</label>
+                                <span class="setting-desc">Send current file to AI for context</span>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="settingIncludeContext" checked>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <!-- Terminal Settings -->
+                    <div class="settings-section-content" id="settingsTerminal">
+                        <h4>Terminal & Interpreter</h4>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Default shell</label>
+                                <span class="setting-desc">Shell to use for terminal</span>
+                            </div>
+                            <select id="settingDefaultShell">
+                                <option value="auto">Auto-detect</option>
+                                <option value="zsh">/bin/zsh</option>
+                                <option value="bash">/bin/bash</option>
+                                <option value="fish">/usr/local/bin/fish</option>
+                                <option value="powershell">PowerShell</option>
+                            </select>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Default interpreter</label>
+                                <span class="setting-desc">Interpreter for running code</span>
+                            </div>
+                            <select id="settingsInterpreterSelect">
+                                <option value="auto">Auto detect (based on file extension)</option>
+                                <option value="node">Node.js (node)</option>
+                                <option value="python">Python (python3)</option>
+                                <option value="deno">Deno (deno run)</option>
+                                <option value="custom">Custom command</option>
+                            </select>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Custom interpreter command</label>
+                                <span class="setting-desc">Use {file} as placeholder</span>
+                            </div>
+                            <input type="text" id="customInterpreterInput" placeholder="/usr/local/bin/python3 {file}">
+                        </div>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Terminal font size</label>
+                                <span class="setting-desc">Font size in terminal</span>
+                            </div>
+                            <input type="number" id="settingTerminalFontSize" value="13" min="8" max="24">
+                        </div>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Scrollback lines</label>
+                                <span class="setting-desc">Number of lines to keep in history</span>
+                            </div>
+                            <select id="settingScrollback">
+                                <option value="1000">1,000</option>
+                                <option value="5000" selected>5,000</option>
+                                <option value="10000">10,000</option>
+                                <option value="50000">50,000</option>
+                            </select>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Copy on select</label>
+                                <span class="setting-desc">Auto-copy selected text</span>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="settingCopyOnSelect">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        
+                        <p class="settings-tip">
+                            <i class="fas fa-info-circle"></i> System PATH: <code id="pathInfo">detecting...</code>
+                        </p>
+                    </div>
+                    
+                    <!-- REPL Settings -->
+                    <div class="settings-section-content" id="settingsRepl">
+                        <h4>REPL / Debug Console</h4>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Default REPL language</label>
+                                <span class="setting-desc">Language for the interactive console</span>
+                            </div>
+                            <select id="settingReplLanguage">
+                                <option value="javascript">JavaScript (Node.js)</option>
+                                <option value="python">Python</option>
+                                <option value="ruby">Ruby</option>
+                                <option value="auto">Auto (match current file)</option>
+                            </select>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Show line numbers</label>
+                                <span class="setting-desc">Display line numbers in REPL output</span>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="settingReplLineNumbers">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Preserve history</label>
+                                <span class="setting-desc">Remember command history between sessions</span>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="settingReplHistory" checked>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>History size</label>
+                                <span class="setting-desc">Number of commands to remember</span>
+                            </div>
+                            <select id="settingReplHistorySize">
+                                <option value="50">50 commands</option>
+                                <option value="100" selected>100 commands</option>
+                                <option value="500">500 commands</option>
+                                <option value="1000">1000 commands</option>
+                            </select>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Auto-clear on run</label>
+                                <span class="setting-desc">Clear console before running new code</span>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="settingReplAutoClear">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Show timestamps</label>
+                                <span class="setting-desc">Display timestamp for each output</span>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="settingReplTimestamps">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Syntax highlighting</label>
+                                <span class="setting-desc">Colorize code in output</span>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="settingReplSyntaxHighlight" checked>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Max output lines</label>
+                                <span class="setting-desc">Limit output to prevent freezing</span>
+                            </div>
+                            <select id="settingReplMaxLines">
+                                <option value="500">500 lines</option>
+                                <option value="1000" selected>1,000 lines</option>
+                                <option value="5000">5,000 lines</option>
+                                <option value="unlimited">Unlimited</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <!-- Git Settings -->
+                    <div class="settings-section-content" id="settingsGit">
+                        <h4>Git Integration</h4>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Git path</label>
+                                <span class="setting-desc">Path to git executable</span>
+                            </div>
+                            <input type="text" id="settingGitPath" placeholder="git (auto-detect)">
+                        </div>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Auto-fetch</label>
+                                <span class="setting-desc">Automatically fetch from remote</span>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="settingGitAutoFetch" checked>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Fetch interval</label>
+                                <span class="setting-desc">How often to auto-fetch</span>
+                            </div>
+                            <select id="settingGitFetchInterval">
+                                <option value="60">Every minute</option>
+                                <option value="300" selected>Every 5 minutes</option>
+                                <option value="600">Every 10 minutes</option>
+                                <option value="1800">Every 30 minutes</option>
+                            </select>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Show inline blame</label>
+                                <span class="setting-desc">Show git blame info in editor</span>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="settingGitInlineBlame">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Confirm before push</label>
+                                <span class="setting-desc">Ask for confirmation before pushing</span>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="settingGitConfirmPush" checked>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Auto-stage on save</label>
+                                <span class="setting-desc">Automatically stage files when saved</span>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="settingGitAutoStage">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Default commit message</label>
+                                <span class="setting-desc">Template for commit messages</span>
+                            </div>
+                            <input type="text" id="settingGitCommitTemplate" placeholder="feat: ">
+                        </div>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Sign commits (GPG)</label>
+                                <span class="setting-desc">Sign commits with GPG key</span>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="settingGitSignCommits">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Prune on fetch</label>
+                                <span class="setting-desc">Remove deleted remote branches</span>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="settingGitPruneOnFetch" checked>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <!-- Explorer Settings -->
+                    <div class="settings-section-content" id="settingsExplorer">
+                        <h4>File Explorer</h4>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Show hidden files</label>
+                                <span class="setting-desc">Display files starting with a dot</span>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="settingExplorerHidden">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Sort order</label>
+                                <span class="setting-desc">How to sort files and folders</span>
+                            </div>
+                            <select id="settingExplorerSort">
+                                <option value="name">Name (A-Z)</option>
+                                <option value="name-desc">Name (Z-A)</option>
+                                <option value="modified">Modified (newest first)</option>
+                                <option value="modified-asc">Modified (oldest first)</option>
+                                <option value="size">Size (largest first)</option>
+                                <option value="type">Type</option>
+                            </select>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Folders first</label>
+                                <span class="setting-desc">Show folders before files</span>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="settingExplorerFoldersFirst" checked>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Compact folders</label>
+                                <span class="setting-desc">Combine single-child folders</span>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="settingExplorerCompact" checked>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Auto-reveal file</label>
+                                <span class="setting-desc">Reveal active file in explorer</span>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="settingExplorerAutoReveal" checked>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>File nesting</label>
+                                <span class="setting-desc">Nest related files (e.g., .ts under .tsx)</span>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="settingExplorerNesting" checked>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Exclude patterns</label>
+                                <span class="setting-desc">Glob patterns to hide (comma-separated)</span>
+                            </div>
+                            <input type="text" id="settingExplorerExclude" placeholder="node_modules, .git, dist">
+                        </div>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Confirm delete</label>
+                                <span class="setting-desc">Ask before deleting files</span>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="settingExplorerConfirmDelete" checked>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Use trash</label>
+                                <span class="setting-desc">Move to trash instead of permanent delete</span>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="settingExplorerUseTrash" checked>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <!-- Todo Settings -->
+                    <div class="settings-section-content" id="settingsTodo">
+                        <h4>Todo List</h4>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Auto-save todos</label>
+                                <span class="setting-desc">Automatically save todo changes</span>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="settingTodoAutoSave" checked>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Show completed</label>
+                                <span class="setting-desc">Display completed tasks</span>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="settingTodoShowCompleted" checked>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Completed position</label>
+                                <span class="setting-desc">Where to show completed tasks</span>
+                            </div>
+                            <select id="settingTodoCompletedPosition">
+                                <option value="inline">Inline (where added)</option>
+                                <option value="bottom" selected>At bottom</option>
+                                <option value="hidden">Hidden</option>
+                            </select>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Auto-delete completed</label>
+                                <span class="setting-desc">Remove completed tasks after time</span>
+                            </div>
+                            <select id="settingTodoAutoDelete">
+                                <option value="never" selected>Never</option>
+                                <option value="1day">After 1 day</option>
+                                <option value="7days">After 7 days</option>
+                                <option value="30days">After 30 days</option>
+                            </select>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Default priority</label>
+                                <span class="setting-desc">Priority for new tasks</span>
+                            </div>
+                            <select id="settingTodoDefaultPriority">
+                                <option value="low">Low</option>
+                                <option value="medium" selected>Medium</option>
+                                <option value="high">High</option>
+                            </select>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Sync with project</label>
+                                <span class="setting-desc">Store todos in project folder</span>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="settingTodoSyncProject">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Todo file name</label>
+                                <span class="setting-desc">File name when syncing with project</span>
+                            </div>
+                            <input type="text" id="settingTodoFileName" placeholder=".aide-todos.json">
+                        </div>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Parse TODO comments</label>
+                                <span class="setting-desc">Find TODOs in code comments</span>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="settingTodoParseComments" checked>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Comment patterns</label>
+                                <span class="setting-desc">Patterns to detect (comma-separated)</span>
+                            </div>
+                            <input type="text" id="settingTodoPatterns" placeholder="TODO, FIXME, HACK, BUG">
+                        </div>
+                    </div>
+                    
+                    <!-- Dee Dee Settings -->
+                    <div class="settings-section-content" id="settingsDeedee">
+                        <h4>Dee Dee</h4>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Voice activation</label>
+                                <span class="setting-desc">Enable "Hey Dee Dee" voice commands</span>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="settingVoiceActivation">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Wake phrase</label>
+                                <span class="setting-desc">Phrase to activate Dee Dee</span>
+                            </div>
+                            <select id="settingWakePhrase">
+                                <option value="hey-deedee">Hey Dee Dee</option>
+                                <option value="aye-deedee">Aye Dee Dee</option>
+                                <option value="ok-deedee">OK Dee Dee</option>
+                            </select>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Mascot position</label>
+                                <span class="setting-desc">Where Dee Dee sits on screen</span>
+                            </div>
+                            <select id="settingMascotPosition">
+                                <option value="right">Right side</option>
+                                <option value="left">Left side</option>
+                                <option value="top-right">Top right</option>
+                                <option value="bottom-right">Bottom right</option>
+                            </select>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Mascot size</label>
+                                <span class="setting-desc">Size of Dee Dee on screen</span>
+                            </div>
+                            <select id="settingMascotSize">
+                                <option value="small">Small</option>
+                                <option value="medium" selected>Medium</option>
+                                <option value="large">Large</option>
+                            </select>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Show notifications</label>
+                                <span class="setting-desc">Dee Dee shows achievement notifications</span>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="settingShowNotifications" checked>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Sound effects</label>
+                                <span class="setting-desc">Play sounds for interactions</span>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="settingSoundEffects" checked>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        
+                        <h5 style="margin-top: 20px; margin-bottom: 15px;">Developer Stats</h5>
+                        <div class="stats-grid">
+                            <div class="stat-card">
+                                <div class="stat-value" id="statsLevel">1</div>
+                                <div class="stat-label">Level</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value" id="statsStreak">0</div>
+                                <div class="stat-label">Day Streak</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value" id="statsXp">0</div>
+                                <div class="stat-label">Total XP</div>
+                            </div>
+                        </div>
+                        
+                        <!-- Wardrobe Section -->
+                        <h5 style="margin-top: 25px; margin-bottom: 15px;"><i class="fas fa-shirt"></i> Wardrobe</h5>
+                        <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 15px;">
+                            Unlock drip by using AIDE and sharing with friends! Click an item to preview.
+                        </p>
+                        
+                        <div class="wardrobe-preview">
+                            <div class="deedee-preview-container" id="deedeePreview">
+                                <!-- Using same mascot style as the slide-out panel -->
+                                <div class="mascot-preview">
+                                    <div class="head">
+                                        <div class="eye"></div>
+                                        <div class="mouth">‿</div>
+                                        <div class="eye"></div>
+                                        <!-- Accessories container -->
+                                        <div class="accessory-antenna" id="previewAntenna"></div>
+                                        <div class="accessory-flower" id="previewFlower"></div>
+                                        <div class="accessory-crown" id="previewCrown"></div>
+                                        <div class="accessory-headphones" id="previewHeadphones"></div>
+                                        <div class="accessory-chain" id="previewChain"></div>
+                                        <div class="accessory-sunglasses" id="previewSunglasses"></div>
+                                        <div class="accessory-santa" id="previewSantaHat"></div>
+                                        <div class="accessory-propeller" id="previewPropeller"></div>
+                                        <div class="accessory-halo" id="previewHalo"></div>
+                                        <div class="accessory-horns" id="previewHorns"></div>
+                                        <div class="accessory-tophat" id="previewTophat"></div>
+                                        <div class="accessory-viking" id="previewViking"></div>
+                                        <div class="accessory-wizard" id="previewWizard"></div>
+                                        <div class="accessory-cowboy" id="previewCowboy"></div>
+                                        <div class="accessory-ninja" id="previewNinja"></div>
+                                        <div class="accessory-pirate" id="previewPirate"></div>
+                                        <div class="accessory-bowtie" id="previewBowtie"></div>
+                                        <div class="accessory-mustache" id="previewMustache"></div>
+                                        <div class="accessory-monocle" id="previewMonocle"></div>
+                                        <div class="accessory-cape" id="previewCape"></div>
+                                        <div class="accessory-wings" id="previewWings"></div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="equipped-label" id="equippedLabel" onclick="resetPreview()" title="Click to reset preview">Base Dee Dee</div>
+                        </div>
+                        
+                        <div class="wardrobe-stats" id="wardrobeStats" style="font-size: 12px; color: var(--text-muted); margin-bottom: 10px; text-align: center;">
+                            Loading...
+                        </div>
+                        <div class="wardrobe-grid" id="wardrobeGrid">
+                            <!-- Dynamically populated by renderWardrobeGrid() -->
+                        </div>
+                        
+                        <div class="wardrobe-actions">
+                            <button class="btn-secondary" onclick="equipSelectedItem()">
+                                <i class="fas fa-check"></i> Equip Selected
+                            </button>
+                            <button class="btn-secondary" onclick="resetWardrobe()">
+                                <i class="fas fa-undo"></i> Reset to Default
+                            </button>
+                            <button class="btn-primary" onclick="openPrintGenerator()" style="margin-left: auto;">
+                                <i class="fas fa-cube"></i> 3D Print Generator
+                            </button>
+                        </div>
+                        
+                        <!-- 3D Print Section -->
+                        <h5 style="margin-top: 25px; margin-bottom: 15px;"><i class="fas fa-cube"></i> 3D Print Dee Dee</h5>
+                        <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 15px;">
+                            Print your own Dee Dee with your unlocked drip! Export STL files for 3D printing.
+                        </p>
+                        
+                        <div class="print-options">
+                            <div class="setting-item">
+                                <div class="setting-info">
+                                    <label>Print size</label>
+                                    <span class="setting-desc">Choose your Dee Dee size</span>
+                                </div>
+                                <select id="printSize">
+                                    <option value="small">Small (2" / 50mm)</option>
+                                    <option value="big">Big (6" / 150mm)</option>
+                                    <option value="keychain">Keychain (1" / 25mm)</option>
+                                </select>
+                            </div>
+                            
+                            <div class="setting-item">
+                                <div class="setting-info">
+                                    <label>Include accessories</label>
+                                    <span class="setting-desc">Add your equipped drip to the print</span>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="printWithAccessories" checked>
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                            
+                            <div class="setting-item">
+                                <div class="setting-info">
+                                    <label>Include base</label>
+                                    <span class="setting-desc">Add a flat base for standing</span>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="printWithBase" checked>
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                        </div>
+                        
+                        <div class="print-actions">
+                            <button class="btn-primary" onclick="openPrintGenerator()">
+                                <i class="fas fa-cube"></i> Open 3D Print Generator
+                            </button>
+                            <button class="btn-secondary" onclick="downloadQuickSTL()">
+                                <i class="fas fa-download"></i> Quick Download STL
+                            </button>
+                        </div>
+                        
+                        <p class="settings-tip" style="margin-top: 15px;">
+                            <i class="fas fa-info-circle"></i> 3D printing is free! Share your prints with #DeeDee
+                        </p>
+                        
+                        <div class="achievements-list" id="statsAccessories">
+                            <!-- Icons of unlocked accessories -->
+                        </div>
+                    </div>
+                    
+                    <!-- Keyboard Shortcuts -->
+                    <div class="settings-section-content" id="settingsKeyboard">
+                        <h4>Keyboard Shortcuts</h4>
+                        
+                        <div class="shortcuts-list">
+                            <div class="shortcut-item">
+                                <span class="shortcut-action">Save file</span>
+                                <kbd>⌘ S</kbd>
+                            </div>
+                            <div class="shortcut-item">
+                                <span class="shortcut-action">New file</span>
+                                <kbd>⌘ N</kbd>
+                            </div>
+                            <div class="shortcut-item">
+                                <span class="shortcut-action">Open file</span>
+                                <kbd>⌘ O</kbd>
+                            </div>
+                            <div class="shortcut-item">
+                                <span class="shortcut-action">Close tab</span>
+                                <kbd>⌘ W</kbd>
+                            </div>
+                            <div class="shortcut-item">
+                                <span class="shortcut-action">Find</span>
+                                <kbd>⌘ F</kbd>
+                            </div>
+                            <div class="shortcut-item">
+                                <span class="shortcut-action">Find & Replace</span>
+                                <kbd>⌘ H</kbd>
+                            </div>
+                            <div class="shortcut-item">
+                                <span class="shortcut-action">Go to line</span>
+                                <kbd>⌘ G</kbd>
+                            </div>
+                            <div class="shortcut-item">
+                                <span class="shortcut-action">Run code</span>
+                                <kbd>⌘ ↵</kbd>
+                            </div>
+                            <div class="shortcut-item">
+                                <span class="shortcut-action">Toggle sidebar</span>
+                                <kbd>⌘ B</kbd>
+                            </div>
+                            <div class="shortcut-item">
+                                <span class="shortcut-action">Toggle terminal</span>
+                                <kbd>⌘ `</kbd>
+                            </div>
+                            <div class="shortcut-item">
+                                <span class="shortcut-action">Focus chat</span>
+                                <kbd>⌘ /</kbd>
+                            </div>
+                            <div class="shortcut-item">
+                                <span class="shortcut-action">Settings</span>
+                                <kbd>⌘ ,</kbd>
+                            </div>
+                        </div>
+                        
+                        <p class="settings-tip" style="margin-top: 15px;">
+                            <i class="fas fa-info-circle"></i> Custom shortcuts coming in Pro version
+                        </p>
+                    </div>
+                    
+                    <!-- Privacy Settings -->
+                    <div class="settings-section-content" id="settingsPrivacy">
+                        <h4>Privacy & Data</h4>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Send anonymous usage data</label>
+                                <span class="setting-desc">Help improve AIDE with anonymous analytics</span>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="settingAnalytics">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label>Crash reports</label>
+                                <span class="setting-desc">Automatically send crash reports</span>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="settingCrashReports" checked>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        
+                        <h5 style="margin-top: 20px; margin-bottom: 15px;"><i class="fas fa-folder-shield"></i> Directory Permissions</h5>
+                        <p style="margin-bottom: 12px; opacity: 0.8;">Control which directories AIDE can access.</p>
+                    <button class="btn-secondary" onclick="showDirectoryPermissionsManager()">
+                        <i class="fas fa-cog"></i> Manage Permissions
+                        </button>
+                        
+                        <h5 style="margin-top: 20px; margin-bottom: 15px;"><i class="fas fa-trash"></i> Data Management</h5>
+                        <div class="data-actions">
+                            <button class="btn-secondary" onclick="exportUserData()">
+                                <i class="fas fa-download"></i> Export My Data
+                            </button>
+                            <button class="btn-danger" onclick="clearAllData()">
+                                <i class="fas fa-trash"></i> Clear All Data
+                    </button>
+                        </div>
+                </div>
+
+                    <!-- Account Settings -->
+                    <div class="settings-section-content" id="settingsAccount">
+                        <h4>Account & Subscription</h4>
+                        
+                        <div class="settings-tier-info" style="margin-bottom: 20px;">
+                            <div class="tier-badge free" id="accountTierBadge">FREE</div>
+                        </div>
+                        
+                        <div class="upgrade-cards">
+                            <div class="upgrade-card">
+                                <h5><i class="fas fa-star"></i> Pro - $5/mo</h5>
+                    <ul class="pro-plus-features">
+                        <li><i class="fas fa-check"></i> Both sidebars open together</li>
+                        <li><i class="fas fa-check"></i> Both Terminal & Debug panels</li>
+                                    <li><i class="fas fa-check"></i> Voice activation</li>
+                                    <li><i class="fas fa-check"></i> Drag & drop panels</li>
+                                    <li><i class="fas fa-check"></i> Custom shortcuts</li>
+                    </ul>
+                    <button class="btn-upgrade" onclick="upgradeTier('pro')">
+                                    Upgrade to Pro
+                    </button>
+                            </div>
+                            
+                            <div class="upgrade-card featured">
+                                <h5><i class="fas fa-bolt"></i> Pro+ - $15/mo</h5>
+                    <ul class="pro-plus-features">
+                                    <li><i class="fas fa-check"></i> Everything in Pro</li>
+                                    <li><i class="fas fa-check"></i> $15 API credit included</li>
+                                    <li><i class="fas fa-check"></i> All flagship AI models</li>
+                                    <li><i class="fas fa-check"></i> AI CLI access</li>
+                                    <li><i class="fas fa-check"></i> Priority support</li>
+                    </ul>
+                    <button class="btn-upgrade pro-plus" onclick="upgradeTier('proplus')">
+                                    Upgrade to Pro+
+                    </button>
+                </div>
+                        </div>
+                        
+                        <div class="license-section" style="margin-top: 20px;">
+                            <h5>Have a license key?</h5>
+                            <div class="license-input-row">
+                                <input type="text" id="licenseKeyInput" placeholder="Enter license key...">
+                                <button class="btn-primary" onclick="activateLicense()">Activate</button>
+            </div>
+        </div>
+    </div>
+    
+                    <!-- About -->
+                    <div class="settings-section-content" id="settingsAbout">
+                        <h4>About AIDE</h4>
+                        
+                        <div class="about-logo" style="text-align: center; margin-bottom: 20px;">
+                            <div style="font-size: 48px; margin-bottom: 10px;">🤖</div>
+                            <h2 style="margin: 0;">AIDE</h2>
+                            <p style="opacity: 0.7;">AI Development Environment</p>
+                        </div>
+                        
+                        <div class="about-info">
+                            <div class="about-item">
+                                <span>Version</span>
+                                <span id="appVersion">1.0.0</span>
+                            </div>
+                            <div class="about-item">
+                                <span>Electron</span>
+                                <span id="electronVersion">--</span>
+                            </div>
+                            <div class="about-item">
+                                <span>Node.js</span>
+                                <span id="nodeVersion">--</span>
+                            </div>
+                            <div class="about-item">
+                                <span>Chrome</span>
+                                <span id="chromeVersion">--</span>
+                            </div>
+                        </div>
+                        
+                        <div class="about-links" style="margin-top: 20px;">
+                            <button class="btn-secondary" onclick="openExternal('https://aide.dev')">
+                                <i class="fas fa-globe"></i> Website
+                            </button>
+                            <button class="btn-secondary" onclick="openExternal('https://github.com/aide-dev')">
+                                <i class="fab fa-github"></i> GitHub
+                            </button>
+                            <button class="btn-secondary" onclick="openExternal('https://twitter.com/aidedev')">
+                                <i class="fab fa-twitter"></i> Twitter
+                            </button>
+                            <button class="btn-secondary" onclick="openExternal('https://discord.gg/aide')">
+                                <i class="fab fa-discord"></i> Discord
+                            </button>
+                        </div>
+                        
+                        <div class="about-actions" style="margin-top: 20px;">
+                            <button class="btn-secondary" onclick="checkForUpdates()">
+                                <i class="fas fa-sync"></i> Check for Updates
+                            </button>
+                            <button class="btn-secondary" onclick="showChangelog()">
+                                <i class="fas fa-list"></i> Changelog
+                            </button>
+                            <button class="btn-secondary" onclick="showLicenses()">
+                                <i class="fas fa-file-alt"></i> Open Source Licenses
+                            </button>
+                        </div>
+                        
+                        <p style="text-align: center; margin-top: 30px; opacity: 0.5; font-size: 12px;">
+                            Made with ❤️ by >X<
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Status Bar -->
+    <div class="status-bar" id="statusBar">
+        <div class="status-left">
+            <span class="status-item" id="statusPath" title="Current path"><i class="fas fa-folder"></i> ~/</span>
+            <span class="status-item" id="statusFile" title="Current file"><i class="fas fa-file"></i> untitled</span>
+            <span class="status-item" id="statusLang" title="Language"><i class="fas fa-code"></i> plaintext</span>
+            <span class="status-item" id="statusEncoding" title="Encoding">UTF-8</span>
+            <span class="status-item" id="statusLineEnding" title="Line ending">LF</span>
+        </div>
+        <div class="status-right">
+            <span class="status-item" id="statusCpu" title="CPU Usage"><i class="fas fa-microchip"></i> CPU: --%</span>
+            <span class="status-item" id="statusMemory" title="Memory Usage"><i class="fas fa-memory"></i> Mem: --%</span>
+            <span class="status-item" id="statusDisk" title="Disk Usage"><i class="fas fa-hard-drive"></i> Disk: --%</span>
+        </div>
+    </div>
+    
+    <!-- Monaco Editor - use CDN with proper Electron setup -->
+    <script>
+        // Load Monaco Editor - Isolate from Node.js require
+        (function() {
+            console.log('🚀 Loading Monaco Editor...');
+            
+            // Save Node.js globals
+            var nodeRequire = window.require;
+            var nodeModule = window.module;
+            var nodeExports = window.exports;
+            
+            // Temporarily hide Node require so AMD loader doesn't detect it
+            // We'll restore it after Monaco loads
+            window.__nodeRequire = nodeRequire; // Backup
+            delete window.require;
+            delete window.module;
+            delete window.exports;
+            
+            // Monaco Environment for workers
+            window.MonacoEnvironment = {
+                baseUrl: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/',
+                getWorkerUrl: function(workerId, label) {
+                    return `data:text/javascript;charset=utf-8,${encodeURIComponent(`
+                        self.MonacoEnvironment = { baseUrl: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/' };
+                        importScripts('https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/base/worker/workerMain.js');
+                    `)}`;
+                }
+            };
+            
+            // Load Monaco's AMD loader
+            var loaderScript = document.createElement('script');
+            loaderScript.src = 'https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/loader.js';
+            
+            loaderScript.onload = function() {
+                console.log('✅ Monaco loader loaded');
+                
+                // AMD loader should have created its own require
+                if (typeof require === 'undefined' || typeof require.config !== 'function') {
+                    console.error('❌ AMD loader not available');
+                    restoreNodeGlobals();
+                    return;
+                }
+                
+                // Configure AMD loader
+                try {
+                    require.config({
+                        baseUrl: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/',
+                        paths: {
+                            'vs': 'https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs'
+                        },
+                        nodeRequire: undefined,
+                        enforceDefine: false
+                    });
+                    
+                    console.log('AMD configured, loading editor.main...');
+                    
+                    // Load Monaco
+                    require(['vs/editor/editor.main'], function() {
+                        console.log('✅ editor.main callback executed');
+                        
+                        // Monaco should be global now
+                        if (typeof monaco !== 'undefined' && monaco.editor) {
+                            window.monaco = monaco;
+                            window.monacoLoaded = true;
+                            console.log('✅ Monaco Editor ready!', typeof window.monaco.editor);
+                            
+                            // Restore Node globals AFTER Monaco is loaded
+                            restoreNodeGlobals();
+                            
+                            // Dispatch ready event
+                            setTimeout(function() {
+                                window.dispatchEvent(new Event('monaco-ready'));
+                                if (typeof window.initMonaco === 'function') {
+                                    console.log('Calling initMonaco...');
+                                    window.initMonaco();
+                                }
+                            }, 100);
+                        } else {
+                            console.error('❌ Monaco not found after load');
+                            console.log('typeof monaco:', typeof monaco);
+                            console.log('window.monaco:', window.monaco);
+                            restoreNodeGlobals();
+                        }
+                    }, function(err) {
+                        console.error('❌ Failed to load editor.main:', err);
+                        if (err && err.requireModules) {
+                            console.error('Failed modules:', err.requireModules);
+                        }
+                        restoreNodeGlobals();
+                    });
+                } catch (e) {
+                    console.error('❌ Error:', e);
+                    restoreNodeGlobals();
+                }
+            };
+            
+            loaderScript.onerror = function(e) {
+                console.error('❌ Failed to load loader script:', e);
+                restoreNodeGlobals();
+            };
+            
+            function restoreNodeGlobals() {
+                // Restore Node.js globals
+                if (window.__nodeRequire) {
+                    window.require = window.__nodeRequire;
+                    delete window.__nodeRequire;
+                }
+                if (nodeModule) window.module = nodeModule;
+                if (nodeExports) window.exports = nodeExports;
+            }
+            
+            document.head.appendChild(loaderScript);
+        })();
+    </script>
+    <script>
+        // Open Tutorials in a new window
+        function openTutorials() {
+            const tutorialWindow = window.open("tutorials.html", "AIDE Tutorials", "width=900,height=700,menubar=no,toolbar=no");
+            if (tutorialWindow) tutorialWindow.focus();
+        }
+        window.openTutorials = openTutorials;
+    </script>
+    <!-- Dee Dee Personality Module - Separated for better organization -->
+    <script src="src/renderer/deedee-personality.js"></script>
+    <!-- Dee Dee TTS Module - Text-to-speech for pop culture phrases -->
+    <script src="src/renderer/deedee-tts.js"></script>
+    <script src="renderer.bundle.js"></script>
+</body>
+</html>
