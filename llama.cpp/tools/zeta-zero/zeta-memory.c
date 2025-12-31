@@ -224,6 +224,11 @@ int64_t zeta_sublimate_block_ext(
 
     // Create disk path
     block->disk_path = (char*)malloc(600);
+    if (!block->disk_path) {
+        free(block->summary);
+        block->summary = NULL;
+        return -1;
+    }
     snprintf(block->disk_path, 600, "%s/block_%lld.zeta", ctx->storage_dir, (long long)block->block_id);
 
     // Write block to disk with header
@@ -236,6 +241,10 @@ int64_t zeta_sublimate_block_ext(
     int fd = open(block->disk_path, O_RDWR | O_CREAT | O_TRUNC, 0644);
     if (fd < 0) {
         fprintf(stderr, "zeta: failed to create %s: %s\n", block->disk_path, strerror(errno));
+        free(block->summary);
+        free(block->disk_path);
+        block->summary = NULL;
+        block->disk_path = NULL;
         return -1;
     }
 
@@ -251,24 +260,40 @@ int64_t zeta_sublimate_block_ext(
     };
     if (write(fd, &header, header_size) < 0) {
         close(fd);
+        free(block->summary);
+        free(block->disk_path);
+        block->summary = NULL;
+        block->disk_path = NULL;
         return -1;
     }
 
     // Write summary vector (for loading without recomputation)
     if (write(fd, block->summary, summary_size) < 0) {
         close(fd);
+        free(block->summary);
+        free(block->disk_path);
+        block->summary = NULL;
+        block->disk_path = NULL;
         return -1;
     }
 
     // Write keys
     if (write(fd, keys, token_count * ctx->summary_dim * sizeof(float)) < 0) {
         close(fd);
+        free(block->summary);
+        free(block->disk_path);
+        block->summary = NULL;
+        block->disk_path = NULL;
         return -1;
     }
 
     // Write values
     if (write(fd, values, token_count * ctx->summary_dim * sizeof(float)) < 0) {
         close(fd);
+        free(block->summary);
+        free(block->disk_path);
+        block->summary = NULL;
+        block->disk_path = NULL;
         return -1;
     }
 
