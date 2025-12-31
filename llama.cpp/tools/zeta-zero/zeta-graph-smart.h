@@ -14,6 +14,12 @@
 #ifndef ZETA_GRAPH_SMART_H
 #define ZETA_GRAPH_SMART_H
 
+// Suppress pedantic warnings
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmissing-field-initializers"
+#endif
+
 #include "zeta-dual-process.h"
 #include "zeta-semantic-attacks.h"
 #include "zeta-conflict.h"
@@ -326,6 +332,10 @@ static inline bool zeta_execute_sudo(zeta_dual_ctx_t* ctx, const char* command) 
 
 #ifdef __cplusplus
 }
+#endif
+
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic pop
 #endif
 
 #endif // ZETA_GRAPH_SMART_H

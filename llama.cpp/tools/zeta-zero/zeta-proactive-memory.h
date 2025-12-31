@@ -9,11 +9,14 @@
 #ifndef ZETA_PROACTIVE_MEMORY_H
 #define ZETA_PROACTIVE_MEMORY_H
 
-// Suppress pedantic warnings for designated initializers and pointer-bool
+// Suppress pedantic warnings for designated initializers
 #if defined(__GNUC__) || defined(__clang__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wpedantic"
-#pragma GCC diagnostic ignored "-Wpointer-bool-conversion"
+#endif
+
+#if defined(__clang__)
+#pragma clang diagnostic ignored "-Wpointer-bool-conversion"
 #endif
 
 #include "zeta-streaming.h"

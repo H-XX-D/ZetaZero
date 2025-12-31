@@ -6,6 +6,12 @@
 #ifndef ZETA_SEMANTIC_ATTACKS_H
 #define ZETA_SEMANTIC_ATTACKS_H
 
+// Suppress pedantic warnings
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmissing-field-initializers"
+#endif
+
 #include "zeta-embed-integration.h"
 #include <vector>
 #include <string>
@@ -534,5 +540,9 @@ static float zeta_check_identity_alignment(const char* response) {
 
     return similarity;
 }
+
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
 
 #endif // ZETA_SEMANTIC_ATTACKS_H

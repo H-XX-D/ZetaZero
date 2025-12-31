@@ -554,7 +554,7 @@ static inline bool zeta_git_stash_push(zeta_git_ctx_t* ctx, const char* message)
     return true;
 }
 
-static inline bool zeta_git_stash_pop(zeta_git_ctx_t* ctx) {
+static inline bool zeta_git_stash_pop(zeta_git_ctx_t* /* ctx */) {
     if (g_stash_top <= 0) {
         fprintf(stderr, "[GIT-GRAPH] No stash entries\n");
         return false;
@@ -937,7 +937,7 @@ static inline bool zeta_git_bisect_start(zeta_git_ctx_t* ctx, int64_t good, int6
     return true;
 }
 
-static inline int64_t zeta_git_bisect_good(zeta_git_ctx_t* ctx) {
+static inline int64_t zeta_git_bisect_good(zeta_git_ctx_t* /* ctx */) {
     if (!g_bisect.in_progress) return -1;
 
     // Current is good, problem is after this
@@ -965,7 +965,7 @@ static inline int64_t zeta_git_bisect_good(zeta_git_ctx_t* ctx) {
     return -1;  // Not done yet
 }
 
-static inline int64_t zeta_git_bisect_bad(zeta_git_ctx_t* ctx) {
+static inline int64_t zeta_git_bisect_bad(zeta_git_ctx_t* /* ctx */) {
     if (!g_bisect.in_progress) return -1;
 
     // Current is bad, problem is before this
