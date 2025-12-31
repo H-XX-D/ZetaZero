@@ -239,7 +239,7 @@ static void idle_decay() {
     if (!g_dual) return;
     // Apply temporal decay to all nodes
     zeta_apply_temporal_decay(g_dual);
-    
+
     // Run Sleep-Pruning Mechanism
     g_pruning.sleep_prune(g_dual);
 
@@ -1449,10 +1449,10 @@ static std::vector<std::string> extract_key_entities(const std::string& content)
 // Generate a plan for long output (outline with sections)
 static std::string generate_output_plan(const std::string& prompt, int target_tokens) {
     if (!g_ctx_conscious || !g_model_conscious) return "";
-    
+
     int num_sections = (target_tokens + CHUNK_SIZE - 1) / CHUNK_SIZE;  // Ceiling division
-    
-    std::string plan_prompt = 
+
+    std::string plan_prompt =
         "<|im_start|>system\n"
         "You are a planning assistant. Create a structured outline.\n"
         "<|im_end|>\n"
@@ -1463,52 +1463,52 @@ static std::string generate_output_plan(const std::string& prompt, int target_to
         "Only output the outline, nothing else.\n"
         "<|im_end|>\n"
         "<|im_start|>assistant\n";
-    
+
     // Tokenize plan prompt
     std::vector<llama_token> tokens(1024);
     int n_tokens = llama_tokenize(g_vocab, plan_prompt.c_str(), plan_prompt.length(),
                                    tokens.data(), tokens.size(), true, true);
     if (n_tokens < 0) return "";
     tokens.resize(n_tokens);
-    
+
     // Clear KV and decode
     llama_memory_t mem = llama_get_memory(g_ctx_conscious);
     llama_memory_clear(mem, true);
-    
+
     llama_batch batch = llama_batch_init(n_tokens + 256, 0, 1);
     for (int i = 0; i < n_tokens; i++) {
         common_batch_add(batch, tokens[i], i, {0}, (i == n_tokens - 1));
     }
-    
+
     if (llama_decode(g_ctx_conscious, batch) != 0) {
         llama_batch_free(batch);
         return "";
     }
-    
+
     // Generate plan (short - just section titles)
     std::string plan;
     auto* sampler = common_sampler_init(g_model_conscious, g_params.sampling);
     int kv_pos = n_tokens;
-    
+
     for (int i = 0; i < 300; i++) {  // Max 300 tokens for plan
         llama_token tok = common_sampler_sample(sampler, g_ctx_conscious, -1);
         common_sampler_accept(sampler, tok, true);
-        
+
         char piece[64] = {0};
         llama_token_to_piece(g_vocab, tok, piece, sizeof(piece), 0, true);
-        
+
         if (strcmp(piece, "<|im_end|>") == 0) break;
         if (llama_vocab_is_eog(g_vocab, tok)) break;
         plan += piece;
-        
+
         common_batch_clear(batch);
         common_batch_add(batch, tok, kv_pos++, {0}, true);
         if (llama_decode(g_ctx_conscious, batch) != 0) break;
     }
-    
+
     common_sampler_free(sampler);
     llama_batch_free(batch);
-    
+
     fprintf(stderr, "[CHUNK-PLAN] Generated %d-section plan:\n%s\n", num_sections, plan.c_str());
     return plan;
 }
@@ -1518,22 +1518,22 @@ static std::vector<std::string> parse_plan_sections(const std::string& plan) {
     std::vector<std::string> sections;
     std::istringstream stream(plan);
     std::string line;
-    
+
     while (std::getline(stream, line)) {
-        if (line.find("SECTION") != std::string::npos || 
+        if (line.find("SECTION") != std::string::npos ||
             line.find("Section") != std::string::npos ||
             (line.length() > 5 && isdigit(line[0]))) {
             sections.push_back(line);
         }
     }
-    
+
     // Fallback if parsing fails
     if (sections.empty()) {
         sections.push_back("Section 1: Introduction");
         sections.push_back("Section 2: Main Content");
         sections.push_back("Section 3: Conclusion");
     }
-    
+
     return sections;
 }
 
@@ -1598,28 +1598,28 @@ static std::string generate_chunk(const std::string& original_prompt,
                     "Write about " + std::to_string(chunk_tokens * 3) + " characters.\n"
                     "<|im_end|>\n"
                     "<|im_start|>assistant\n";
-    
+
     // Tokenize
     std::vector<llama_token> tokens(2048);
     int n_tokens = llama_tokenize(g_vocab, chunk_prompt.c_str(), chunk_prompt.length(),
                                    tokens.data(), tokens.size(), true, true);
     if (n_tokens < 0) return "";
     tokens.resize(n_tokens);
-    
+
     // Clear KV and decode prompt
     llama_memory_t mem = llama_get_memory(g_ctx_conscious);
     llama_memory_clear(mem, true);
-    
+
     llama_batch batch = llama_batch_init(n_tokens + chunk_tokens + 100, 0, 1);
     for (int i = 0; i < n_tokens; i++) {
         common_batch_add(batch, tokens[i], i, {0}, (i == n_tokens - 1));
     }
-    
+
     if (llama_decode(g_ctx_conscious, batch) != 0) {
         llama_batch_free(batch);
         return "";
     }
-    
+
     // Generate chunk
     std::string chunk;
     auto* sampler = common_sampler_init(g_model_conscious, g_params.sampling);
@@ -1666,13 +1666,13 @@ static std::string generate_chunk(const std::string& original_prompt,
 // Generate a brief summary of content for continuity
 static std::string generate_summary(const std::string& content) {
     if (content.length() < 200) return content;
-    
+
     // Quick extraction: first sentence + last sentence + key points
     std::string summary;
-    
+
     // First 150 chars
     summary = content.substr(0, std::min((size_t)150, content.length()));
-    
+
     // Add "..." if truncated
     if (content.length() > 150) {
         summary += "...";
@@ -1681,7 +1681,7 @@ static std::string generate_summary(const std::string& content) {
             summary += content.substr(content.length() - 100);
         }
     }
-    
+
     return summary;
 }
 
@@ -1854,7 +1854,7 @@ static std::string generate(const std::string& prompt, int max_tokens) {
     if (max_tokens >= LONG_OUTPUT_THRESHOLD) {
         fprintf(stderr, "[GENERATE] Long output requested (%d tokens), using chunked generation\n", max_tokens);
         std::string chunked_result = generate_chunked_output(prompt, max_tokens);
-        
+
         if (!chunked_result.empty()) {
             // Escape for JSON
             std::string escaped;
@@ -1866,16 +1866,16 @@ static std::string generate(const std::string& prompt, int max_tokens) {
                 else if (c == '\t') escaped += "\\t";
                 else escaped += c;
             }
-            
+
             int graph_nodes = g_dual ? g_dual->num_nodes : 0;
             int graph_edges = g_dual ? g_dual->num_edges : 0;
-            
+
             char json[65536];  // Large buffer for chunked output
             snprintf(json, sizeof(json),
                 "{\"output\": \"%s\", \"tokens\": %d, \"momentum\": 0.85, "
                 "\"chunked\": true, \"graph_nodes\": %d, \"graph_edges\": %d}",
                 escaped.c_str(), max_tokens, graph_nodes, graph_edges);
-            
+
             return std::string(json);
         }
         // Fall through to normal generation if chunked fails
@@ -3505,7 +3505,7 @@ int main(int argc, char** argv) {
         fprintf(stderr, "[TASK-EVAL] Decision for %s: %s\n", query_class.c_str(), eval_decision.c_str());
 
         bool run_hrm = (query_class == "COMPLEX" && g_hrm.is_ready() && !skip_hrm);
-        
+
         // Evaluator override
         if (eval_decision == "HRM") {
             run_hrm = (g_hrm.is_ready() && !skip_hrm);
@@ -3653,7 +3653,7 @@ int main(int argc, char** argv) {
                         out_end++;
                     }
                     std::string output_text = result.substr(out_start, out_end - out_start);
-                    
+
                     // TRM: Push assistant response to recursive stream
                     g_trm.push_state(output_text, "assistant");
 
@@ -5255,11 +5255,11 @@ int main(int argc, char** argv) {
     // Register a new node in the swarm
     svr.Post("/swarm/register", [](const httplib::Request& req, httplib::Response& res) {
         std::lock_guard<std::mutex> lock(g_mutex);
-        
+
         std::string id = zeta_mcp::extract_json_string(req.body, "id");
         std::string host = zeta_mcp::extract_json_string(req.body, "host");
         int port = 8080; // Default
-        
+
         // Simple JSON parsing for port (since extract_json_string returns string)
         size_t port_pos = req.body.find("\"port\":");
         if (port_pos != std::string::npos) {
@@ -5286,7 +5286,7 @@ int main(int argc, char** argv) {
         // No lock needed for atomic updates in manager, but good practice if extending
         std::string id = zeta_mcp::extract_json_string(req.body, "id");
         float load = 0.0f;
-        
+
         // Parse load
         size_t load_pos = req.body.find("\"load\":");
         if (load_pos != std::string::npos) {
@@ -5314,9 +5314,9 @@ int main(int argc, char** argv) {
         for (size_t i = 0; i < nodes.size(); i++) {
             if (i > 0) json += ",";
             char buf[256];
-            snprintf(buf, sizeof(buf), 
+            snprintf(buf, sizeof(buf),
                 "{\"id\": \"%s\", \"host\": \"%s\", \"port\": %d, \"load\": %.2f, \"role\": \"%s\"}",
-                nodes[i].id.c_str(), nodes[i].host.c_str(), nodes[i].port, 
+                nodes[i].id.c_str(), nodes[i].host.c_str(), nodes[i].port,
                 nodes[i].current_load, nodes[i].role.c_str());
             json += buf;
         }
@@ -5329,7 +5329,7 @@ int main(int argc, char** argv) {
         std::string proposal_id = zeta_mcp::extract_json_string(req.body, "proposal_id");
         std::string voter_id = zeta_mcp::extract_json_string(req.body, "voter_id");
         std::string vote_str = zeta_mcp::extract_json_string(req.body, "vote"); // "true", "false", "uncertain"
-        
+
         int vote_val = 0; // Uncertain
         if (vote_str == "true") vote_val = 1;
         else if (vote_str == "false") vote_val = -1;
@@ -5355,7 +5355,7 @@ int main(int argc, char** argv) {
         auto nodes = g_swarm.get_active_nodes();
         std::string best_node_id;
         float min_load = 100.0f;
-        
+
         for (const auto& node : nodes) {
             if (node.current_load < min_load) {
                 min_load = node.current_load;
@@ -5371,10 +5371,10 @@ int main(int argc, char** argv) {
         // In a real implementation, we would send the request to the node here.
         // For now, we'll simulate the offloading or just return the target node.
         // To actually offload, we'd use a client to POST to the worker node.
-        
+
         // For this demo, we'll try to actually call the node if it's reachable
         std::string result = g_swarm.offload_dream_task(best_node_id, prompt);
-        
+
         if (result.empty()) {
              res.set_content("{\"error\": \"offload failed\"}", "application/json");
         } else {
@@ -5386,7 +5386,7 @@ int main(int argc, char** argv) {
                  else escaped += c;
              }
              char json[8192];
-             snprintf(json, sizeof(json), "{\"status\": \"completed\", \"node\": \"%s\", \"result\": \"%s\"}", 
+             snprintf(json, sizeof(json), "{\"status\": \"completed\", \"node\": \"%s\", \"result\": \"%s\"}",
                       best_node_id.c_str(), escaped.c_str());
              res.set_content(json, "application/json");
         }
