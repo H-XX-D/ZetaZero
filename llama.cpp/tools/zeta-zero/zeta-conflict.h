@@ -1100,7 +1100,7 @@ static inline zeta_contradiction_result_t zeta_detect_input_contradiction(
     zeta_dual_ctx_t* ctx,
     const char* input
 ) {
-    zeta_contradiction_result_t result = {false, {}, {}, {}, {}, 0.0f, false};
+    zeta_contradiction_result_t result = {false, false, {}, {}, 0.0f};
     if (!ctx || !input || strlen(input) < 5) return result;
 
     char lower_input[2048];

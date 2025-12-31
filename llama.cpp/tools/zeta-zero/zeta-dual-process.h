@@ -1812,7 +1812,6 @@ static inline size_t zeta_build_context_injection(
         }
 
         filtered_nodes[filtered_count] = node;
-        filtered_scores[filtered_count] = score;
         filtered_count++;
     }
 
