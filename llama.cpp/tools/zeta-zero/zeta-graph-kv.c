@@ -12,6 +12,7 @@
 #include <math.h>
 #include <time.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 // ============================================================================
 // FP16 Conversion Helpers
@@ -695,12 +696,32 @@ int zeta_gkv_save(
     int total_v_blocks = segment->header.v_blocks_per_layer * segment->header.n_layer;
 
     // Write header
-    fwrite(&segment->header, sizeof(segment->header), 1, fp);
+    if (fwrite(&segment->header, sizeof(segment->header), 1, fp) != 1) {
+        fprintf(stderr, "[GKV] Failed to write header to %s\n", path);
+        fclose(fp);
+        unlink(path);
+        return -1;
+    }
 
     // Write data
-    fwrite(segment->k_blocks, sizeof(zeta_gkv_q8_block_t), total_k_blocks, fp);
-    fwrite(segment->v_blocks, sizeof(zeta_gkv_q8_block_t), total_v_blocks, fp);
-    fwrite(segment->rel_positions, sizeof(int32_t), segment->header.n_tokens, fp);
+    if (fwrite(segment->k_blocks, sizeof(zeta_gkv_q8_block_t), total_k_blocks, fp) != (size_t)total_k_blocks) {
+        fprintf(stderr, "[GKV] Failed to write k_blocks to %s\n", path);
+        fclose(fp);
+        unlink(path);
+        return -1;
+    }
+    if (fwrite(segment->v_blocks, sizeof(zeta_gkv_q8_block_t), total_v_blocks, fp) != (size_t)total_v_blocks) {
+        fprintf(stderr, "[GKV] Failed to write v_blocks to %s\n", path);
+        fclose(fp);
+        unlink(path);
+        return -1;
+    }
+    if (fwrite(segment->rel_positions, sizeof(int32_t), segment->header.n_tokens, fp) != segment->header.n_tokens) {
+        fprintf(stderr, "[GKV] Failed to write rel_positions to %s\n", path);
+        fclose(fp);
+        unlink(path);
+        return -1;
+    }
 
     fclose(fp);
 

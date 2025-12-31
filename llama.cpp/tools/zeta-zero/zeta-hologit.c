@@ -626,7 +626,6 @@ void zeta_hologit_print_top_edges(const zeta_hologit_t* hg, int n) {
                 (long long)e->block_a, (long long)e->block_b,
                 e->weight, (long long)e->co_retrieval_count);
     }
-    }
 
     free(used);
 }

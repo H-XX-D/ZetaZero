@@ -11,6 +11,7 @@
 #include <string.h>
 #include <time.h>
 #include <math.h>
+#include <unistd.h>  // For unlink()
 
 #ifdef __cplusplus
 extern "C" {
@@ -206,16 +207,22 @@ static inline int zeta_fact_store_save(zeta_fact_store_t* store) {
     if (!f) return -1;
 
     const char magic[] = "ZFCT";
-    fwrite(magic, 1, 4, f);
-    fwrite(&store->num_facts, sizeof(int), 1, f);
-    fwrite(&store->next_fact_id, sizeof(int64_t), 1, f);
-    fwrite(&store->embed_dim, sizeof(int), 1, f);
+    bool write_ok = true;
+    write_ok = write_ok && (fwrite(magic, 1, 4, f) == 4);
+    write_ok = write_ok && (fwrite(&store->num_facts, sizeof(int), 1, f) == 1);
+    write_ok = write_ok && (fwrite(&store->next_fact_id, sizeof(int64_t), 1, f) == 1);
+    write_ok = write_ok && (fwrite(&store->embed_dim, sizeof(int), 1, f) == 1);
 
-    for (int i = 0; i < store->num_facts; i++) {
-        fwrite(&store->facts[i], sizeof(zeta_fact_t), 1, f);
+    for (int i = 0; i < store->num_facts && write_ok; i++) {
+        write_ok = write_ok && (fwrite(&store->facts[i], sizeof(zeta_fact_t), 1, f) == 1);
     }
 
     fclose(f);
+
+    if (!write_ok) {
+        unlink(path);  // Remove partial file on write failure
+        return -1;
+    }
 
     snprintf(path, sizeof(path), "%s/facts_index.txt", store->storage_path);
     f = fopen(path, "w");

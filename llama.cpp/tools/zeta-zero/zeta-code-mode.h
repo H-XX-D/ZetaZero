@@ -160,12 +160,12 @@ static inline zeta_code_ctx_t* zeta_code_init(
 
 // Set model paths for dynamic swapping
 static inline void zeta_set_model_paths(zeta_code_ctx_t* ctx, const char* i3b, const char* c3b, const char* i14b, const char* c7b, const char* e_chat, const char* e_code) {
-    if (i3b) strncpy(ctx->models.path_subconscious_instruct, i3b, 511);
-    if (c3b) strncpy(ctx->models.path_subconscious_coder, c3b, 511);
-    if (i14b) strncpy(ctx->models.path_conscious, i14b, 511);
-    if (c7b) strncpy(ctx->models.path_coder, c7b, 511);
-    if (e_chat) strncpy(ctx->models.path_embed_chat, e_chat, 511);
-    if (e_code) strncpy(ctx->models.path_embed_code, e_code, 511);
+    if (i3b) { strncpy(ctx->models.path_subconscious_instruct, i3b, 511); ctx->models.path_subconscious_instruct[511] = '\0'; }
+    if (c3b) { strncpy(ctx->models.path_subconscious_coder, c3b, 511); ctx->models.path_subconscious_coder[511] = '\0'; }
+    if (i14b) { strncpy(ctx->models.path_conscious, i14b, 511); ctx->models.path_conscious[511] = '\0'; }
+    if (c7b) { strncpy(ctx->models.path_coder, c7b, 511); ctx->models.path_coder[511] = '\0'; }
+    if (e_chat) { strncpy(ctx->models.path_embed_chat, e_chat, 511); ctx->models.path_embed_chat[511] = '\0'; }
+    if (e_code) { strncpy(ctx->models.path_embed_code, e_code, 511); ctx->models.path_embed_code[511] = '\0'; }
 }
 
 // Switch to code mode - UNLOAD instruct, LOAD coder

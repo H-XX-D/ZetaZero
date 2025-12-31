@@ -164,6 +164,12 @@ int zeta_sha256_file(const char* filepath, uint8_t hash_out[ZETA_HASH_SIZE]) {
         sha256_update(&ctx, buffer, bytes_read);
     }
 
+    // Check for I/O errors - don't hash incomplete data
+    if (ferror(f)) {
+        fclose(f);
+        return -1;
+    }
+
     fclose(f);
     sha256_final(&ctx, hash_out);
     return 0;

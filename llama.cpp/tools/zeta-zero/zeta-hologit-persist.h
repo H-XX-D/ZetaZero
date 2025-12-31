@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 #define HOLOGIT_STORAGE_ROOT "/mnt/HoloGit"
 
@@ -18,9 +19,13 @@ static inline int hologit_save_block(int64_t block_id, const float* summary, int
     FILE* f = fopen(path, "wb");
     if (!f) return -1;
 
-    fwrite(&block_id, sizeof(int64_t), 1, f);
-    fwrite(&dim, sizeof(int), 1, f);
-    fwrite(summary, sizeof(float), dim, f);
+    if (fwrite(&block_id, sizeof(int64_t), 1, f) != 1 ||
+        fwrite(&dim, sizeof(int), 1, f) != 1 ||
+        fwrite(summary, sizeof(float), dim, f) != (size_t)dim) {
+        fclose(f);
+        unlink(path);  // Remove partial file
+        return -1;
+    }
     fclose(f);
     return 0;
 }
@@ -85,7 +90,11 @@ static inline int hologit_save_edge(const zeta_edge_t* edge) {
     FILE* f = fopen(path, "wb");
     if (!f) return -1;
 
-    fwrite(edge, sizeof(zeta_edge_t), 1, f);
+    if (fwrite(edge, sizeof(zeta_edge_t), 1, f) != 1) {
+        fclose(f);
+        unlink(path);  // Remove partial file
+        return -1;
+    }
     fclose(f);
     return 0;
 }
@@ -99,9 +108,13 @@ static inline int hologit_save_version(int64_t block_id, const zeta_version_t* v
     FILE* f = fopen(path, "wb");
     if (!f) return -1;
 
-    fwrite(ver, sizeof(zeta_version_t) - sizeof(float*), 1, f);  // Exclude pointer
-    fwrite(&dim, sizeof(int), 1, f);
-    fwrite(ver->summary_snapshot, sizeof(float), dim, f);
+    if (fwrite(ver, sizeof(zeta_version_t) - sizeof(float*), 1, f) != 1 ||
+        fwrite(&dim, sizeof(int), 1, f) != 1 ||
+        fwrite(ver->summary_snapshot, sizeof(float), dim, f) != (size_t)dim) {
+        fclose(f);
+        unlink(path);  // Remove partial file
+        return -1;
+    }
     fclose(f);
     return 0;
 }

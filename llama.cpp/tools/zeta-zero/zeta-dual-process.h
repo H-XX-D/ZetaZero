@@ -1418,6 +1418,7 @@ static inline int zeta_subconscious_extract_facts(
                                 for (int ni = 0; ni < ctx->num_nodes; ni++) {
                                     if (ctx->nodes[ni].node_id == new_id) {
                                         strncpy(ctx->nodes[ni].concept_key, concept_key, 63);
+                                        ctx->nodes[ni].concept_key[63] = '\0';  // Ensure null-termination
                                         break;
                                     }
                                 }

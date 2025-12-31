@@ -266,6 +266,7 @@ int64_t zeta_sublimate_block_ext(
     };
     if (write(fd, &header, header_size) < 0) {
         close(fd);
+        unlink(block->disk_path);  // Remove partial file
         free(block->summary);
         free(block->disk_path);
         block->summary = NULL;
@@ -276,6 +277,7 @@ int64_t zeta_sublimate_block_ext(
     // Write summary vector (for loading without recomputation)
     if (write(fd, block->summary, summary_size) < 0) {
         close(fd);
+        unlink(block->disk_path);  // Remove partial file
         free(block->summary);
         free(block->disk_path);
         block->summary = NULL;
@@ -286,6 +288,7 @@ int64_t zeta_sublimate_block_ext(
     // Write keys
     if (write(fd, keys, token_count * ctx->summary_dim * sizeof(float)) < 0) {
         close(fd);
+        unlink(block->disk_path);  // Remove partial file
         free(block->summary);
         free(block->disk_path);
         block->summary = NULL;
@@ -296,6 +299,7 @@ int64_t zeta_sublimate_block_ext(
     // Write values
     if (write(fd, values, token_count * ctx->summary_dim * sizeof(float)) < 0) {
         close(fd);
+        unlink(block->disk_path);  // Remove partial file
         free(block->summary);
         free(block->disk_path);
         block->summary = NULL;
