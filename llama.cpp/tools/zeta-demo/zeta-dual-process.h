@@ -7,6 +7,7 @@
 
 #include "llama.h"
 #include "zeta-3b-extract.h"
+#include "zeta-ontology.h"
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdlib.h>
@@ -452,6 +453,38 @@ static inline int64_t zeta_commit_fact(
     }
     // Fallback to direct storage
     return zeta_create_node_with_source(ctx, type, label, value, salience, source);
+}
+
+// Ontology-checked commit: blocks SYSTEM domain facts from user input
+// Use this for all user-sourced extraction to prevent privilege injection
+static inline int64_t zeta_commit_fact_checked(
+    zeta_dual_ctx_t* ctx,
+    zeta_node_type_t type,
+    const char* label,
+    const char* value,
+    float salience,
+    zeta_source_t source,
+    bool from_user_input
+) {
+    // Run ontological domain classification
+    zeta_domain_result_t domain_result;
+    if (!zeta_should_extract_fact(value, from_user_input, &domain_result)) {
+        // Blocked by ontology - user tried to claim SYSTEM domain fact
+        fprintf(stderr, "[ONTOLOGY-BLOCK] Rejected user fact: %s = %.40s... (domain: %s)\n",
+                label, value, zeta_domain_to_string(domain_result.domain));
+        return -1;  // Indicate blocked
+    }
+
+    // Adjust source based on domain
+    // WORLD facts from users get demoted to SOURCE_MODEL for verification
+    zeta_source_t effective_source = source;
+    if (from_user_input && domain_result.domain == DOMAIN_WORLD) {
+        effective_source = SOURCE_MODEL;  // Needs verification
+        fprintf(stderr, "[ONTOLOGY] WORLD fact from user demoted to MODEL source\n");
+    }
+
+    // Proceed with commit
+    return zeta_commit_fact(ctx, type, label, value, salience, effective_source);
 }
 
 // Scoped commit: allows fiction/dream content to be saved in separate layer
@@ -1077,17 +1110,20 @@ static inline void zeta_surface_context(
 // Semantic Fact Extraction (3B-powered)
 // ============================================================================
 
-// Extract facts using 3B semantic analysis  
+// Extract facts using 3B semantic analysis
+// from_user: true if text is from user input (ontology-checked), false if from model
 static inline int zeta_subconscious_extract_facts(
     zeta_dual_ctx_t* ctx,
-    const char* text
+    const char* text,
+    bool from_user = false  // Default false for backwards compatibility
 ) {
     if (!ctx || !text) return 0;
-    
+
     int facts_created = 0;
-    
+
     // DEBUG: What text arrives?
-    fprintf(stderr, "[EXTRACT DEBUG] Text starts with: %.40s...\n", text);
+    fprintf(stderr, "[EXTRACT DEBUG] Text starts with: %.40s... (from_user=%s)\n",
+            text, from_user ? "true" : "false");
 
     // ===== REMEMBER SHORT-CIRCUIT =====
     // Find "Remember:" or "Remember this:" anywhere in text (case-insensitive)
@@ -1121,9 +1157,14 @@ static inline int zeta_subconscious_extract_facts(
 
     if (content && strlen(content) > 5) {
             // Store as raw_memory with high salience (routes through GitGraph if enabled)
-            zeta_commit_fact(ctx, NODE_FACT, "raw_memory", content, 0.95f, SOURCE_USER);
-            facts_created++;
-            fprintf(stderr, "[REMEMBER] Direct storage: %.60s...\n", content);
+            // Use ontology-checked commit to block SYSTEM domain claims
+            int64_t result = zeta_commit_fact_checked(ctx, NODE_FACT, "raw_memory", content, 0.95f, SOURCE_USER, from_user);
+            if (result >= 0) {
+                facts_created++;
+                fprintf(stderr, "[REMEMBER] Direct storage: %.60s...\n", content);
+            } else {
+                fprintf(stderr, "[REMEMBER] BLOCKED by ontology: %.60s...\n", content);
+            }
 
             // Also extract causal relations from the content
             char lower_content[2048];

@@ -208,11 +208,12 @@ static inline void* zeta_subconscious_worker(void* arg) {
             
             int facts = 0;
             if (!is_question) {
-                facts = zeta_subconscious_extract_facts(ctx, entry.text);
+                // Pass from_user=true to enable ontology-based domain blocking
+                facts = zeta_subconscious_extract_facts(ctx, entry.text, true);
             } else {
                 fprintf(stderr, "[3B:WORKER] Skipping extraction for question\n");
             }
-            fprintf(stderr, "[3B:WORKER] INPUT: %d facts extracted\n", facts);
+            fprintf(stderr, "[3B:WORKER] INPUT: %d facts extracted (ontology-checked)\n", facts);
         } else {
             // OUTPUT: CORRELATIONS ONLY - no new identity nodes
             int ops = zeta_process_output_cyclic(ctx, entry.text, last_input, 
