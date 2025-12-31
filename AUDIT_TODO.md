@@ -1,7 +1,41 @@
 # Z.E.T.A. Codebase Audit Checklist
 **Generated**: December 31, 2025
 **Location**: /Users/hendrixx./ZetaZero/llama.cpp/tools/zeta-zero/
-**Last Updated**: AUDIT COMPLETE ✅
+**Last Updated**: DEEP AUDIT COMPLETE ✅ - 29 CRITICAL BUGS FIXED
+
+---
+
+## DEEP AUDIT BUG FIXES (December 31, 2025)
+
+### Commit c5d14c1 - Deep Audit Pass 1
+| File | Bug | Fix |
+|------|-----|-----|
+| zeta-output-control.h | bool→int return type mismatch | Changed function to return int |
+| zeta-output-control.h | Missing prompt param in postprocess | Added prompt parameter |
+| zeta-output-control.h | Missing prompt causes complexity=0.3 | Fixed caller in server |
+| zeta-cyclic.h | Forward decl 2 params vs actual 3 | Fixed signature |
+| zeta-cyclic.h | Race condition in init | Added mutex protection |
+| zeta-cyclic.h | strncpy missing null-term (3 places) | Added null terminators |
+| zeta-cyclic.h | Silent queue overflow | Added warning log |
+| zeta-streaming.h | total_tokens could go negative | Added safety check |
+| zeta-dual-process.h | malloc no NULL check in tunnel | Added check |
+| zeta-dual-process.h | Node ID used as array index | Fixed to use find_by_id |
+
+### Commit d91bcd1 - Deep Audit Pass 2
+| File | Bug | Fix |
+|------|-----|-----|
+| zeta-critic.h | strncpy missing null-term (15 places) | Added null terminators |
+| zeta-server.cpp | strncpy missing null-term (2 places) | Added null terminators |
+| zeta-memory.c | malloc no NULL check in prefetch | Added check + fallback |
+| zeta-memory.c | malloc no NULL check in prediction | Added check + fallback |
+| zeta-memory.c | malloc no NULL check in graph_retrieve | Added check + early return |
+
+### Commit 543a314 - Build Fix
+| File | Bug | Fix |
+|------|-----|-----|
+| zeta-cyclic.h | C++ duplicate default argument | Removed from forward decl |
+
+**Total: 29 bugs fixed in 3 commits**
 
 ---
 
