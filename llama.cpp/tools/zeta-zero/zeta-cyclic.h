@@ -6,8 +6,9 @@
 
 #include "zeta-dual-process.h"
 #include <pthread.h>
-// Forward declaration - NOTE: has optional 3rd param from_user with default=false
-int zeta_subconscious_extract_facts(zeta_dual_ctx_t* ctx, const char* text, bool from_user = false);
+// Forward declaration - function defined in zeta-dual-process.h with from_user default=false
+// NOTE: Do not repeat default argument here (already in zeta-dual-process.h)
+int zeta_subconscious_extract_facts(zeta_dual_ctx_t* ctx, const char* text, bool from_user);
 #include <unistd.h>
 
 #ifdef __cplusplus
