@@ -339,7 +339,7 @@ static inline bool zeta_has_negation_near(const char* text, const char* entity) 
 static inline void zeta_normalize_fact(char* dest, const char* src, size_t max_len) {
     size_t len = strlen(src);
     if (len >= max_len) len = max_len - 1;
-    strncpy(dest, src, len);
+    memcpy(dest, src, len);  // memcpy is safe here - we already bounds-checked len
     dest[len] = '\0';
     // Strip trailing punctuation
     while (len > 0 && (dest[len-1] == '.' || dest[len-1] == ',' ||

@@ -3485,8 +3485,8 @@ int main(int argc, char** argv) {
         static std::atomic<uint64_t> g_request_counter{0};
         uint64_t request_id = ++g_request_counter;
         std::string req_prompt_hash = std::to_string(std::hash<std::string>{}(prompt.substr(0, 100)));
-        fprintf(stderr, "[REQ-%lu] New request (hash=%s): %.60s...\n",
-                request_id, req_prompt_hash.c_str(), prompt.c_str());
+        fprintf(stderr, "[REQ-%llu] New request (hash=%s): %.60s...\n",
+                (unsigned long long)request_id, req_prompt_hash.c_str(), prompt.c_str());
         g_speed_receipt.start();  // Speed Receipt: start timing
 
         // Pre-check: TRM safety (must be synchronous - blocks unsafe queries)
@@ -3570,14 +3570,14 @@ int main(int argc, char** argv) {
 
             // Launch TRM retrieval asynchronously with request ID tracking
             trm_future = std::async(std::launch::async, [&, request_id, prompt_copy = prompt]() -> std::string {
-                fprintf(stderr, "[TRM-ASYNC][REQ-%lu] Starting context retrieval...\n", request_id);
+                fprintf(stderr, "[TRM-ASYNC][REQ-%llu] Starting context retrieval...\n", (unsigned long long)request_id);
                 std::string ctx;
                 if (g_stream_state.has_query_embedding) {
                     ctx = g_trm.retrieve_context(prompt_copy, g_stream_state.query_embedding, 3072);
                 } else {
                     ctx = g_trm.retrieve_context(prompt_copy);
                 }
-                fprintf(stderr, "[TRM-ASYNC][REQ-%lu] Retrieved %zu chars\n", request_id, ctx.size());
+                fprintf(stderr, "[TRM-ASYNC][REQ-%llu] Retrieved %zu chars\n", (unsigned long long)request_id, ctx.size());
                 return ctx;
             });
         }
@@ -3586,9 +3586,9 @@ int main(int argc, char** argv) {
             // Launch HRM decomposition asynchronously with request ID tracking
             // Copy prompt to avoid reference issues with concurrent requests
             hrm_future = std::async(std::launch::async, [&, request_id, prompt_copy = prompt]() -> std::string {
-                fprintf(stderr, "[HRM-ASYNC][REQ-%lu] Starting hierarchical decomposition...\n", request_id);
+                fprintf(stderr, "[HRM-ASYNC][REQ-%llu] Starting hierarchical decomposition...\n", (unsigned long long)request_id);
                 std::string result = g_hrm.run(prompt_copy);
-                fprintf(stderr, "[HRM-ASYNC][REQ-%lu] Decomposition complete: %zu chars\n", request_id, result.size());
+                fprintf(stderr, "[HRM-ASYNC][REQ-%llu] Decomposition complete: %zu chars\n", (unsigned long long)request_id, result.size());
                 return result;
             });
         }
@@ -3981,7 +3981,8 @@ int main(int argc, char** argv) {
         // Parse OpenAI format: {"model": "...", "messages": [...], "max_tokens": N}
         std::string model = "zeta-cognitive";
         int max_tokens = 2048;
-        float temperature = 0.7f;
+        float temperature = 0.7f;  // TODO: Wire to generation params
+        (void)temperature;  // Suppress unused warning until implemented
         std::string prompt;
 
         // Extract model
@@ -4134,7 +4135,7 @@ int main(int argc, char** argv) {
         char response[65536];
         snprintf(response, sizeof(response),
             "{"
-            "\"id\": \"chatcmpl-zeta-%lu\","
+            "\"id\": \"chatcmpl-zeta-%llu\","
             "\"object\": \"chat.completion\","
             "\"created\": %ld,"
             "\"model\": \"%s\","
@@ -4153,7 +4154,7 @@ int main(int argc, char** argv) {
             "},"
             "\"system_fingerprint\": \"zeta-cognitive-v5.1\""
             "}",
-            id,
+            (unsigned long long)id,
             (long)time(NULL),
             model.c_str(),
             output_text.c_str(),
@@ -5063,7 +5064,7 @@ int main(int argc, char** argv) {
     }
 
     // Start new session (versions old data)
-    svr.Post("/session/new", [](const httplib::Request& req, httplib::Response& res) {
+    svr.Post("/session/new", [](const httplib::Request& /* req */, httplib::Response& res) {
         int64_t old_session = g_dual->current_session_id;
         g_dual->current_session_id = (int64_t)time(NULL);
         char buf[256];
@@ -5267,7 +5268,7 @@ int main(int argc, char** argv) {
         res.set_content(json, "application/json");
     });
 
-    svr.Get("/git/status", [](const httplib::Request& req, httplib::Response& res) {
+    svr.Get("/git/status", [](const httplib::Request& /* req */, httplib::Response& res) {
         std::lock_guard<std::mutex> lock(g_mutex);
         if (!g_git) { res.set_content("{\"error\": \"GitGraph not initialized\"}", "application/json"); return; }
 
