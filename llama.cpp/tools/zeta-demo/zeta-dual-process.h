@@ -147,6 +147,9 @@ typedef struct {
 
     // Epistemic scoping - keeps dreams separate from facts
     zeta_epistemic_scope_t scope;  // GLOBAL=facts, FICTION=dreams
+
+    // Cached semantic domain (set at node creation, avoids O(N) recomputation)
+    int semantic_domain;  // zeta_semantic_domain_t value (using int to avoid include)
 } zeta_graph_node_t;
 
 // Memory graph edge
@@ -391,6 +394,7 @@ static inline int64_t zeta_create_node_with_source(
         new_node->current_tier = ZETA_TIER_RAM;
         new_node->is_active = true;
         new_node->source = source;
+        new_node->semantic_domain = 0;  // DOMAIN_UNKNOWN - computed lazily in streaming
 
         memcpy(new_node->embedding, new_embedding, sizeof(new_embedding));
         ctx->num_nodes++;
@@ -421,7 +425,8 @@ static inline int64_t zeta_create_node_with_source(
     node->current_tier = ZETA_TIER_RAM;
     node->is_active = true;
     node->source = source;
-    
+    node->semantic_domain = 0;  // DOMAIN_UNKNOWN - computed lazily in streaming
+
     memcpy(node->embedding, new_embedding, sizeof(new_embedding));  // Use pre-computed embedding
     // Pre-tokenize for direct injection
     if (g_zeta_vocab) { node->has_tokens = zeta_tokenize_value(value, node->tokens, &node->num_tokens, 128); if (node->has_tokens) fprintf(stderr, "[TOK] %d tokens: %.40s...\n", node->num_tokens, value); }

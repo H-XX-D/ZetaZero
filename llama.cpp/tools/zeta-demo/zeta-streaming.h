@@ -3,9 +3,10 @@
 // Token-budgeted context management for 256-token window constraint
 
 #ifndef ZETA_STREAMING_H
+#define ZETA_STREAMING_H
+
 #include "zeta-domains.h"
 #include "zeta-embed-integration.h"
-#define ZETA_STREAMING_H
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -47,6 +48,7 @@ typedef struct {
     int64_t last_hop_from;  // For graph hop continuation
     int hop_depth;          // Current hop depth (reset each query)
     float query_embedding[3072]; // Query embedding for semantic matching
+    int query_embedding_dim;     // Actual dimension of stored embedding
     bool has_query_embedding;    // True if query was embedded
 
     // Conversation history buffer (short-term memory)
@@ -109,21 +111,21 @@ static inline float zeta_query_node_similarity(
 ) {
     if (!state || !node || !state->has_query_embedding) return 0.5f;
     if (!g_embed_ctx || !g_embed_ctx->initialized) return 0.5f;
+    if (state->query_embedding_dim <= 0) return 0.5f;
 
-    // Use cached embedding if available, otherwise compute and cache
+    // Use cached embedding if available
     float* node_embedding = node->embedding;
-    int dim = g_embed_ctx->embed_dim;
 
-    // Safety: check embedding dimension fits in node array (max 3072)
-    if (dim > 3072) {
-        fprintf(stderr, "[EMBED] WARN: Model dim %d > 3072, truncating\n", dim);
-        dim = 3072;
-    }
+    // CRITICAL: Use minimum of query dim and model's current dim to prevent OOB reads
+    // All nodes use the same embedding model, so use global dim
+    int model_dim = g_embed_ctx->embed_dim;
+    int dim = state->query_embedding_dim < model_dim ? state->query_embedding_dim : model_dim;
 
-    // Embeddings are pre-computed in zeta_create_node_with_source
-    // Just use the node's existing embedding (256-dim from 3B model)
+    // Safety: ensure we don't exceed array bounds (max 3072)
+    if (dim > 3072) dim = 3072;
+    if (dim <= 0) return 0.5f;
 
-    // Compute cosine similarity using cached embedding
+    // Compute cosine similarity using the safe dimension
     float similarity = zeta_embed_similarity(state->query_embedding, node_embedding, dim);
 
     // Convert from [-1,1] to [0,1] range for priority boost
@@ -176,6 +178,7 @@ static inline zeta_graph_node_t* zeta_stream_surface_one(
     if (!state->has_query_embedding && query && strlen(query) > 0 && g_embed_ctx && g_embed_ctx->initialized) {
         int dim = zeta_embed_text(query, state->query_embedding, 3072);
         if (dim > 0) {
+            state->query_embedding_dim = dim;  // Store actual dimension
             state->has_query_embedding = true;
             fprintf(stderr, "[STREAM] Query embedded: %d dims\n", dim);
         }
@@ -201,7 +204,13 @@ static inline zeta_graph_node_t* zeta_stream_surface_one(
         if (strlen(node->value) < 3) continue;  // Skip near-empty nodes
 
         // Domain filtering: skip unrelated domains unless very high salience
-        zeta_semantic_domain_t node_domain = zeta_classify_domain(node->value);
+        // Use cached semantic_domain (set at node creation) to avoid O(N) classification
+        zeta_semantic_domain_t node_domain = (zeta_semantic_domain_t)node->semantic_domain;
+        if (node_domain == DOMAIN_UNKNOWN) {
+            // Fallback: compute and cache for legacy nodes
+            node_domain = zeta_classify_domain(node->value);
+            ((zeta_graph_node_t*)node)->semantic_domain = (int)node_domain;
+        }
         if (!zeta_domains_related(query_domain, node_domain) && node->salience < 0.9f) {
             continue;  // Skip unrelated domain
         }
@@ -325,16 +334,34 @@ static inline void zeta_stream_evict(
 
     state->num_active = new_count;
     state->total_tokens -= freed_tokens;
-    state->has_query_embedding = false;  // New query needs fresh embedding
+    // NOTE: Do NOT reset has_query_embedding here - eviction happens within
+    // a query, not between queries. Use zeta_stream_reset() for new queries.
 }
 
-// Reset stream state for new query
-static inline void zeta_stream_reset(zeta_stream_state_t* state) {
+// Initialize stream state (call once at allocation)
+static inline void zeta_stream_init(zeta_stream_state_t* state) {
+    if (!state) return;
+    memset(state, 0, sizeof(zeta_stream_state_t));
     state->num_active = 0;
     state->total_tokens = 0;
     state->last_hop_from = 0;
     state->hop_depth = 0;
+    state->query_embedding_dim = 0;
+    state->has_query_embedding = false;
+    state->history_head = 0;
+    state->history_count = 0;
+}
+
+// Reset stream state for new query (preserves conversation history)
+static inline void zeta_stream_reset(zeta_stream_state_t* state) {
+    if (!state) return;
+    state->num_active = 0;
+    state->total_tokens = 0;
+    state->last_hop_from = 0;
+    state->hop_depth = 0;
+    state->query_embedding_dim = 0;
     state->has_query_embedding = false;  // Force re-embed for new query
+    // NOTE: history is preserved across resets
 }
 
 // Format active nodes into compact context
@@ -374,8 +401,10 @@ static inline int zeta_stream_format(
         }
     }
 
-    snprintf(p, remaining, "[/FACTS]\n");
-    return buffer_size - remaining;
+    n = snprintf(p, remaining, "[/FACTS]\n");
+    p += n; remaining -= n;
+
+    return buffer_size - 1 - remaining;  // Total bytes written (excluding null terminator)
 }
 
 #endif // ZETA_STREAMING_H
