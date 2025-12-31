@@ -88,6 +88,7 @@ struct ZetaGKVNode {
     // Graph-aware scoring
     float salience;                // Importance score (0-1)
     float momentum;                // Recent access momentum (decays)
+    float momentum_integral;       // Cumulative importance over time (decays slower)
 
     // Tensor-aware delta encoding
     std::string parent_id;         // Parent node for delta encoding
@@ -492,6 +493,7 @@ public:
         node.created = time(nullptr);
         node.salience = salience;
         node.momentum = 1.0f;
+        node.momentum_integral = 1.0f;  // Start with some credit
         node.parent_id = parent_id;
         node.is_delta_encoded = false;
         node.warm_path = warm_path;
@@ -526,6 +528,7 @@ public:
         it->second.access_count++;
         it->second.last_access = time(nullptr);
         it->second.momentum = it->second.momentum * 0.9f + 0.1f;
+        it->second.momentum_integral = it->second.momentum_integral * 0.98f + it->second.momentum;
 
         // Trigger prefetch of related nodes
         if (g_hsm_config.prefetch_enabled) {
@@ -726,6 +729,7 @@ private:
             node.created = st.st_ctime;
             node.salience = 0.5f;
             node.momentum = 0.1f;
+            node.momentum_integral = 0.1f;  // Discovered nodes start low
             node.is_delta_encoded = false;
             node.warm_path = g_hsm_config.warm_dir + "/" + node_id + ".bin";
             node.dense_path = g_hsm_config.dense_dir + "/" + node_id + ".agkv";

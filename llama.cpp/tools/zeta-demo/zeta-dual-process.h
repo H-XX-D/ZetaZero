@@ -126,6 +126,8 @@ typedef struct {
 
     float embedding[2048];     // Semantic embedding (supports up to 2048-dim models)
     float salience;            // Importance score 0-1
+    float momentum;            // Current access momentum (decays fast)
+    float momentum_integral;   // Cumulative importance (decays slow) - preserves once-hot memories
     int64_t created_at;
     int64_t last_accessed;
     int access_count;
@@ -353,6 +355,8 @@ static inline int64_t zeta_create_node_with_source(
             // SAME VALUE: just update access time (no new version)
             ctx->nodes[existing_idx].last_accessed = (int64_t)time(NULL);
             ctx->nodes[existing_idx].access_count++;
+            ctx->nodes[existing_idx].momentum = ctx->nodes[existing_idx].momentum * 0.9f + 0.1f;
+            ctx->nodes[existing_idx].momentum_integral = ctx->nodes[existing_idx].momentum_integral * 0.98f + ctx->nodes[existing_idx].momentum;
             fprintf(stderr, "[3B] Dedup: surfacing existing node %lld '%s'\n",
                     existing_id, ctx->nodes[existing_idx].label);
             return existing_id;
@@ -377,6 +381,8 @@ static inline int64_t zeta_create_node_with_source(
         strncpy(new_node->label, label, sizeof(new_node->label) - 1);
         strncpy(new_node->value, value, sizeof(new_node->value) - 1);
         new_node->salience = salience;
+        new_node->momentum = 1.0f;
+        new_node->momentum_integral = 1.0f;
         new_node->created_at = (int64_t)time(NULL);
         new_node->last_accessed = new_node->created_at;
         new_node->session_id = ctx->current_session_id;
@@ -405,6 +411,8 @@ static inline int64_t zeta_create_node_with_source(
     strncpy(node->label, label, sizeof(node->label) - 1);
     strncpy(node->value, value, sizeof(node->value) - 1);
     node->salience = salience;
+    node->momentum = 1.0f;
+    node->momentum_integral = 1.0f;
     node->created_at = (int64_t)time(NULL);
     node->session_id = ctx->current_session_id;
     node->last_accessed = node->created_at;
@@ -808,6 +816,8 @@ static inline int zeta_tunnel(
         scores[i] = scored[i].score;
         ctx->nodes[scored[i].idx].last_accessed = (int64_t)time(NULL);
         ctx->nodes[scored[i].idx].access_count++;
+        ctx->nodes[scored[i].idx].momentum = ctx->nodes[scored[i].idx].momentum * 0.9f + 0.1f;
+        ctx->nodes[scored[i].idx].momentum_integral = ctx->nodes[scored[i].idx].momentum_integral * 0.98f + ctx->nodes[scored[i].idx].momentum;
     }
     
     free(scored);

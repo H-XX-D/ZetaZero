@@ -994,11 +994,13 @@ public:
             stats.nodes_evaluated++;
 
             // Calculate importance based on:
-            // 1. Recency (time decay)
-            // 2. Edge count (connectivity)
-            // 3. Access count (if tracked)
+            // 1. Current momentum (is it relevant now?)
+            // 2. Momentum integral (cumulative importance over time)
+            // 3. Edge count (connectivity)
 
-            float recency_score = 1.0f;
+            float current_momentum = ctx->nodes[i].momentum;
+            float momentum_integral = ctx->nodes[i].momentum_integral;
+
             // Use edge count as connectivity proxy
             int edge_count = 0;
             int64_t current_node_id = ctx->nodes[i].node_id;
@@ -1009,7 +1011,11 @@ public:
             }
 
             float connectivity_score = (float)edge_count / std::max(1, ctx->num_edges) * 10.0f;
-            node_importance[i] = (recency_score * 0.5f) + (connectivity_score * 0.5f);
+            // Importance = current state + historical importance + connectivity
+            // Momentum integral normalized by ~50 (saturation point)
+            node_importance[i] = (current_momentum * 0.3f) +
+                                 (momentum_integral / 50.0f * 0.5f) +
+                                 (connectivity_score * 0.2f);
             total_activation += node_importance[i];
         }
 
