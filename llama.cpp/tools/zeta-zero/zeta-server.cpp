@@ -2102,11 +2102,11 @@ static std::string generate(const std::string& prompt, int max_tokens) {
     int n_generated = 0;
     int n_vocab = llama_vocab_n_tokens(g_vocab);
 
-    // === OUTPUT CONTROL: Detect mode and set limits ===
+    // === OUTPUT CONTROL: Detect mode and set limits with dynamic complexity ===
     ZetaOutputMode output_mode = zeta_detect_output_mode(prompt.c_str());
-    ZetaOutputControl output_ctrl = zeta_get_output_control(output_mode);
-    fprintf(stderr, "[OUTPUT_CTRL] Mode=%d, max_chars=%d, max_words=%d\n",
-            output_mode, output_ctrl.max_chars, output_ctrl.max_words);
+    ZetaOutputControl output_ctrl = zeta_get_output_control(output_mode, prompt.c_str());  // Pass prompt!
+    fprintf(stderr, "[OUTPUT_CTRL] Mode=%d, complexity=%.2f, max_chars=%d, max_words=%d\n",
+            output_mode, output_ctrl.complexity, output_ctrl.max_chars, output_ctrl.max_words);
 
     auto* sampler = common_sampler_init(g_model_conscious, g_params.sampling);
     int kv_next_pos = pos_offset + n_tokens;  // Track actual KV cache position (includes injected GKV)

@@ -6,8 +6,8 @@
 
 #include "zeta-dual-process.h"
 #include <pthread.h>
-// Forward declaration for extern function
-int zeta_subconscious_extract_facts(zeta_dual_ctx_t* ctx, const char* text);
+// Forward declaration - NOTE: has optional 3rd param from_user with default=false
+int zeta_subconscious_extract_facts(zeta_dual_ctx_t* ctx, const char* text, bool from_user = false);
 #include <unistd.h>
 
 #ifdef __cplusplus
@@ -33,13 +33,20 @@ typedef struct {
 
 static zeta_cyclic_queue_t g_cyclic = {0};
 static bool g_cyclic_initialized = false;
+static pthread_mutex_t g_cyclic_init_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 static inline void zeta_cyclic_init(void) {
-    if (g_cyclic_initialized) return;
+    // Thread-safe initialization check
+    pthread_mutex_lock(&g_cyclic_init_mutex);
+    if (g_cyclic_initialized) {
+        pthread_mutex_unlock(&g_cyclic_init_mutex);
+        return;
+    }
     pthread_mutex_init(&g_cyclic.lock, NULL);
     pthread_cond_init(&g_cyclic.cond, NULL);
     g_cyclic.running = true;
     g_cyclic_initialized = true;
+    pthread_mutex_unlock(&g_cyclic_init_mutex);
 }
 
 static inline void zeta_cyclic_push(const char* text, bool is_input, float momentum) {
@@ -48,18 +55,22 @@ static inline void zeta_cyclic_push(const char* text, bool is_input, float momen
     
     if (is_input) {
         strncpy(g_cyclic.last_input, text, sizeof(g_cyclic.last_input) - 1);
+        g_cyclic.last_input[sizeof(g_cyclic.last_input) - 1] = '\0';  // Ensure null termination
     }
     
     int next = (g_cyclic.tail + 1) % 64;
     if (next != g_cyclic.head) {
         zeta_cyclic_entry_t* entry = &g_cyclic.queue[g_cyclic.tail];
         strncpy(entry->text, text, sizeof(entry->text) - 1);
+        entry->text[sizeof(entry->text) - 1] = '\0';  // Ensure null termination
         fprintf(stderr, "[CYCLIC:PUSH] Stored: %.60s...\n", entry->text);
         entry->is_input = is_input;
         entry->timestamp = (int64_t)time(NULL);
         entry->momentum = momentum;
         g_cyclic.tail = next;
         pthread_cond_signal(&g_cyclic.cond);
+    } else {
+        fprintf(stderr, "[CYCLIC:PUSH] WARNING: Queue full, dropping message!\n");
     }
     
     pthread_mutex_unlock(&g_cyclic.lock);
@@ -184,6 +195,7 @@ static inline void* zeta_subconscious_worker(void* arg) {
         fprintf(stderr, "[CYCLIC:POP] Retrieved: %.60s... is_input=%d\n", entry.text, entry.is_input);
         char last_input[4096];
         strncpy(last_input, g_cyclic.last_input, sizeof(last_input) - 1);
+        last_input[sizeof(last_input) - 1] = '\0';  // Ensure null termination
         g_cyclic.head = (g_cyclic.head + 1) % 64;
         
         pthread_mutex_unlock(&g_cyclic.lock);

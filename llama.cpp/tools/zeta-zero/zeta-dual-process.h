@@ -819,6 +819,10 @@ static inline int zeta_tunnel(
     // Score all nodes by similarity
     typedef struct { int idx; float score; } scored_t;
     scored_t* scored = (scored_t*)malloc(ctx->num_nodes * sizeof(scored_t));
+    if (!scored) {
+        fprintf(stderr, "[TUNNEL] ERROR: Failed to allocate %d scored entries\n", ctx->num_nodes);
+        return 0;  // Can't proceed without memory
+    }
     int n_scored = 0;
 
     for (int i = 0; i < ctx->num_nodes; i++) {

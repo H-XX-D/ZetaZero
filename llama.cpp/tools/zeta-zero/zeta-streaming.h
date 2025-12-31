@@ -334,6 +334,11 @@ static inline void zeta_stream_evict(
 
     state->num_active = new_count;
     state->total_tokens -= freed_tokens;
+    // Safety: ensure token count never goes negative (accounting error protection)
+    if (state->total_tokens < 0) {
+        fprintf(stderr, "[STREAM] WARNING: Token count went negative (%d), resetting to 0\n", state->total_tokens);
+        state->total_tokens = 0;
+    }
     // NOTE: Do NOT reset has_query_embedding here - eviction happens within
     // a query, not between queries. Use zeta_stream_reset() for new queries.
 }

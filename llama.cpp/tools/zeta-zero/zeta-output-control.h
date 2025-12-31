@@ -441,10 +441,11 @@ static inline std::string zeta_force_json_format(const std::string& output) {
 
 // === MAIN CONTROL FUNCTION ===
 // Call this during generation loop to check if we should stop
-static inline bool zeta_should_stop_output(const std::string& output,
+// Returns: 0 = OK, 1 = soft warning, 2 = hard stop
+static inline int zeta_should_stop_output(const std::string& output,
                                            const char* original_prompt) {
     ZetaOutputMode mode = zeta_detect_output_mode(original_prompt);
-    ZetaOutputControl ctrl = zeta_get_output_control(mode);
+    ZetaOutputControl ctrl = zeta_get_output_control(mode, original_prompt);  // Pass prompt for dynamic limits!
 
     return zeta_check_verbosity_runaway(output, ctrl);
 }
@@ -454,7 +455,7 @@ static inline bool zeta_should_stop_output(const std::string& output,
 static inline std::string zeta_postprocess_output(const std::string& output,
                                                    const char* original_prompt) {
     ZetaOutputMode mode = zeta_detect_output_mode(original_prompt);
-    ZetaOutputControl ctrl = zeta_get_output_control(mode);
+    ZetaOutputControl ctrl = zeta_get_output_control(mode, original_prompt);  // Pass prompt for dynamic limits!
 
     std::string result = output;
 
