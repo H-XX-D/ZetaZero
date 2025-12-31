@@ -1,9 +1,9 @@
 // Z.E.T.A. Output Control System
-// Fixes: verbosity runaway, Turn-2 compliance, JSON mode, instruction following
+// Dynamic complexity-based limits instead of hard caps
 //
 // Problems identified from MT-Bench:
-// 1. Q12 Turn 2: 7840 char word salad - no hard limit
-// 2. Q2 Turn 2: Story truncated - didn't follow "rewrite ending"
+// 1. Q12 Turn 2: 7840 char word salad - needs runaway detection
+// 2. Q2 Turn 2: Story truncated - needs dynamic limits for creative tasks
 // 3. Q7 Turn 2: Didn't implement Manacher's - ignored instruction
 // 4. Q13 Turn 2: No JSON output - format not enforced
 
@@ -18,11 +18,13 @@
 #include <regex>
 #include <cstring>
 #include <cctype>
+#include <cmath>
 
-// === OUTPUT LIMITS ===
-#define ZETA_MAX_OUTPUT_CHARS 2500      // Hard limit for regular output
-#define ZETA_MAX_OUTPUT_WORDS 400       // Word count limit
-#define ZETA_VOCAB_DIVERSITY_MIN 0.3f   // Min unique words / total words ratio
+// === BASE LIMITS (scaled by complexity) ===
+#define ZETA_BASE_OUTPUT_CHARS 1000     // Base for simple queries
+#define ZETA_BASE_OUTPUT_WORDS 150      // Base word count
+#define ZETA_MAX_COMPLEXITY_SCALE 6.0f  // Max multiplier (6x base = 6000 chars)
+#define ZETA_VOCAB_DIVERSITY_MIN 0.25f  // Min unique words / total words ratio
 #define ZETA_NGRAM_REPEAT_THRESHOLD 3   // Max times a 4-gram can repeat
 
 // === OUTPUT MODE FLAGS ===
@@ -42,7 +44,89 @@ struct ZetaOutputControl {
     bool enforce_format;
     std::string format_wrapper;    // e.g., "```json\n%s\n```"
     std::string required_keywords; // Must include these
+    float complexity;              // 0.0-1.0 complexity score
 };
+
+// === ESTIMATE PROMPT COMPLEXITY ===
+// Returns 0.0-1.0 score based on prompt characteristics
+static inline float zeta_estimate_complexity(const char* prompt) {
+    if (!prompt) return 0.3f;  // Default to low-medium
+
+    std::string p(prompt);
+    float score = 0.0f;
+
+    // Length factor (longer prompts = more complex tasks)
+    size_t len = p.length();
+    if (len > 100) score += 0.1f;
+    if (len > 300) score += 0.1f;
+    if (len > 600) score += 0.1f;
+    if (len > 1000) score += 0.1f;
+
+    // Multi-step indicators
+    if (p.find("step by step") != std::string::npos) score += 0.15f;
+    if (p.find("first") != std::string::npos && p.find("then") != std::string::npos) score += 0.1f;
+    if (p.find("explain") != std::string::npos && p.find("detail") != std::string::npos) score += 0.15f;
+
+    // Code complexity indicators
+    if (p.find("implement") != std::string::npos) score += 0.2f;
+    if (p.find("algorithm") != std::string::npos) score += 0.15f;
+    if (p.find("optimize") != std::string::npos) score += 0.1f;
+    if (p.find("refactor") != std::string::npos) score += 0.15f;
+    if (p.find("debug") != std::string::npos) score += 0.1f;
+
+    // Creative complexity
+    if (p.find("story") != std::string::npos) score += 0.25f;
+    if (p.find("chapter") != std::string::npos) score += 0.2f;
+    if (p.find("dialogue") != std::string::npos) score += 0.15f;
+    if (p.find("character") != std::string::npos) score += 0.1f;
+
+    // Analysis complexity
+    if (p.find("compare") != std::string::npos) score += 0.1f;
+    if (p.find("analyze") != std::string::npos) score += 0.15f;
+    if (p.find("evaluate") != std::string::npos) score += 0.1f;
+    if (p.find("pros and cons") != std::string::npos) score += 0.1f;
+
+    // Question count (multiple questions = more complex)
+    int questions = 0;
+    for (char c : p) if (c == '?') questions++;
+    score += questions * 0.05f;
+
+    // Clamp to 0.0-1.0
+    return std::min(1.0f, std::max(0.1f, score));
+}
+
+// === CALCULATE DYNAMIC LIMITS ===
+static inline void zeta_calc_dynamic_limits(ZetaOutputControl& ctrl, float complexity) {
+    // Scale factor: complexity 0.1 = 1x, complexity 1.0 = MAX_COMPLEXITY_SCALE
+    float scale = 1.0f + (complexity * (ZETA_MAX_COMPLEXITY_SCALE - 1.0f));
+
+    ctrl.complexity = complexity;
+    ctrl.max_chars = (int)(ZETA_BASE_OUTPUT_CHARS * scale);
+    ctrl.max_words = (int)(ZETA_BASE_OUTPUT_WORDS * scale);
+
+    // Mode-specific adjustments on top of complexity scaling
+    switch (ctrl.mode) {
+        case OUTPUT_MODE_JSON:
+            ctrl.max_chars = std::min(ctrl.max_chars, 2000);  // JSON shouldn't be huge
+            break;
+        case OUTPUT_MODE_CONCISE:
+            ctrl.max_chars = std::min(ctrl.max_chars, 800);   // Keep concise short
+            ctrl.max_words = std::min(ctrl.max_words, 120);
+            break;
+        case OUTPUT_MODE_CREATIVE:
+            ctrl.max_chars = (int)(ctrl.max_chars * 1.5f);    // Creative gets extra room
+            ctrl.max_words = (int)(ctrl.max_words * 1.5f);
+            break;
+        case OUTPUT_MODE_CODE:
+            ctrl.max_chars = (int)(ctrl.max_chars * 1.3f);    // Code needs more space
+            break;
+        default:
+            break;
+    }
+
+    fprintf(stderr, "[OUTPUT_CTRL] Complexity=%.2f → scale=%.1fx → max_chars=%d, max_words=%d\n",
+            complexity, scale, ctrl.max_chars, ctrl.max_words);
+}
 
 // === DETECT OUTPUT MODE FROM PROMPT ===
 static inline ZetaOutputMode zeta_detect_output_mode(const char* prompt) {
@@ -93,54 +177,50 @@ static inline ZetaOutputMode zeta_detect_output_mode(const char* prompt) {
     return OUTPUT_MODE_DEFAULT;
 }
 
-// === GET OUTPUT LIMITS FOR MODE ===
-static inline ZetaOutputControl zeta_get_output_control(ZetaOutputMode mode) {
+// === GET OUTPUT LIMITS FOR MODE (with dynamic complexity) ===
+static inline ZetaOutputControl zeta_get_output_control(ZetaOutputMode mode, const char* prompt = nullptr) {
     ZetaOutputControl ctrl;
     ctrl.mode = mode;
     ctrl.enforce_format = false;
     ctrl.format_wrapper = "";
     ctrl.required_keywords = "";
+    ctrl.complexity = 0.3f;  // Default
 
+    // Estimate complexity from prompt
+    float complexity = zeta_estimate_complexity(prompt);
+
+    // Set base values then apply dynamic scaling
     switch (mode) {
         case OUTPUT_MODE_JSON:
-            ctrl.max_chars = 1500;
-            ctrl.max_words = 200;
             ctrl.enforce_format = true;
-            ctrl.format_wrapper = "```json\n";  // Will check for this
+            ctrl.format_wrapper = "```json\n";
             break;
 
         case OUTPUT_MODE_CODE:
-            ctrl.max_chars = 2000;
-            ctrl.max_words = 300;
             ctrl.enforce_format = true;
             ctrl.format_wrapper = "```";
             break;
 
         case OUTPUT_MODE_TABLE:
-            ctrl.max_chars = 2000;
-            ctrl.max_words = 250;
             ctrl.enforce_format = true;
-            ctrl.format_wrapper = "|";  // Tables have pipes
+            ctrl.format_wrapper = "|";
             break;
 
         case OUTPUT_MODE_CONCISE:
-            ctrl.max_chars = 500;
-            ctrl.max_words = 80;
             ctrl.enforce_format = false;
             break;
 
         case OUTPUT_MODE_CREATIVE:
-            ctrl.max_chars = 3000;  // Higher for stories
-            ctrl.max_words = 500;
             ctrl.enforce_format = false;
             break;
 
         default:
-            ctrl.max_chars = ZETA_MAX_OUTPUT_CHARS;
-            ctrl.max_words = ZETA_MAX_OUTPUT_WORDS;
             ctrl.enforce_format = false;
             break;
     }
+
+    // Apply dynamic limits based on complexity
+    zeta_calc_dynamic_limits(ctrl, complexity);
 
     return ctrl;
 }
@@ -184,17 +264,25 @@ static inline std::string zeta_extract_turn2_instruction(const char* prompt) {
 }
 
 // === CHECK FOR VERBOSITY RUNAWAY ===
-// Returns true if output should stop (too repetitive or too long)
-static inline bool zeta_check_verbosity_runaway(const std::string& output,
-                                                 const ZetaOutputControl& ctrl) {
-    // Hard character limit
+// Returns: 0 = OK, 1 = soft warning (approaching limit), 2 = hard stop (runaway detected)
+static inline int zeta_check_verbosity_runaway(const std::string& output,
+                                                const ZetaOutputControl& ctrl) {
+    int status = 0;
+    
+    // Soft warning at 80% of limit
+    int soft_char_limit = (int)(ctrl.max_chars * 0.8f);
+    int soft_word_limit = (int)(ctrl.max_words * 0.8f);
+    
+    // Character limit check
     if ((int)output.size() >= ctrl.max_chars) {
-        fprintf(stderr, "[OUTPUT_CTRL] Hard char limit reached (%zu >= %d)\n",
+        fprintf(stderr, "[OUTPUT_CTRL] Char limit reached (%zu >= %d) - stopping\n",
                 output.size(), ctrl.max_chars);
-        return true;
+        return 2;  // Hard stop
+    } else if ((int)output.size() >= soft_char_limit) {
+        status = 1;  // Soft warning
     }
 
-    // Word count limit
+    // Word count check
     int word_count = 0;
     bool in_word = false;
     for (char c : output) {
@@ -207,12 +295,14 @@ static inline bool zeta_check_verbosity_runaway(const std::string& output,
     }
 
     if (word_count >= ctrl.max_words) {
-        fprintf(stderr, "[OUTPUT_CTRL] Word limit reached (%d >= %d)\n",
+        fprintf(stderr, "[OUTPUT_CTRL] Word limit reached (%d >= %d) - stopping\n",
                 word_count, ctrl.max_words);
-        return true;
+        return 2;  // Hard stop
+    } else if (word_count >= soft_word_limit) {
+        status = std::max(status, 1);  // Soft warning
     }
 
-    // Vocabulary diversity check (detect word salad)
+    // Vocabulary diversity check (detect word salad) - this is a HARD stop for quality
     if (output.size() > 500) {
         std::unordered_set<std::string> unique_words;
         std::string word;
@@ -222,7 +312,7 @@ static inline bool zeta_check_verbosity_runaway(const std::string& output,
             if (isalpha(c)) {
                 word += tolower(c);
             } else if (!word.empty()) {
-                if (word.length() >= 3) {  // Ignore tiny words
+                if (word.length() >= 3) {
                     unique_words.insert(word);
                     total_words++;
                 }
@@ -233,14 +323,14 @@ static inline bool zeta_check_verbosity_runaway(const std::string& output,
         if (total_words > 50) {
             float diversity = (float)unique_words.size() / total_words;
             if (diversity < ZETA_VOCAB_DIVERSITY_MIN) {
-                fprintf(stderr, "[OUTPUT_CTRL] Low vocabulary diversity (%.2f < %.2f)\n",
+                fprintf(stderr, "[OUTPUT_CTRL] LOW DIVERSITY RUNAWAY (%.2f < %.2f) - hard stop\n",
                         diversity, ZETA_VOCAB_DIVERSITY_MIN);
-                return true;
+                return 2;  // Hard stop - quality issue
             }
         }
     }
 
-    // N-gram repetition check (detect phrase loops)
+    // N-gram repetition check (detect phrase loops) - HARD stop for quality
     if (output.size() > 200) {
         // Check for repeated 4-grams (4 word sequences)
         std::vector<std::string> words;
@@ -261,15 +351,15 @@ static inline bool zeta_check_verbosity_runaway(const std::string& output,
                                    words[i+2] + " " + words[i+3];
                 ngrams[ngram]++;
                 if (ngrams[ngram] >= ZETA_NGRAM_REPEAT_THRESHOLD) {
-                    fprintf(stderr, "[OUTPUT_CTRL] Repeated 4-gram detected: '%s' (%d times)\n",
+                    fprintf(stderr, "[OUTPUT_CTRL] Repeated 4-gram detected: '%s' (%d times) - hard stop\n",
                             ngram.c_str(), ngrams[ngram]);
-                    return true;
+                    return 2;  // Hard stop - phrase looping
                 }
             }
         }
     }
 
-    return false;
+    return status;  // 0 = OK, 1 = soft warning
 }
 
 // === VALIDATE OUTPUT FORMAT ===

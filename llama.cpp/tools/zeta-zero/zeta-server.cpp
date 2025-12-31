@@ -587,10 +587,13 @@ static std::string hrm_generate_14b(const std::string& prompt, int max_tokens, c
 
         // Output control: check verbosity limits (v5.2)
         // Use default output control for HRM - stricter than normal
-        static ZetaOutputControl hrm_ctrl = {OUTPUT_MODE_DEFAULT, 2000, 300, false, "", ""};
-        if (zeta_check_verbosity_runaway(output, hrm_ctrl)) {
+        static ZetaOutputControl hrm_ctrl = {OUTPUT_MODE_DEFAULT, 2000, 300, false, "", "", 0.5f};
+        int hrm_verbosity = zeta_check_verbosity_runaway(output, hrm_ctrl);
+        if (hrm_verbosity == 2) {
             fprintf(stderr, "[HRM-14B] Breaking on output control limits\n");
             break;
+        } else if (hrm_verbosity == 1) {
+            fprintf(stderr, "[HRM-14B] Approaching output limits - wrapping up\n");
         }
 
         // Early stop on repetition patterns
@@ -692,10 +695,13 @@ static std::string hrm_generate_7b(const std::string& prompt, int max_tokens, co
         }
 
         // Output control: check verbosity limits (v5.2)
-        static ZetaOutputControl hrm7b_ctrl = {OUTPUT_MODE_CONCISE, 800, 120, false, "", ""};
-        if (zeta_check_verbosity_runaway(output, hrm7b_ctrl)) {
+        static ZetaOutputControl hrm7b_ctrl = {OUTPUT_MODE_CONCISE, 800, 120, false, "", "", 0.3f};
+        int hrm7b_verbosity = zeta_check_verbosity_runaway(output, hrm7b_ctrl);
+        if (hrm7b_verbosity == 2) {
             fprintf(stderr, "[HRM-7B] Breaking on output control limits\n");
             break;
+        } else if (hrm7b_verbosity == 1) {
+            fprintf(stderr, "[HRM-7B] Approaching limits - wrapping up\n");
         }
 
         // Early stop on repetition (7B retrieval should be concise)
@@ -800,11 +806,14 @@ static std::string generate_code_7b(const std::string& prompt, int max_tokens) {
 
         output += piece;
 
-        // Output control
-        static ZetaOutputControl code_ctrl = {OUTPUT_MODE_CODE, 3000, 500, true, "```", ""};
-        if (zeta_check_verbosity_runaway(output, code_ctrl)) {
+        // Output control - code gets higher limits based on complexity
+        static ZetaOutputControl code_ctrl = {OUTPUT_MODE_CODE, 3000, 500, true, "```", "", 0.8f};
+        int code_verbosity = zeta_check_verbosity_runaway(output, code_ctrl);
+        if (code_verbosity == 2) {
             fprintf(stderr, "[CODE-7B] Breaking on output control limits\n");
             break;
+        } else if (code_verbosity == 1) {
+            fprintf(stderr, "[CODE-7B] Approaching code output limits\n");
         }
 
         llama_batch_free(batch);
@@ -2144,9 +2153,14 @@ static std::string generate(const std::string& prompt, int max_tokens) {
         if (should_output) {
             output += piece;
 
-            // === OUTPUT CONTROL: Check verbosity limits ===
-            if (zeta_check_verbosity_runaway(output, output_ctrl)) {
+            // === OUTPUT CONTROL: Check verbosity limits (3-state: 0=OK, 1=warning, 2=stop) ===
+            int verbosity_status = zeta_check_verbosity_runaway(output, output_ctrl);
+            if (verbosity_status == 2) {
+                fprintf(stderr, "[OUTPUT_CTRL] Hard limit reached - stopping generation\n");
                 break;
+            } else if (verbosity_status == 1) {
+                // Soft warning - could inject wrap-up signal but continue for now
+                // Model should naturally conclude soon
             }
         }
 
