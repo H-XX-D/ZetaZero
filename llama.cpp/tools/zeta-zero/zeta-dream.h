@@ -62,14 +62,14 @@ typedef struct {
 
 // Default dream configuration
 static zeta_dream_config_t g_dream_config = {
-    .idle_threshold_sec = 3600,    // Dream after 1 hour of idle time
-    .dream_temp = 0.9f,
-    .dream_penalty_repeat = 1.0f,
-    .max_dream_iterations = 5,
-    .max_dream_tokens = 512,
-    .compression_confidence = 0.7f,
-    .dreams_dir = "/storage/dreams",
-    .plateau_threshold = 3         // Jump to random graph node after 3 discards
+    3600,              // idle_threshold_sec - Dream after 1 hour of idle time
+    0.9f,              // dream_temp
+    1.0f,              // dream_penalty_repeat
+    5,                 // max_dream_iterations
+    512,               // max_dream_tokens
+    0.7f,              // compression_confidence
+    "/storage/dreams", // dreams_dir
+    3                  // plateau_threshold - Jump to random graph node after 3 discards
 };
 
 // ============================================================================
@@ -172,7 +172,7 @@ public:
                 stats.acceptance_rate * 100.0f, stats.lucid_threshold);
     }
 
-    void adjust_threshold(const std::string& category, DreamCategoryStats& stats) {
+    void adjust_threshold(const std::string& /* category */, DreamCategoryStats& stats) {
         // Need at least 5 reviews before adjusting
         if (stats.total < 5) {
             if (stats.lucid_threshold == 0.0f) {
@@ -1337,7 +1337,6 @@ public:
 
         // Phase 1: Evaluate all nodes by recency and access frequency
         std::vector<float> node_importance(ctx->num_nodes, 0.0f);
-        time_t now = time(NULL);
         float total_activation = 0.0f;
 
         // Build ID lookup map
@@ -1469,12 +1468,12 @@ public:
     };
 
     ConsolidationConfig consolidation_config = {
-        .enable_pruning = true,
-        .enable_compression = true,
-        .enable_pattern_detection = true,
-        .prune_threshold = 0.1f,
-        .compress_threshold = 0.9f,  // Similarity threshold for merging
-        .consolidation_interval_sec = 3600  // Every hour during dreams
+        true,    // enable_pruning
+        true,    // enable_compression
+        true,    // enable_pattern_detection
+        0.1f,    // prune_threshold
+        0.9f,    // compress_threshold - Similarity threshold for merging
+        3600     // consolidation_interval_sec - Every hour during dreams
     };
 
     time_t last_consolidation = 0;

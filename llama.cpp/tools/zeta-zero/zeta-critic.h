@@ -106,18 +106,8 @@ static const char* HFT_ANTIPATTERNS[] = {
     NULL
 };
 
-// HFT-required patterns
-static const char* HFT_REQUIREMENTS[] = {
-    "lock-free",
-    "wait-free",
-    "single-threaded",
-    "ring buffer",
-    "SPSC",
-    "disruptor",
-    "pinned",
-    "core affinity",
-    NULL
-};
+// HFT-required patterns (for future use in domain-specific analysis)
+// static const char* HFT_REQUIREMENTS[] = {...}
 
 // ============================================================================
 // REDUNDANCY DETECTION
@@ -556,7 +546,8 @@ static void zeta_parse_semantic_response(const std::string& response, zeta_criti
 
 // Main critic function - SEMANTIC FIRST, pattern matching fallback
 static zeta_critic_result_t zeta_critic_analyze(const char* prompt, const char* response) {
-    zeta_critic_result_t result = {0};
+    zeta_critic_result_t result;
+    memset(&result, 0, sizeof(result));
     result.confidence = 0.0f;
     result.was_semantic = false;
 
