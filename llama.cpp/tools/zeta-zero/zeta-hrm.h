@@ -621,7 +621,7 @@ public:
     }
 
 private:
-    void parse_plan_response(const std::string& response, zeta_hrm_plan_t& plan) {
+    void parse_plan_response(const std::string& /* response */, zeta_hrm_plan_t& plan) {
         // Enhanced plan parser - creates parallelizable multi-step plans
         // Heuristics based on query keywords to create independent steps
 

@@ -134,7 +134,7 @@ static inline void zeta_set_semantic_password(const char* password) {
 // Check for semantic override password in text
 static inline bool zeta_has_semantic_override(const char* text) {
     if (!text || !g_semantic_password) return false;
-    
+
     // Look for "semantic override <password>" or "bypass semantic <password>"
     char lower[2048];
     size_t len = strlen(text);
@@ -143,7 +143,7 @@ static inline bool zeta_has_semantic_override(const char* text) {
         lower[i] = tolower(text[i]);
     }
     lower[len] = '\0';
-    
+
     char pwd_lower[128];
     size_t pwd_len = strlen(g_semantic_password);
     if (pwd_len >= sizeof(pwd_lower)) pwd_len = sizeof(pwd_lower) - 1;
@@ -151,17 +151,17 @@ static inline bool zeta_has_semantic_override(const char* text) {
         pwd_lower[i] = tolower(g_semantic_password[i]);
     }
     pwd_lower[pwd_len] = '\0';
-    
+
     char pattern1[256], pattern2[256], pattern3[256];
     snprintf(pattern1, sizeof(pattern1), "semantic override %s", pwd_lower);
     snprintf(pattern2, sizeof(pattern2), "bypass semantic %s", pwd_lower);
     snprintf(pattern3, sizeof(pattern3), "semantic password %s", pwd_lower);
-    
+
     if (strstr(lower, pattern1) || strstr(lower, pattern2) || strstr(lower, pattern3)) {
         fprintf(stderr, "[SEMANTIC-ATK] Override password accepted\n");
         return true;
     }
-    
+
     return false;
 }
 

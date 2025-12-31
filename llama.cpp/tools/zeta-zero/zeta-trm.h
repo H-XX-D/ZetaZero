@@ -435,7 +435,7 @@ public:
 
     // Retrieve relevant context based on current query using embeddings
     // Uses cosine similarity to find relevant past thoughts
-    std::string retrieve_context(const std::string& query, const float* query_embedding = nullptr, int dim = 0) {
+    std::string retrieve_context(const std::string& /* query */, const float* query_embedding = nullptr, int dim = 0) {
         std::string context = "";
         apply_decay(); // Update energies first
 

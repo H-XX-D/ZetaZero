@@ -110,7 +110,7 @@ inline bool graph_has_value(zeta_ctx_t* ctx, const std::string& value) {
 }
 
 inline bool graph_has_typed_node(zeta_ctx_t* ctx, const std::string& type, const std::string& value) {
-    (void)ctx; (void)type;
+    (void)ctx; (void)type; (void)value;
     // In local trust mode, allow typed nodes
     if (g_tools_local_trust) return true;
     return false;

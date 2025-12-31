@@ -460,10 +460,10 @@ static inline std::string zeta_postprocess_output(const std::string& output,
     std::string result = output;
 
     // Enforce character limit
-    if ((int)result.size() > ctrl.max_chars) {
+    if (result.size() > (size_t)ctrl.max_chars) {
         // Find a good break point (end of sentence)
-        size_t break_pos = ctrl.max_chars;
-        for (size_t i = ctrl.max_chars; i > ctrl.max_chars - 200 && i > 0; i--) {
+        size_t break_pos = (size_t)ctrl.max_chars;
+        for (size_t i = (size_t)ctrl.max_chars; i > (size_t)ctrl.max_chars - 200 && i > 0; i--) {
             if (result[i] == '.' || result[i] == '!' || result[i] == '?' ||
                 result[i] == '\n' || result[i] == '}') {
                 break_pos = i + 1;

@@ -77,7 +77,7 @@ static inline bool zeta_gkv_capture_for_node(
     int64_t node_id,
     int32_t pos_start,
     int32_t pos_end,
-    float salience_threshold = 0.8f
+    float /* salience_threshold */ = 0.8f  // Reserved for future salience-based filtering
 ) {
     if (!g_gkv_ctx || !llama_ctx) return false;
 

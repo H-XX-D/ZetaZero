@@ -3,12 +3,12 @@
 
 /**
  * Z.E.T.A. Code Mode Conflict Detection
- * 
+ *
  * Detects contradictions in code-related claims:
  * - Function signature changes
  * - Type mismatches
  * - Naming conflicts
- * 
+ *
  * Does NOT trigger on:
  * - Line numbers (expected to change)
  * - Version numbers
@@ -73,13 +73,13 @@ static inline bool zeta_extract_function_sig(
 ) {
     // Look for patterns like "function foo(a, b, c)" or "def foo(x, y):"
     const char* func_markers[] = {"function ", "def ", "fn ", "func ", NULL};
-    
+
     for (int i = 0; func_markers[i]; i++) {
         const char* pos = strstr(text, func_markers[i]);
         if (!pos) continue;
-        
+
         pos += strlen(func_markers[i]);
-        
+
         // Extract name
         int name_len = 0;
         while (pos[name_len] && (isalnum((unsigned char)pos[name_len]) || pos[name_len] == '_')) {
@@ -88,9 +88,9 @@ static inline bool zeta_extract_function_sig(
             if (name_len >= 127) break;
         }
         name[name_len] = '\0';
-        
+
         if (name_len < 2) continue;
-        
+
         // Count arguments
         const char* paren = strchr(pos, '(');
         if (paren) {
@@ -109,7 +109,7 @@ static inline bool zeta_extract_function_sig(
                 }
             }
         }
-        
+
         // Look for return type (after -> or :)
         const char* arrow = strstr(pos, "->");
         if (arrow) {
@@ -123,10 +123,10 @@ static inline bool zeta_extract_function_sig(
             }
             return_type[rt_len] = '\0';
         }
-        
+
         return true;
     }
-    
+
     return false;
 }
 
@@ -139,7 +139,7 @@ static inline bool zeta_code_has_removal(const char* text, const char* entity_na
         i++;
     }
     lower_text[i] = '\0';
-    
+
     char lower_entity[128];
     i = 0;
     while (entity_name[i] && i < sizeof(lower_entity) - 1) {
@@ -147,10 +147,10 @@ static inline bool zeta_code_has_removal(const char* text, const char* entity_na
         i++;
     }
     lower_entity[i] = '\0';
-    
+
     const char* entity_pos = strstr(lower_text, lower_entity);
     if (!entity_pos) return false;
-    
+
     // Check for removal patterns near entity
     for (int p = 0; CODE_NEGATION_PATTERNS[p]; p++) {
         const char* neg_pos = strstr(lower_text, CODE_NEGATION_PATTERNS[p]);
@@ -161,7 +161,7 @@ static inline bool zeta_code_has_removal(const char* text, const char* entity_na
             }
         }
     }
-    
+
     return false;
 }
 
@@ -171,21 +171,21 @@ static inline zeta_code_conflict_result_t zeta_detect_code_conflict(
     const char* output
 ) {
     zeta_code_conflict_result_t result = {0};
-    
+
     if (!ctx || !ctx->active_project || !output || strlen(output) < 10) {
         return result;
     }
-    
+
     fprintf(stderr, "[CODE_CONFLICT] Checking output: %.60s...\n", output);
-    
+
     // Check each code node in active project
     for (int i = 0; i < ctx->code_node_count; i++) {
         zeta_code_node_t* node = &ctx->code_nodes[i];
-        
+
         // Only check nodes in active project with high salience
         if (strcmp(node->project_id, ctx->active_project->project_id) != 0) continue;
         if (node->salience < 0.7f) continue;
-        
+
         // Check if output claims this entity was removed
         if (zeta_code_has_removal(output, node->name)) {
             result.has_conflict = true;
@@ -195,17 +195,17 @@ static inline zeta_code_conflict_result_t zeta_detect_code_conflict(
                      "%s exists at %s:%d", node->name, node->file_path, node->line_start);
             strncpy(result.conflict_type, "claimed_removal", sizeof(result.conflict_type) - 1);
             result.confidence = 0.8f;
-            
+
             fprintf(stderr, "[CODE_CONFLICT] Removal claimed for existing entity: %s\n", node->name);
             return result;
         }
-        
+
         // For functions, check signature changes
         if (node->type == CODE_NODE_FUNCTION) {
             char out_name[128] = {0};
             int out_arg_count = -1;
             char out_return[64] = {0};
-            
+
             if (zeta_extract_function_sig(output, out_name, &out_arg_count, out_return)) {
                 // Same function name?
                 if (strcasecmp(out_name, node->name) == 0) {
@@ -213,7 +213,7 @@ static inline zeta_code_conflict_result_t zeta_detect_code_conflict(
                     int stored_arg_count = -1;
                     char stored_return[64] = {0};
                     char dummy_name[128] = {0}; zeta_extract_function_sig(node->signature, dummy_name, &stored_arg_count, stored_return);
-                    
+
                     // Check arg count mismatch
                     if (out_arg_count >= 0 && stored_arg_count >= 0 && out_arg_count != stored_arg_count) {
                         result.has_conflict = true;
@@ -225,7 +225,7 @@ static inline zeta_code_conflict_result_t zeta_detect_code_conflict(
                                  "Output says %s takes %d arguments", out_name, out_arg_count);
                         strncpy(result.conflict_type, "arg_count_mismatch", sizeof(result.conflict_type) - 1);
                         result.confidence = 0.85f;
-                        
+
                         fprintf(stderr, "[CODE_CONFLICT] Arg count mismatch: %s (%d vs %d)\n",
                                 node->name, stored_arg_count, out_arg_count);
                         return result;
@@ -234,7 +234,7 @@ static inline zeta_code_conflict_result_t zeta_detect_code_conflict(
             }
         }
     }
-    
+
     fprintf(stderr, "[CODE_CONFLICT] No conflicts detected\n");
     return result;
 }
@@ -247,14 +247,14 @@ static inline const char* zeta_apply_code_conflict_guardrail(
     size_t safe_output_size
 ) {
     zeta_code_conflict_result_t conflict = zeta_detect_code_conflict(ctx, output);
-    
+
     if (conflict.has_conflict && conflict.confidence >= 0.7f) {
         snprintf(safe_output, safe_output_size,
             "[CODE CONFLICT: %s - %s. Verify current state.] %s",
             conflict.conflict_type, conflict.stored_claim, output);
         return safe_output;
     }
-    
+
     return output;
 }
 

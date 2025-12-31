@@ -112,7 +112,7 @@ typedef struct {
     char path_coder[512];
     char path_embed_chat[512];
     char path_embed_code[512];
-    
+
     bool in_code_mode;
 } zeta_model_ctx_t;
 
@@ -171,7 +171,7 @@ static inline void zeta_set_model_paths(zeta_code_ctx_t* ctx, const char* i3b, c
 // Switch to code mode - UNLOAD instruct, LOAD coder
 static inline void zeta_switch_to_code_mode(zeta_code_ctx_t* ctx) {
     if (!ctx) return;
-    
+
 
     // Swap main: 14B -> 7B
     if (ctx->models.model_conscious) { llama_model_free(ctx->models.model_conscious); ctx->models.model_conscious = NULL; }
@@ -189,14 +189,14 @@ static inline void zeta_switch_to_code_mode(zeta_code_ctx_t* ctx) {
         llama_free(ctx->models.ctx_subconscious);
         ctx->models.ctx_subconscious = NULL;
     }
-    
+
     // Unload 3B Instruct to free VRAM
     if (ctx->models.model_subconscious_instruct) {
         fprintf(stderr, "[MODE] Unloading 3B Instruct...\n");
         llama_model_free(ctx->models.model_subconscious_instruct);
         ctx->models.model_subconscious_instruct = NULL;
     }
-    
+
     // Load 3B Coder if path set and not already loaded
     if (!ctx->models.model_subconscious_coder && ctx->models.path_subconscious_coder[0]) {
         fprintf(stderr, "[MODE] Loading 7B Coder from %s...\n", ctx->models.path_subconscious_coder);
@@ -207,10 +207,10 @@ static inline void zeta_switch_to_code_mode(zeta_code_ctx_t* ctx) {
             fprintf(stderr, "[MODE] 7B Coder (extract) loaded\n");
         }
     }
-    
+
     ctx->models.active_subconscious = ctx->models.model_subconscious_coder;
     ctx->models.in_code_mode = true;
-    
+
     // Create context for coder
     if (ctx->models.model_subconscious_coder) {
         llama_context_params cparams = llama_context_default_params();
@@ -223,7 +223,7 @@ static inline void zeta_switch_to_code_mode(zeta_code_ctx_t* ctx) {
 // Switch to chat mode - UNLOAD coder, LOAD instruct
 static inline void zeta_switch_to_chat_mode(zeta_code_ctx_t* ctx) {
     if (!ctx) return;
-    
+
 
     // Swap main: 7B -> 14B
     if (ctx->models.model_coder) { llama_model_free(ctx->models.model_coder); ctx->models.model_coder = NULL; }
@@ -241,14 +241,14 @@ static inline void zeta_switch_to_chat_mode(zeta_code_ctx_t* ctx) {
         llama_free(ctx->models.ctx_subconscious);
         ctx->models.ctx_subconscious = NULL;
     }
-    
+
     // Unload 3B Coder to free VRAM
     if (ctx->models.model_subconscious_coder) {
         fprintf(stderr, "[MODE] Unloading 3B Coder...\n");
         llama_model_free(ctx->models.model_subconscious_coder);
         ctx->models.model_subconscious_coder = NULL;
     }
-    
+
     // Load 3B Instruct if path set and not already loaded
     if (!ctx->models.model_subconscious_instruct && ctx->models.path_subconscious_instruct[0]) {
         fprintf(stderr, "[MODE] Loading 3B Instruct from %s...\n", ctx->models.path_subconscious_instruct);
@@ -259,10 +259,10 @@ static inline void zeta_switch_to_chat_mode(zeta_code_ctx_t* ctx) {
             fprintf(stderr, "[MODE] 3B Instruct loaded\n");
         }
     }
-    
+
     ctx->models.active_subconscious = ctx->models.model_subconscious_instruct;
     ctx->models.in_code_mode = false;
-    
+
     // Create context for instruct
     if (ctx->models.model_subconscious_instruct) {
         llama_context_params cparams = llama_context_default_params();
@@ -277,7 +277,7 @@ static inline zeta_project_t* zeta_project_open(zeta_code_ctx_t* ctx, const char
     if (!ctx || !root_path) return NULL;
     char project_id[64];
     zeta_hash_project_id(root_path, project_id, sizeof(project_id));
-    
+
     for (int i = 0; i < ctx->project_count; i++) {
         if (strcmp(ctx->projects[i].project_id, project_id) == 0) {
             ctx->projects[i].is_open = true;
@@ -287,7 +287,7 @@ static inline zeta_project_t* zeta_project_open(zeta_code_ctx_t* ctx, const char
             return ctx->active_project;
         }
     }
-    
+
     if (ctx->project_count >= ZETA_MAX_PROJECTS) return NULL;
     zeta_project_t* proj = &ctx->projects[ctx->project_count++];
     memset(proj, 0, sizeof(zeta_project_t));
@@ -299,14 +299,14 @@ static inline zeta_project_t* zeta_project_open(zeta_code_ctx_t* ctx, const char
     proj->is_open = true;
     strncpy(proj->status, "active", 63);
     ctx->active_project = proj;
-    
+
     char proj_dir[1024];
     snprintf(proj_dir, sizeof(proj_dir), "%s/%s", ctx->code_storage_dir, project_id);
     mkdir(proj_dir, 0755);
     char assets_dir[1024];
     snprintf(assets_dir, sizeof(assets_dir), "%s/assets", proj_dir);
     mkdir(assets_dir, 0755);
-    
+
     zeta_switch_to_code_mode(ctx);
     return proj;
 }
@@ -539,13 +539,13 @@ static inline int zeta_code_extract_entities(zeta_code_ctx_t* ctx, const char* i
 
     // Build prompt
     char prompt[4096];
-    snprintf(prompt, sizeof(prompt), "%s%s\n<|im_end|>\n<|im_start|>assistant\n", 
+    snprintf(prompt, sizeof(prompt), "%s%s\n<|im_end|>\n<|im_start|>assistant\n",
              ZETA_CODER_EXTRACTION_PROMPT, input);
 
     // Tokenize
     int max_tokens = 1024;
     std::vector<llama_token> tokens(max_tokens);
-    int n_tokens = llama_tokenize(vocab, prompt, strlen(prompt), 
+    int n_tokens = llama_tokenize(vocab, prompt, strlen(prompt),
                                    tokens.data(), max_tokens, true, true);
     if (n_tokens < 0) return 0;
     tokens.resize(n_tokens);

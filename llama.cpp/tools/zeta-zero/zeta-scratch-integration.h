@@ -30,7 +30,10 @@
 // PART 1: Token Registration
 // ============================================================================
 
-// All scratch buffer control tokens
+// All scratch buffer control tokens (for future dynamic registration)
+#ifdef __GNUC__
+__attribute__((unused))
+#endif
 static const char* SCRATCH_CONTROL_TOKENS[] = {
     "<|scratch_start|>",
     "<|scratch_end|>",
@@ -61,16 +64,16 @@ static zeta_scratch_token_ids_t g_scratch_tok_ids = {0};
 // Check if a token is one of our control tokens by string matching
 static inline int32_t zeta_scratch_find_token(const llama_vocab* vocab, const char* text) {
     if (!vocab || !text) return -1;
-    
+
     // Try to find the token in vocab
     std::vector<llama_token> tokens(8);
     int n = llama_tokenize(vocab, text, strlen(text), tokens.data(), tokens.size(), false, true);
-    
+
     // If tokenizes to single token, that's our ID
     if (n == 1) {
         return tokens[0];
     }
-    
+
     // Otherwise, need to add as special token (would require model modification)
     return -1;
 }
@@ -78,7 +81,7 @@ static inline int32_t zeta_scratch_find_token(const llama_vocab* vocab, const ch
 // Register tokens with vocab (call at server init)
 static inline bool zeta_scratch_register_tokens(const llama_vocab* vocab) {
     if (!vocab) return false;
-    
+
     g_scratch_tok_ids.scratch_start = zeta_scratch_find_token(vocab, "<|scratch_start|>");
     g_scratch_tok_ids.scratch_end = zeta_scratch_find_token(vocab, "<|scratch_end|>");
     g_scratch_tok_ids.checkpoint = zeta_scratch_find_token(vocab, "<|checkpoint|>");
@@ -87,7 +90,7 @@ static inline bool zeta_scratch_register_tokens(const llama_vocab* vocab) {
     g_scratch_tok_ids.flush = zeta_scratch_find_token(vocab, "<|flush|>");
     g_scratch_tok_ids.clear = zeta_scratch_find_token(vocab, "<|clear|>");
     g_scratch_tok_ids.inject = zeta_scratch_find_token(vocab, "<|inject|>");
-    
+
     // Update global scratch tokens struct
     g_scratch_tokens.tok_scratch_start = g_scratch_tok_ids.scratch_start;
     g_scratch_tokens.tok_scratch_end = g_scratch_tok_ids.scratch_end;
@@ -98,16 +101,16 @@ static inline bool zeta_scratch_register_tokens(const llama_vocab* vocab) {
     g_scratch_tokens.tok_clear = g_scratch_tok_ids.clear;
     g_scratch_tokens.tok_inject = g_scratch_tok_ids.inject;
     g_scratch_tokens.initialized = true;
-    
+
     g_scratch_tok_ids.registered = true;
-    
+
     fprintf(stderr, "[SCRATCH] Token registration:\n");
     fprintf(stderr, "  scratch_start: %d\n", g_scratch_tok_ids.scratch_start);
     fprintf(stderr, "  scratch_end:   %d\n", g_scratch_tok_ids.scratch_end);
     fprintf(stderr, "  checkpoint:    %d\n", g_scratch_tok_ids.checkpoint);
     fprintf(stderr, "  revise:        %d\n", g_scratch_tok_ids.revise);
     fprintf(stderr, "  inject:        %d\n", g_scratch_tok_ids.inject);
-    
+
     return true;
 }
 
@@ -118,7 +121,7 @@ static inline bool zeta_scratch_detect_control_sequence(
     int* out_control_type
 ) {
     if (!text || !out_control_type) return false;
-    
+
     if (strstr(text, "<|scratch_start|>")) { *out_control_type = 0; return true; }
     if (strstr(text, "<|scratch_end|>")) { *out_control_type = 1; return true; }
     if (strstr(text, "<|checkpoint|>")) { *out_control_type = 2; return true; }
@@ -127,7 +130,7 @@ static inline bool zeta_scratch_detect_control_sequence(
     if (strstr(text, "<|flush|>")) { *out_control_type = 5; return true; }
     if (strstr(text, "<|clear|>")) { *out_control_type = 6; return true; }
     if (strstr(text, "<|inject|>")) { *out_control_type = 7; return true; }
-    
+
     return false;
 }
 
@@ -142,7 +145,7 @@ typedef struct {
     void* graph_ctx;
     zeta_graph_query_fn query_fn;
     void* user_data;
-    
+
     // Pending injection
     char pending_query[256];
     bool has_pending;
@@ -170,14 +173,14 @@ static inline const char* zeta_scratch_resolve_inject(
     if (!buf || !g_inject_ctx.query_fn || !g_inject_ctx.graph_ctx) {
         return "[inject error: no graph context]";
     }
-    
+
     // Query the graph
     const char* result = g_inject_ctx.query_fn(
         g_inject_ctx.graph_ctx,
         query,
         g_inject_ctx.user_data
     );
-    
+
     return result ? result : "[no result]";
 }
 
@@ -189,7 +192,7 @@ static inline const char* zeta_default_graph_query(
 ) {
     (void)user_data;
     if (!ctx || !query) return NULL;
-    
+
     // This would use existing zeta_surface or zeta_stream_surface functions
     // For now, return placeholder
     static char result_buf[2048];
@@ -1211,24 +1214,24 @@ Usage in existing server decode loop:
     for (int i = 0; i < max_tokens; i++) {
         // ... sample token ...
         llama_token tok = common_sampler_sample(sampler, ctx, -1);
-        
+
         char piece[64];
         llama_token_to_piece(vocab, tok, piece, sizeof(piece), 0, true);
-        
+
         // Get confidence from logits
         float* logits = llama_get_logits_ith(ctx, -1);
         float confidence = compute_confidence(logits, tok, n_vocab);
-        
+
         // Process through scratch buffer
         bool should_output = ZETA_SCRATCH_PROCESS_TOKEN(
             tok, piece, strlen(piece), confidence
         );
-        
+
         if (should_output) {
             // Send to user (streaming)
             stream_to_user(piece);
         }
-        
+
         // ... decode next ...
     }
 

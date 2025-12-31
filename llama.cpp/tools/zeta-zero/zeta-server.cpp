@@ -2764,7 +2764,7 @@ static void load_graph() {
         int num_nodes = 0, num_edges = 0;
         size_t r = fread(&num_nodes, sizeof(int), 1, f);
         r += fread(&num_edges, sizeof(int), 1, f);
-        
+
         // Validate counts before reading into fixed-size buffers
         if (r != 2 || num_nodes < 0 || num_nodes > ZETA_MAX_GRAPH_NODES ||
             num_edges < 0 || num_edges > ZETA_MAX_EDGES) {
@@ -2772,14 +2772,14 @@ static void load_graph() {
             fclose(f);
             return;
         }
-        
+
         g_dual->num_nodes = num_nodes;
         g_dual->num_edges = num_edges;
-        
+
         size_t nodes_read = fread(g_dual->nodes, sizeof(zeta_graph_node_t), num_nodes, f);
         size_t edges_read = fread(g_dual->edges, sizeof(zeta_graph_edge_t), num_edges, f);
         fclose(f);
-        
+
         if ((int)nodes_read != num_nodes || (int)edges_read != num_edges) {
             fprintf(stderr, "[LOAD] Truncated graph file, resetting\n");
             g_dual->num_nodes = 0;

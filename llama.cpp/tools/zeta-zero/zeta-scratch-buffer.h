@@ -135,35 +135,35 @@ typedef struct {
     char* data;
     size_t capacity;
     size_t length;
-    
+
     // Cursors
     size_t output_cursor;       // What's been sent to user
     size_t model_cursor;        // What model has processed
     size_t write_cursor;        // Where next token goes
-    
+
     // Token tracking
     int32_t* tokens;            // Token IDs in buffer
     size_t token_capacity;
     size_t token_count;
-    
+
     // State
     zeta_scratch_mode_t mode;
     zeta_scratch_state_t state;
-    
+
     // Checkpoints for revision
     zeta_scratch_checkpoint_t checkpoints[ZETA_SCRATCH_MAX_CHECKPOINTS];
     int num_checkpoints;
     int current_checkpoint;     // -1 if none
-    
+
     // Sections for structured output
     zeta_scratch_section_t sections[ZETA_SCRATCH_MAX_SECTIONS];
     int num_sections;
     int current_section;        // -1 if none
-    
+
     // Pending graph operations
     zeta_scratch_pending_op_t pending_ops[ZETA_SCRATCH_MAX_PENDING_OPS];
     int num_pending_ops;
-    
+
     // Statistics
     size_t total_tokens_generated;
     size_t tokens_revised;
@@ -171,12 +171,12 @@ typedef struct {
     int revision_count;
     int64_t start_time;
     int64_t last_activity;
-    
+
     // Configuration
     size_t window_size;         // How much context model sees
     bool auto_checkpoint;       // Create checkpoints automatically
     int auto_checkpoint_interval; // Tokens between auto checkpoints
-    
+
 } zeta_scratch_buffer_t;
 
 // ============================================================================
@@ -363,16 +363,16 @@ static inline size_t zeta_output_to_json(zeta_output_buffer_t* buf, char* json, 
 static inline zeta_scratch_buffer_t* zeta_scratch_create(size_t capacity) {
     if (capacity == 0) capacity = ZETA_SCRATCH_DEFAULT_CAPACITY;
     if (capacity > ZETA_SCRATCH_MAX_CAPACITY) capacity = ZETA_SCRATCH_MAX_CAPACITY;
-    
+
     zeta_scratch_buffer_t* buf = (zeta_scratch_buffer_t*)calloc(1, sizeof(zeta_scratch_buffer_t));
     if (!buf) return NULL;
-    
+
     buf->data = (char*)malloc(capacity);
     if (!buf->data) {
         free(buf);
         return NULL;
     }
-    
+
     // Estimate ~4 chars per token average
     buf->token_capacity = capacity / 4;
     buf->tokens = (int32_t*)malloc(buf->token_capacity * sizeof(int32_t));
@@ -381,30 +381,30 @@ static inline zeta_scratch_buffer_t* zeta_scratch_create(size_t capacity) {
         free(buf);
         return NULL;
     }
-    
+
     buf->capacity = capacity;
     buf->length = 0;
     buf->output_cursor = 0;
     buf->model_cursor = 0;
     buf->write_cursor = 0;
     buf->token_count = 0;
-    
+
     buf->mode = SCRATCH_MODE_VISIBLE;
     buf->state = SCRATCH_STATE_IDLE;
-    
+
     buf->num_checkpoints = 0;
     buf->current_checkpoint = -1;
     buf->num_sections = 0;
     buf->current_section = -1;
     buf->num_pending_ops = 0;
-    
+
     buf->window_size = ZETA_SCRATCH_WINDOW_SIZE;
     buf->auto_checkpoint = true;
     buf->auto_checkpoint_interval = 256;
-    
+
     buf->start_time = time(NULL);
     buf->last_activity = buf->start_time;
-    
+
     return buf;
 }
 
@@ -417,22 +417,22 @@ static inline void zeta_scratch_destroy(zeta_scratch_buffer_t* buf) {
 
 static inline void zeta_scratch_reset(zeta_scratch_buffer_t* buf) {
     if (!buf) return;
-    
+
     buf->length = 0;
     buf->output_cursor = 0;
     buf->model_cursor = 0;
     buf->write_cursor = 0;
     buf->token_count = 0;
-    
+
     buf->mode = SCRATCH_MODE_VISIBLE;
     buf->state = SCRATCH_STATE_IDLE;
-    
+
     buf->num_checkpoints = 0;
     buf->current_checkpoint = -1;
     buf->num_sections = 0;
     buf->current_section = -1;
     buf->num_pending_ops = 0;
-    
+
     buf->last_activity = time(NULL);
 }
 
@@ -443,7 +443,7 @@ static inline void zeta_scratch_reset(zeta_scratch_buffer_t* buf) {
 // Append text to buffer
 static inline bool zeta_scratch_append(zeta_scratch_buffer_t* buf, const char* text, size_t len) {
     if (!buf || !text || len == 0) return false;
-    
+
     // Grow if needed
     if (buf->length + len >= buf->capacity) {
         size_t new_cap = buf->capacity * 2;
@@ -456,12 +456,12 @@ static inline bool zeta_scratch_append(zeta_scratch_buffer_t* buf, const char* t
         buf->data = new_data;
         buf->capacity = new_cap;
     }
-    
+
     memcpy(buf->data + buf->length, text, len);
     buf->length += len;
     buf->write_cursor = buf->length;
     buf->last_activity = time(NULL);
-    
+
     return true;
 }
 
@@ -469,20 +469,20 @@ static inline bool zeta_scratch_append(zeta_scratch_buffer_t* buf, const char* t
 static inline bool zeta_scratch_append_token(zeta_scratch_buffer_t* buf, int32_t token_id, const char* text, size_t len) {
     if (!buf) return false;
     if (!text || len == 0) return true;  // Nothing to append, but not an error
-    
+
     // Store token ID (if array exists)
     if (buf->tokens && buf->token_count < buf->token_capacity) {
         buf->tokens[buf->token_count++] = token_id;
     }
-    
+
     // Auto checkpoint
-    if (buf->auto_checkpoint && 
+    if (buf->auto_checkpoint &&
         buf->token_count % buf->auto_checkpoint_interval == 0) {
         // Create checkpoint (implemented below)
     }
-    
+
     buf->total_tokens_generated++;
-    
+
     // Append text
     return zeta_scratch_append(buf, text, len);
 }
@@ -495,25 +495,25 @@ static inline int zeta_scratch_checkpoint(zeta_scratch_buffer_t* buf, const char
     if (!buf) return -1;
     if (buf->num_checkpoints >= ZETA_SCRATCH_MAX_CHECKPOINTS) {
         // Shift checkpoints (drop oldest)
-        memmove(&buf->checkpoints[0], &buf->checkpoints[1], 
+        memmove(&buf->checkpoints[0], &buf->checkpoints[1],
                 (ZETA_SCRATCH_MAX_CHECKPOINTS - 1) * sizeof(zeta_scratch_checkpoint_t));
         buf->num_checkpoints--;
     }
-    
+
     int idx = buf->num_checkpoints++;
     zeta_scratch_checkpoint_t* cp = &buf->checkpoints[idx];
-    
+
     cp->buffer_pos = buf->length;
     cp->token_count = buf->token_count;
     cp->timestamp = time(NULL);
     cp->is_valid = true;
-    
+
     if (label) {
         strncpy(cp->label, label, sizeof(cp->label) - 1);
     } else {
         snprintf(cp->label, sizeof(cp->label), "cp_%d", idx);
     }
-    
+
     buf->current_checkpoint = idx;
     return idx;
 }
@@ -522,27 +522,27 @@ static inline int zeta_scratch_checkpoint(zeta_scratch_buffer_t* buf, const char
 static inline bool zeta_scratch_revert(zeta_scratch_buffer_t* buf, int checkpoint_idx) {
     if (!buf) return false;
     if (checkpoint_idx < 0 || checkpoint_idx >= buf->num_checkpoints) return false;
-    
+
     zeta_scratch_checkpoint_t* cp = &buf->checkpoints[checkpoint_idx];
     if (!cp->is_valid) return false;
-    
+
     // Track revised tokens
     buf->tokens_revised += (buf->token_count - cp->token_count);
     buf->revision_count++;
-    
+
     // Revert buffer state
     buf->length = cp->buffer_pos;
     buf->write_cursor = cp->buffer_pos;
     buf->token_count = cp->token_count;
-    
+
     // Invalidate checkpoints after this one
     for (int i = checkpoint_idx + 1; i < buf->num_checkpoints; i++) {
         buf->checkpoints[i].is_valid = false;
     }
-    
+
     buf->state = SCRATCH_STATE_REVISING;
     buf->last_activity = time(NULL);
-    
+
     return true;
 }
 
@@ -559,54 +559,54 @@ static inline bool zeta_scratch_revert_last(zeta_scratch_buffer_t* buf) {
 static inline int zeta_scratch_begin_section(zeta_scratch_buffer_t* buf, const char* name, bool visible) {
     if (!buf) return -1;
     if (buf->num_sections >= ZETA_SCRATCH_MAX_SECTIONS) return -1;
-    
+
     // Close current section if open
     if (buf->current_section >= 0) {
         buf->sections[buf->current_section].end_pos = buf->length;
         buf->sections[buf->current_section].is_complete = true;
     }
-    
+
     int idx = buf->num_sections++;
     zeta_scratch_section_t* sec = &buf->sections[idx];
-    
+
     sec->start_pos = buf->length;
     sec->end_pos = 0;
     sec->order = idx;
     sec->is_complete = false;
     sec->is_visible = visible;
-    
+
     if (name) {
         strncpy(sec->name, name, sizeof(sec->name) - 1);
     } else {
         snprintf(sec->name, sizeof(sec->name), "section_%d", idx);
     }
-    
+
     buf->current_section = idx;
     buf->mode = visible ? SCRATCH_MODE_VISIBLE : SCRATCH_MODE_HIDDEN;
-    
+
     return idx;
 }
 
 static inline bool zeta_scratch_end_section(zeta_scratch_buffer_t* buf) {
     if (!buf || buf->current_section < 0) return false;
-    
+
     zeta_scratch_section_t* sec = &buf->sections[buf->current_section];
     sec->end_pos = buf->length;
     sec->is_complete = true;
-    
+
     buf->current_section = -1;
     buf->mode = SCRATCH_MODE_VISIBLE;
-    
+
     return true;
 }
 
 // Get section content
 static inline const char* zeta_scratch_get_section(zeta_scratch_buffer_t* buf, int section_idx, size_t* out_len) {
     if (!buf || section_idx < 0 || section_idx >= buf->num_sections) return NULL;
-    
+
     zeta_scratch_section_t* sec = &buf->sections[section_idx];
     size_t end = sec->is_complete ? sec->end_pos : buf->length;
-    
+
     if (out_len) *out_len = end - sec->start_pos;
     return buf->data + sec->start_pos;
 }
@@ -618,35 +618,35 @@ static inline const char* zeta_scratch_get_section(zeta_scratch_buffer_t* buf, i
 static inline int zeta_scratch_add_pending_op(zeta_scratch_buffer_t* buf, int op_type, const char* query) {
     if (!buf) return -1;
     if (buf->num_pending_ops >= ZETA_SCRATCH_MAX_PENDING_OPS) return -1;
-    
+
     int idx = buf->num_pending_ops++;
     zeta_scratch_pending_op_t* op = &buf->pending_ops[idx];
-    
+
     op->op_type = op_type;
     op->inject_pos = buf->length;  // Will inject result here
     op->is_resolved = false;
-    
+
     if (query) {
         strncpy(op->query, query, sizeof(op->query) - 1);
     }
-    
+
     // Add placeholder
     zeta_scratch_append(buf, SCRATCH_TOK_INJECT, strlen(SCRATCH_TOK_INJECT));
-    
+
     return idx;
 }
 
 static inline bool zeta_scratch_resolve_op(zeta_scratch_buffer_t* buf, int op_idx, const char* result) {
     if (!buf || op_idx < 0 || op_idx >= buf->num_pending_ops) return false;
-    
+
     zeta_scratch_pending_op_t* op = &buf->pending_ops[op_idx];
     if (op->is_resolved) return false;
-    
+
     if (result) {
         strncpy(op->result, result, sizeof(op->result) - 1);
     }
     op->is_resolved = true;
-    
+
     return true;
 }
 
@@ -657,21 +657,21 @@ static inline bool zeta_scratch_resolve_op(zeta_scratch_buffer_t* buf, int op_id
 // Get content ready for user (respects visibility)
 static inline size_t zeta_scratch_get_output(zeta_scratch_buffer_t* buf, char* out, size_t out_size) {
     if (!buf || !out || out_size == 0) return 0;
-    
+
     size_t written = 0;
-    
+
     // Walk through sections, only include visible ones
     for (int i = 0; i < buf->num_sections && written < out_size - 1; i++) {
         zeta_scratch_section_t* sec = &buf->sections[i];
         if (!sec->is_visible || !sec->is_complete) continue;
-        
+
         size_t sec_len = sec->end_pos - sec->start_pos;
         size_t to_copy = (sec_len < out_size - written - 1) ? sec_len : out_size - written - 1;
-        
+
         memcpy(out + written, buf->data + sec->start_pos, to_copy);
         written += to_copy;
     }
-    
+
     // If no sections, return all visible content
     if (buf->num_sections == 0 && buf->mode == SCRATCH_MODE_VISIBLE) {
         size_t avail = buf->length - buf->output_cursor;
@@ -679,7 +679,7 @@ static inline size_t zeta_scratch_get_output(zeta_scratch_buffer_t* buf, char* o
         memcpy(out, buf->data + buf->output_cursor, to_copy);
         written = to_copy;
     }
-    
+
     out[written] = '\0';
     return written;
 }
@@ -687,13 +687,13 @@ static inline size_t zeta_scratch_get_output(zeta_scratch_buffer_t* buf, char* o
 // Flush buffer to user (call this to send output)
 static inline size_t zeta_scratch_flush(zeta_scratch_buffer_t* buf, char* out, size_t out_size) {
     size_t written = zeta_scratch_get_output(buf, out, out_size);
-    
+
     if (written > 0) {
         buf->output_cursor = buf->length;
         buf->tokens_flushed += buf->token_count;
         buf->state = SCRATCH_STATE_FLUSHING;
     }
-    
+
     return written;
 }
 
@@ -704,15 +704,15 @@ static inline size_t zeta_scratch_flush(zeta_scratch_buffer_t* buf, char* out, s
 // Get the window of text model should see as context
 static inline const char* zeta_scratch_get_model_context(zeta_scratch_buffer_t* buf, size_t* out_len) {
     if (!buf) return NULL;
-    
+
     // Model sees last window_size worth of buffer
     size_t window_bytes = buf->window_size * 4;  // ~4 bytes per token estimate
-    
+
     size_t start = 0;
     if (buf->length > window_bytes) {
         start = buf->length - window_bytes;
     }
-    
+
     if (out_len) *out_len = buf->length - start;
     return buf->data + start;
 }
@@ -755,7 +755,7 @@ static zeta_scratch_tokens_t g_scratch_tokens = {0};
 // Check if token is a scratch control token
 static inline bool zeta_scratch_is_control_token(int32_t tok_id) {
     if (!g_scratch_tokens.initialized) return false;
-    
+
     return tok_id == g_scratch_tokens.tok_scratch_start ||
            tok_id == g_scratch_tokens.tok_scratch_end ||
            tok_id == g_scratch_tokens.tok_checkpoint ||
@@ -769,32 +769,32 @@ static inline bool zeta_scratch_is_control_token(int32_t tok_id) {
 // Handle control token (returns true if token was handled)
 static inline bool zeta_scratch_handle_token(zeta_scratch_buffer_t* buf, int32_t tok_id) {
     if (!buf || !g_scratch_tokens.initialized) return false;
-    
+
     if (tok_id == g_scratch_tokens.tok_scratch_start) {
         zeta_scratch_enter_hidden(buf);
         return true;
     }
-    
+
     if (tok_id == g_scratch_tokens.tok_scratch_end) {
         zeta_scratch_exit_hidden(buf);
         return true;
     }
-    
+
     if (tok_id == g_scratch_tokens.tok_checkpoint) {
         zeta_scratch_checkpoint(buf, NULL);
         return true;
     }
-    
+
     if (tok_id == g_scratch_tokens.tok_revise) {
         zeta_scratch_revert_last(buf);
         return true;
     }
-    
+
     if (tok_id == g_scratch_tokens.tok_clear) {
         zeta_scratch_reset(buf);
         return true;
     }
-    
+
     // Section and flush need additional handling by caller
     return false;
 }
@@ -819,7 +819,7 @@ typedef struct {
 static inline zeta_scratch_stats_t zeta_scratch_get_stats(zeta_scratch_buffer_t* buf) {
     zeta_scratch_stats_t stats = {0};
     if (!buf) return stats;
-    
+
     stats.total_generated = buf->total_tokens_generated;
     stats.total_revised = buf->tokens_revised;
     stats.total_flushed = buf->tokens_flushed;
@@ -828,13 +828,13 @@ static inline zeta_scratch_stats_t zeta_scratch_get_stats(zeta_scratch_buffer_t*
     stats.checkpoint_count = buf->num_checkpoints;
     stats.section_count = buf->num_sections;
     stats.pending_ops = buf->num_pending_ops;
-    
+
     if (stats.total_generated > 0) {
         stats.revision_ratio = (float)stats.total_revised / stats.total_generated;
     }
-    
+
     stats.duration_sec = time(NULL) - buf->start_time;
-    
+
     return stats;
 }
 
@@ -844,18 +844,18 @@ static inline zeta_scratch_stats_t zeta_scratch_get_stats(zeta_scratch_buffer_t*
 
 static inline void zeta_scratch_debug_print(zeta_scratch_buffer_t* buf) {
     if (!buf) return;
-    
+
     zeta_scratch_stats_t stats = zeta_scratch_get_stats(buf);
-    
+
     fprintf(stderr, "\n=== Scratch Buffer Debug ===\n");
     fprintf(stderr, "Length: %zu / %zu bytes\n", buf->length, buf->capacity);
     fprintf(stderr, "Tokens: %zu generated, %zu revised, %zu flushed\n",
             stats.total_generated, stats.total_revised, stats.total_flushed);
     fprintf(stderr, "Revision ratio: %.2f%%\n", stats.revision_ratio * 100);
-    fprintf(stderr, "Checkpoints: %d, Sections: %d\n", 
+    fprintf(stderr, "Checkpoints: %d, Sections: %d\n",
             stats.checkpoint_count, stats.section_count);
     fprintf(stderr, "Mode: %s, State: %s\n",
-            buf->mode == SCRATCH_MODE_VISIBLE ? "visible" : 
+            buf->mode == SCRATCH_MODE_VISIBLE ? "visible" :
             buf->mode == SCRATCH_MODE_HIDDEN ? "hidden" : "section",
             buf->state == SCRATCH_STATE_IDLE ? "idle" :
             buf->state == SCRATCH_STATE_GENERATING ? "generating" :
@@ -894,16 +894,16 @@ static inline bool zeta_scratch_stream_token(
     zeta_scratch_stream_t* stream
 ) {
     if (!buf) return false;
-    
+
     // Append to buffer
     bool ok = zeta_scratch_append_token(buf, token_id, text, len);
     if (!ok) return false;
-    
+
     // Stream to user if visible mode
     if (stream && stream->on_token && buf->mode == SCRATCH_MODE_VISIBLE) {
         stream->on_token(text, len, stream->user_data);
     }
-    
+
     return true;
 }
 
@@ -929,10 +929,10 @@ typedef struct {
     zeta_chunk_state_t chunks[32];      // Track up to 32 chunks
     int num_chunks;
     int current_chunk;
-    
+
     // Threshold for when to create new chunk
     size_t chunk_threshold;             // Tokens before chunking
-    
+
     // Summarizer callback (could be 3B model)
     const char* (*summarize)(const char* content, size_t len, void* ctx);
     void* summarize_ctx;
@@ -941,19 +941,19 @@ typedef struct {
 static inline zeta_chunked_buffer_t* zeta_chunked_create(size_t capacity) {
     zeta_chunked_buffer_t* cb = (zeta_chunked_buffer_t*)calloc(1, sizeof(zeta_chunked_buffer_t));
     if (!cb) return NULL;
-    
+
     cb->buffer = zeta_scratch_create(capacity);
     if (!cb->buffer) {
         free(cb);
         return NULL;
     }
-    
+
     cb->num_chunks = 0;
     cb->current_chunk = 0;
     cb->chunk_threshold = 4096;  // Default: chunk after 4K tokens
     cb->summarize = NULL;
     cb->summarize_ctx = NULL;
-    
+
     return cb;
 }
 
@@ -973,16 +973,16 @@ static inline bool zeta_chunked_needs_chunk(zeta_chunked_buffer_t* cb) {
 static inline bool zeta_chunked_create_chunk(zeta_chunked_buffer_t* cb) {
     if (!cb || !cb->buffer) return false;
     if (cb->num_chunks >= 32) return false;
-    
+
     // Get current buffer content
     size_t content_len = cb->buffer->length;
-    
+
     // Summarize if we have a summarizer
     zeta_chunk_state_t* chunk = &cb->chunks[cb->num_chunks];
     chunk->chunk_number = cb->num_chunks;
     chunk->tokens_in_chunk = cb->buffer->token_count;
     chunk->total_tokens = cb->buffer->total_tokens_generated;
-    
+
     if (cb->summarize) {
         const char* summary = cb->summarize(cb->buffer->data, content_len, cb->summarize_ctx);
         if (summary) {
@@ -1001,29 +1001,29 @@ static inline bool zeta_chunked_create_chunk(zeta_chunked_buffer_t* cb) {
             chunk->summary_len = keep;
         }
     }
-    
+
     cb->num_chunks++;
     cb->current_chunk = cb->num_chunks;
-    
+
     // Reset buffer but keep stats
     size_t total_gen = cb->buffer->total_tokens_generated;
     zeta_scratch_reset(cb->buffer);
     cb->buffer->total_tokens_generated = total_gen;
-    
+
     // Inject summary as context
     if (chunk->summary_len > 0) {
         zeta_scratch_append(cb->buffer, "[Previous context summary: ", 27);
         zeta_scratch_append(cb->buffer, chunk->summary, chunk->summary_len);
         zeta_scratch_append(cb->buffer, "]\n\n", 3);
     }
-    
+
     return true;
 }
 
 // Get total content across all chunks (for final assembly)
 static inline size_t zeta_chunked_get_total_length(zeta_chunked_buffer_t* cb) {
     if (!cb) return 0;
-    
+
     size_t total = cb->buffer->length;
     for (int i = 0; i < cb->num_chunks; i++) {
         total += cb->chunks[i].tokens_in_chunk * 4;  // Estimate
@@ -1065,26 +1065,26 @@ static inline zeta_revision_level_t zeta_revision_evaluate(
     zeta_revision_config_t* config
 ) {
     if (!buf || !config) return REVISION_NONE;
-    
+
     // Already revised too many times?
     if (buf->revision_count >= config->max_revisions) {
         return REVISION_NONE;  // Give up on revising
     }
-    
+
     // Confidence ok?
     if (confidence >= config->confidence_threshold) {
         return REVISION_NONE;
     }
-    
+
     // How bad is it?
     if (confidence < 0.1f && config->allow_restart) {
         return REVISION_RESTART;
     }
-    
+
     if (confidence < 0.2f && buf->num_checkpoints > 1) {
         return REVISION_MAJOR;
     }
-    
+
     return REVISION_MINOR;
 }
 
@@ -1095,26 +1095,26 @@ static inline bool zeta_revision_execute(
     zeta_revision_config_t* config
 ) {
     if (!buf || !config) return false;
-    
+
     switch (level) {
         case REVISION_NONE:
             return true;  // Nothing to do
-            
+
         case REVISION_MINOR:
             return zeta_scratch_revert_last(buf);
-            
+
         case REVISION_MAJOR: {
             // Go back multiple checkpoints
             int target = buf->current_checkpoint - config->lookback_checkpoints;
             if (target < 0) target = 0;
             return zeta_scratch_revert(buf, target);
         }
-        
+
         case REVISION_RESTART:
             zeta_scratch_reset(buf);
             return true;
     }
-    
+
     return false;
 }
 
@@ -1199,53 +1199,53 @@ typedef struct {
     zeta_chunked_buffer_t* chunked;     // Optional chunked mode
     zeta_scratch_stream_t* stream;
     zeta_revision_config_t revision_cfg;
-    
+
     // Generation state
     bool is_generating;
     bool use_chunking;
     int current_section_template;
-    
+
     // Token tracking
     int32_t last_token;
     float last_confidence;
-    
+
     // GitGraph integration (would link to actual GitGraph)
     void* gitgraph_ctx;
-    
+
 } zeta_generation_ctx_t;
 
 static inline zeta_generation_ctx_t* zeta_generation_create(bool use_chunking) {
     zeta_generation_ctx_t* ctx = (zeta_generation_ctx_t*)calloc(1, sizeof(zeta_generation_ctx_t));
     if (!ctx) return NULL;
-    
+
     if (use_chunking) {
         ctx->chunked = zeta_chunked_create(0);
         ctx->scratch = ctx->chunked ? ctx->chunked->buffer : NULL;
     } else {
         ctx->scratch = zeta_scratch_create(0);
     }
-    
+
     if (!ctx->scratch) {
         free(ctx);
         return NULL;
     }
-    
+
     ctx->revision_cfg = zeta_revision_default_config();
     ctx->use_chunking = use_chunking;
     ctx->is_generating = false;
-    
+
     return ctx;
 }
 
 static inline void zeta_generation_destroy(zeta_generation_ctx_t* ctx) {
     if (!ctx) return;
-    
+
     if (ctx->use_chunking && ctx->chunked) {
         zeta_chunked_destroy(ctx->chunked);
     } else if (ctx->scratch) {
         zeta_scratch_destroy(ctx->scratch);
     }
-    
+
     free(ctx);
 }
 
@@ -1266,36 +1266,36 @@ static inline zeta_token_result_t zeta_generation_process_token(
     float confidence         // Model's confidence in this token
 ) {
     if (!ctx || !ctx->scratch) return TOKEN_RESULT_ERROR;
-    
+
     ctx->last_token = token_id;
     ctx->last_confidence = confidence;
-    
+
     // Check for control tokens
     if (zeta_scratch_is_control_token(token_id)) {
         zeta_scratch_handle_token(ctx->scratch, token_id);
         return TOKEN_RESULT_CONTINUE;
     }
-    
+
     // Check for EOS
     // (Would check against actual EOS token ID)
-    
+
     // Append token
     if (ctx->stream) {
         zeta_scratch_stream_token(ctx->scratch, token_id, token_text, token_len, ctx->stream);
     } else {
         zeta_scratch_append_token(ctx->scratch, token_id, token_text, token_len);
     }
-    
+
     // Check if revision needed
     zeta_revision_level_t rev_level = zeta_revision_evaluate(
         ctx->scratch, confidence, &ctx->revision_cfg
     );
-    
+
     if (rev_level != REVISION_NONE) {
         zeta_revision_execute(ctx->scratch, rev_level, &ctx->revision_cfg);
         return TOKEN_RESULT_REVISE;
     }
-    
+
     // Check if chunking needed
     if (ctx->use_chunking && ctx->chunked) {
         if (zeta_chunked_needs_chunk(ctx->chunked)) {
@@ -1303,7 +1303,7 @@ static inline zeta_token_result_t zeta_generation_process_token(
             return TOKEN_RESULT_CHUNK;
         }
     }
-    
+
     return TOKEN_RESULT_CONTINUE;
 }
 
@@ -1314,10 +1314,10 @@ static inline void zeta_generation_start(
     int num_sections
 ) {
     if (!ctx || !ctx->scratch) return;
-    
+
     ctx->is_generating = true;
     ctx->scratch->state = SCRATCH_STATE_GENERATING;
-    
+
     // Start first section if provided
     if (sections && num_sections > 0) {
         zeta_scratch_begin_template_section(ctx->scratch, sections[0]);
@@ -1332,14 +1332,14 @@ static inline size_t zeta_generation_finish(
     size_t output_size
 ) {
     if (!ctx || !ctx->scratch) return 0;
-    
+
     ctx->is_generating = false;
-    
+
     // Close any open section
     if (ctx->scratch->current_section >= 0) {
         zeta_scratch_end_section(ctx->scratch);
     }
-    
+
     // Flush to output
     return zeta_scratch_flush(ctx->scratch, output, output_size);
 }
@@ -1360,21 +1360,21 @@ typedef struct {
 static inline zeta_parallel_buffer_t* zeta_parallel_create(void) {
     zeta_parallel_buffer_t* pb = (zeta_parallel_buffer_t*)calloc(1, sizeof(zeta_parallel_buffer_t));
     if (!pb) return NULL;
-    
+
     pb->primary = zeta_scratch_create(0);
     pb->speculative = zeta_scratch_create(ZETA_SCRATCH_DEFAULT_CAPACITY / 4);  // Smaller
-    
+
     if (!pb->primary || !pb->speculative) {
         if (pb->primary) zeta_scratch_destroy(pb->primary);
         if (pb->speculative) zeta_scratch_destroy(pb->speculative);
         free(pb);
         return NULL;
     }
-    
+
     pb->spec_active = false;
     pb->spec_threshold = 0.5f;
     pb->spec_tokens = 32;
-    
+
     return pb;
 }
 
@@ -1388,32 +1388,32 @@ static inline void zeta_parallel_destroy(zeta_parallel_buffer_t* pb) {
 // Start speculative path
 static inline void zeta_parallel_start_speculation(zeta_parallel_buffer_t* pb) {
     if (!pb) return;
-    
+
     // Copy current primary state to speculative
     if (pb->primary->length > 0) {
         zeta_scratch_reset(pb->speculative);
         zeta_scratch_append(pb->speculative, pb->primary->data, pb->primary->length);
     }
-    
+
     pb->spec_active = true;
 }
 
 // Accept speculative path (it was better)
 static inline void zeta_parallel_accept_speculation(zeta_parallel_buffer_t* pb) {
     if (!pb || !pb->spec_active) return;
-    
+
     // Swap buffers
     zeta_scratch_buffer_t* tmp = pb->primary;
     pb->primary = pb->speculative;
     pb->speculative = tmp;
-    
+
     pb->spec_active = false;
 }
 
 // Reject speculative path (primary was better)
 static inline void zeta_parallel_reject_speculation(zeta_parallel_buffer_t* pb) {
     if (!pb) return;
-    
+
     zeta_scratch_reset(pb->speculative);
     pb->spec_active = false;
 }
@@ -1425,9 +1425,9 @@ static inline void zeta_parallel_reject_speculation(zeta_parallel_buffer_t* pb) 
 // Serialize buffer state to JSON (for saving/restoring sessions)
 static inline size_t zeta_scratch_to_json(zeta_scratch_buffer_t* buf, char* json, size_t json_size) {
     if (!buf || !json || json_size < 256) return 0;
-    
+
     zeta_scratch_stats_t stats = zeta_scratch_get_stats(buf);
-    
+
     int written = snprintf(json, json_size,
         "{"
         "\"length\":%zu,"
@@ -1453,13 +1453,13 @@ static inline size_t zeta_scratch_to_json(zeta_scratch_buffer_t* buf, char* json
         stats.section_count,
         stats.revision_ratio,
         (long long)stats.duration_sec,
-        buf->mode == SCRATCH_MODE_VISIBLE ? "visible" : 
+        buf->mode == SCRATCH_MODE_VISIBLE ? "visible" :
         buf->mode == SCRATCH_MODE_HIDDEN ? "hidden" : "section",
         buf->state == SCRATCH_STATE_IDLE ? "idle" :
         buf->state == SCRATCH_STATE_GENERATING ? "generating" :
         buf->state == SCRATCH_STATE_REVISING ? "revising" : "flushing"
     );
-    
+
     return (size_t)written;
 }
 

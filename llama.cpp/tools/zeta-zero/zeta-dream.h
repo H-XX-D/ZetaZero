@@ -1382,8 +1382,8 @@ public:
         for (int i = 0; i < ctx->num_edges; i++) {
             int64_t source_id = ctx->edges[i].source_id;
             int64_t target_id = ctx->edges[i].target_id;
-            
-            if (node_id_to_idx.find(source_id) == node_id_to_idx.end() || 
+
+            if (node_id_to_idx.find(source_id) == node_id_to_idx.end() ||
                 node_id_to_idx.find(target_id) == node_id_to_idx.end()) continue;
 
             int from_idx = node_id_to_idx[source_id];
