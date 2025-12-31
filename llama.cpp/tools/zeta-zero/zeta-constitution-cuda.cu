@@ -373,6 +373,14 @@ int main() {
     float* h_original = (float*)malloc(N * sizeof(float));
     float* h_result = (float*)malloc(N * sizeof(float));
     float* d_weights;
+    
+    if (!h_original || !h_result) {
+        free(h_original);
+        free(h_result);
+        printf("[CUDA-BIND] Memory allocation failed\n");
+        return 1;
+    }
+    
     cudaMalloc(&d_weights, N * sizeof(float));
 
     for (int i = 0; i < N; i++) {
