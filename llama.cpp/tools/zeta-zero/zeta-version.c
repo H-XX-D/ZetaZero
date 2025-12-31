@@ -96,6 +96,7 @@ static zeta_version_chain_t* get_or_create_chain(
     if (!chain) return NULL;
 
     strncpy(chain->concept_key, concept_key, 63);
+    chain->concept_key[63] = '\0';  // Ensure null-termination
     chain->head_node = -1;
     chain->tail_node = -1;
     chain->next = ctx->chains[bucket];

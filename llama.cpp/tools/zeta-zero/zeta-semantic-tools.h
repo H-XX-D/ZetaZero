@@ -159,6 +159,13 @@ static inline zeta_tool_ctx_t* zeta_tool_init(
     ctx->cap_edges = 4096;
     ctx->edges = (zeta_edge_t*)calloc(ctx->cap_edges, sizeof(zeta_edge_t));
 
+    if (!ctx->concepts || !ctx->edges) {
+        free(ctx->concepts);
+        free(ctx->edges);
+        free(ctx);
+        return NULL;
+    }
+
     ctx->next_concept_id = 1;
     ctx->next_edge_id = 1;
     ctx->current_session = (int64_t)time(NULL);

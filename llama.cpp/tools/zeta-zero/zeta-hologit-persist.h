@@ -52,6 +52,10 @@ static inline float* hologit_load_block(int64_t block_id, int* dim_out) {
     fread(&dim, sizeof(int), 1, f);
 
     float* summary = (float*)malloc(dim * sizeof(float));
+    if (!summary) {
+        fclose(f);
+        return NULL;
+    }
     fread(summary, sizeof(float), dim, f);
     fclose(f);
 

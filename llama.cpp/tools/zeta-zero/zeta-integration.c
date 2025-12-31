@@ -184,6 +184,12 @@ zeta_context_t* zeta_context_init(
     // Allocate injection buffer
     ctx->injection_dim = n_embd;
     ctx->injection_buffer = (float*)calloc(n_embd, sizeof(float));
+    if (!ctx->injection_buffer) {
+        zeta_memory_free(ctx->memory);
+        zeta_constitution_free(constitution);
+        free(ctx);
+        return NULL;
+    }
     ctx->has_injection = false;
 
     // Block summaries cache (filled on demand)
@@ -207,6 +213,13 @@ zeta_context_t* zeta_context_init(
     int max_kv = llama_n_ctx(llama_ctx);
     ctx->attention_scores_size = max_kv;
     ctx->attention_scores = (float*)calloc(max_kv, sizeof(float));
+    if (!ctx->attention_scores) {
+        free(ctx->injection_buffer);
+        zeta_memory_free(ctx->memory);
+        zeta_constitution_free(constitution);
+        free(ctx);
+        return NULL;
+    }
     ctx->kv_cache_used = 0;
 
     // =========================================================================

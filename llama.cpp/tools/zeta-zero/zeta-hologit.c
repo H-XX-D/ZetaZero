@@ -130,6 +130,10 @@ int zeta_hologit_register_block(
         v->version_id = 0;
         v->step_created = 0;
         v->summary_snapshot = (float*)malloc(summary_dim * sizeof(float));
+        if (!v->summary_snapshot) {
+            // Allocation failed - block exists but without initial version
+            return idx;
+        }
         memcpy(v->summary_snapshot, initial_summary, summary_dim * sizeof(float));
         strncpy(v->reason, "initial", sizeof(v->reason) - 1);
 
@@ -321,6 +325,11 @@ void zeta_hologit_apply_patch(
     meta->versions[v].version_id = v;
     meta->versions[v].step_created = 0;  // Should pass current step
     meta->versions[v].summary_snapshot = (float*)malloc(summary_dim * sizeof(float));
+    if (!meta->versions[v].summary_snapshot) {
+        // Allocation failed - rollback version count
+        meta->num_versions--;
+        return;
+    }
     memcpy(meta->versions[v].summary_snapshot, new_summary, summary_dim * sizeof(float));
     strncpy(meta->versions[v].reason, reason, sizeof(meta->versions[v].reason) - 1);
 
@@ -558,7 +567,16 @@ void zeta_hologit_print_top_edges(const zeta_hologit_t* hg, int n) {
     // Simple O(n*num_edges) top-n selection
     fprintf(stderr, "\n=== Top %d Edges ===\n", n);
 
+    if (hg->num_edges == 0) {
+        fprintf(stderr, "  (no edges)\n");
+        return;
+    }
+
     bool* used = (bool*)calloc(hg->num_edges, sizeof(bool));
+    if (!used) {
+        fprintf(stderr, "  (allocation failed)\n");
+        return;
+    }
 
     for (int i = 0; i < n && i < hg->num_edges; i++) {
         float max_weight = -1.0f;
@@ -578,6 +596,7 @@ void zeta_hologit_print_top_edges(const zeta_hologit_t* hg, int n) {
         fprintf(stderr, "  %lld <-> %lld: %.3f (co-retrieved %lld times)\n",
                 (long long)e->block_a, (long long)e->block_b,
                 e->weight, (long long)e->co_retrieval_count);
+    }
     }
 
     free(used);

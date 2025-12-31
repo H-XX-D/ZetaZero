@@ -66,6 +66,9 @@ static bool bloom_check(const zeta_bloom_t* bloom, const char* key) {
 // Initialize random hyperplanes for LSH
 static void lsh_init_hyperplanes(zeta_lsh_table_t* table, int embd_dim) {
     table->embd_dim = embd_dim;
+    table->buckets = NULL;
+    table->bucket_sizes = NULL;
+    table->bucket_capacities = NULL;
     int n_hyperplanes = ZETA_DEDUP_LSH_BITS;
 
     table->hyperplanes = (float*)malloc(n_hyperplanes * embd_dim * sizeof(float));
@@ -85,6 +88,18 @@ static void lsh_init_hyperplanes(zeta_lsh_table_t* table, int embd_dim) {
     table->buckets = (int64_t**)calloc(n_buckets, sizeof(int64_t*));
     table->bucket_sizes = (int*)calloc(n_buckets, sizeof(int));
     table->bucket_capacities = (int*)calloc(n_buckets, sizeof(int));
+
+    // Check bucket allocations
+    if (!table->buckets || !table->bucket_sizes || !table->bucket_capacities) {
+        free(table->hyperplanes);
+        free(table->buckets);
+        free(table->bucket_sizes);
+        free(table->bucket_capacities);
+        table->hyperplanes = NULL;
+        table->buckets = NULL;
+        table->bucket_sizes = NULL;
+        table->bucket_capacities = NULL;
+    }
 }
 
 static void lsh_free(zeta_lsh_table_t* table) {
@@ -118,12 +133,16 @@ static uint32_t lsh_hash(const zeta_lsh_table_t* table, const float* embedding) 
 
 // Add node to LSH table
 static void lsh_add(zeta_lsh_table_t* table, int64_t node_id, const float* embedding) {
+    if (!table->buckets) return;  // Table not properly initialized
+
     uint32_t hash = lsh_hash(table, embedding);
 
     // Grow bucket if needed
     if (table->bucket_sizes[hash] >= table->bucket_capacities[hash]) {
         int new_cap = table->bucket_capacities[hash] == 0 ? 4 : table->bucket_capacities[hash] * 2;
-        table->buckets[hash] = (int64_t*)realloc(table->buckets[hash], new_cap * sizeof(int64_t));
+        int64_t* new_bucket = (int64_t*)realloc(table->buckets[hash], new_cap * sizeof(int64_t));
+        if (!new_bucket) return;  // Allocation failed, skip this add
+        table->buckets[hash] = new_bucket;
         table->bucket_capacities[hash] = new_cap;
     }
 

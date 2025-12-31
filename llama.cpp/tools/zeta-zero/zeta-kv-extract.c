@@ -186,6 +186,7 @@ static zeta_kv_data_t* parse_state_data(
 
     result->n_tokens = cell_count;
     result->positions = (int32_t*)malloc(cell_count * sizeof(int32_t));
+    if (!result->positions) goto error;
 
     // Parse meta section (positions and seq_ids)
     for (uint32_t i = 0; i < cell_count; i++) {
@@ -225,6 +226,7 @@ static zeta_kv_data_t* parse_state_data(
     // Allocate layer arrays
     result->keys = (float**)calloc(n_layer, sizeof(float*));
     result->values = (float**)calloc(n_layer, sizeof(float*));
+    if (!result->keys || !result->values) goto error;
 
     // Parse keys for each layer
     for (uint32_t l = 0; l < n_layer; l++) {
@@ -396,9 +398,20 @@ zeta_kv_data_t* zeta_extract_kv_range(
     result->keys = (float**)calloc(full->n_layer, sizeof(float*));
     result->values = (float**)calloc(full->n_layer, sizeof(float*));
 
+    if (!result->positions || !result->keys || !result->values) {
+        zeta_kv_data_free(result);
+        zeta_kv_data_free(full);
+        return NULL;
+    }
+
     for (int l = 0; l < full->n_layer; l++) {
         result->keys[l] = (float*)malloc(count * full->n_embd_k * sizeof(float));
         result->values[l] = (float*)malloc(count * full->n_embd_v * sizeof(float));
+        if (!result->keys[l] || !result->values[l]) {
+            zeta_kv_data_free(result);
+            zeta_kv_data_free(full);
+            return NULL;
+        }
     }
 
     // Copy filtered data

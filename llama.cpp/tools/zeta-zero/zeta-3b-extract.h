@@ -221,6 +221,7 @@ static inline int zeta_extract_robust_patterns(
     
     size_t len = strlen(input);
     char* lower = (char*)malloc(len + 1);
+    if (!lower) return 0;  // Memory allocation failed
     for (size_t i = 0; i < len; i++) {
         lower[i] = (input[i] >= 'A' && input[i] <= 'Z') ? input[i] + 32 : input[i];
     }
