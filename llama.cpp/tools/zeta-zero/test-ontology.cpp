@@ -47,17 +47,17 @@ int main() {
     int edge_failed = 0;
 
     for (int i = 0; edge_cases[i].text != NULL; i++) {
-        zeta_domain_result_t result = zeta_classify_domain(edge_cases[i].text, edge_cases[i].from_user);
+        zeta_domain_result_t result = zeta_classify_fact_domain(edge_cases[i].text, edge_cases[i].from_user);
 
         printf("\n[%s] %s\n", edge_cases[i].description, edge_cases[i].text);
         printf("  Domain: %s, Blocked: %s, Pattern: %s\n",
-               zeta_domain_to_string(result.domain),
+               zeta_fact_domain_to_string(result.domain),
                result.should_block ? "YES" : "no",
                result.matched_pattern ? result.matched_pattern : "(none)");
 
         // For user input with SYSTEM domain, should be blocked
         // For model output with SYSTEM domain, should NOT be blocked
-        bool expected_block = (edge_cases[i].from_user && result.domain == DOMAIN_SYSTEM);
+        bool expected_block = (edge_cases[i].from_user && result.domain == FACT_DOMAIN_SYSTEM);
         bool correct = (result.should_block == expected_block);
 
         if (correct) {
