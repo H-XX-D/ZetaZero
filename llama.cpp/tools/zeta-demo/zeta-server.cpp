@@ -91,8 +91,8 @@ extern "C" {
 #include "zeta-output-control.h"  // Verbosity governor, JSON mode, Turn-2 parsing
 
 // Scratch Buffer: Working memory for staged generation
-#include "../../../zeta-integration/zeta-scratch-buffer.h"
-#include "../../../zeta-integration/zeta-scratch-integration.h"
+#include "zeta-scratch-buffer.h"
+#include "zeta-scratch-integration.h"
 
 // Graph-KV: Pre-computed KV cache for graph nodes (skip prefill on retrieval)
 #include "zeta-graph-kv-integration.h"
@@ -230,11 +230,6 @@ static void zeta_apply_temporal_decay(zeta_dual_ctx_t* ctx) {
     }
 }
 
-// C++ tool system (must be outside extern C)
-#include "zeta-tools.h"
-
-
-
 // Forward declaration for immune health check
 static std::string immune_health_check();
 
@@ -261,10 +256,6 @@ static void idle_decay() {
     }
 }
 
-// C++ tool system (must be outside extern C)
-#include "zeta-tools.h"
-
-
 // Watchdog thread
 static void idle_watchdog_thread() {
     while (!g_shutdown_requested) {
@@ -276,9 +267,6 @@ static void idle_watchdog_thread() {
         }
     }
 }
-
-// C++ tool system (must be outside extern C)
-#include "zeta-tools.h"
 
 static httplib::Server* g_server = nullptr;
 
@@ -382,9 +370,6 @@ static float compute_momentum_from_logits(float* logits, int n_vocab) {
 
     return momentum;
 }
-
-// C++ tool system (must be outside extern C)
-#include "zeta-tools.h"
 
 // ============================================================================
 // SPECIALIST MODEL INFERENCE HELPERS
@@ -2708,9 +2693,6 @@ static std::string generate(const std::string& prompt, int max_tokens) {
     return std::string(json);
 }
 
-// C++ tool system (must be outside extern C)
-#include "zeta-tools.h"
-
 static void consolidate_memory() {
     if (!g_dual || g_dual->num_nodes == 0) return;
 
@@ -2730,9 +2712,6 @@ static void consolidate_memory() {
     }
 }
 
-// C++ tool system (must be outside extern C)
-#include "zeta-tools.h"
-
 static void save_graph() {
     if (!g_dual || g_dual->num_nodes == 0) return;
 
@@ -2751,9 +2730,6 @@ static void save_graph() {
         fprintf(stderr, "[SAVE] ERROR: Could not open %s for writing\n", path);
     }
 }
-
-// C++ tool system (must be outside extern C)
-#include "zeta-tools.h"
 
 static void load_graph() {
     if (!g_dual) return;
@@ -2789,9 +2765,6 @@ static void load_graph() {
     }
 }
 
-// C++ tool system (must be outside extern C)
-#include "zeta-tools.h"
-
 static void signal_handler(int sig) {
     const char* sig_name = (sig == SIGTERM) ? "SIGTERM" :
                            (sig == SIGINT)  ? "SIGINT"  : "SIGNAL";
@@ -2801,8 +2774,6 @@ static void signal_handler(int sig) {
     if (g_server) g_server->stop();
 }
 
-// C++ tool system (must be outside extern C)
-#include "zeta-tools.h"
 // Quiet log callback - filter tensor spam
 static void quiet_log_callback(enum ggml_log_level level, const char* text, void* user_data) {
     (void)user_data;
@@ -2814,9 +2785,6 @@ static void quiet_log_callback(enum ggml_log_level level, const char* text, void
         fprintf(stderr, "%s", text);
     }
 }
-
-// C++ tool system (must be outside extern C)
-#include "zeta-tools.h"
 
 
 
@@ -5586,7 +5554,3 @@ int main(int argc, char** argv) {
     fprintf(stderr, "[SHUTDOWN] Complete.\n");
     return 0;
 }
-
-// C++ tool system (must be outside extern C)
-#include "zeta-tools.h"
-
