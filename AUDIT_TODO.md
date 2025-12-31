@@ -44,7 +44,7 @@
 
 ## SERVER (15-16)
 
-- [ ] **15. zeta-server.cpp** - Audit HTTP server (~5000 lines): verify all endpoints documented, check request/response handling, validate JSON parsing, test error responses, verify threading model, check memory management
+- [x] **15. zeta-server.cpp** - ✅ AUDITED: Password-protected sudo, semantic attack filtering, configurable passwords via CLI
 - [ ] **16. zeta-demo.cpp** - Audit CLI demo: verify argument parsing, check model loading, validate interactive mode, ensure clean shutdown
 
 ---
@@ -53,7 +53,7 @@
 
 - [ ] **17. zeta-hrm.h** - Audit HRM module: verify hierarchical planning, check cognitive state transitions, validate depth/branch parameters, cross-check with zeta-dual-process.h
 - [ ] **18. zeta-trm.h** - Audit TRM module: verify temporal decay, check lambda calculations, validate branch management, cross-check with zeta-graph-git.h
-- [ ] **19. zeta-dual-process.h** - Audit dual-process engine: verify System1/System2 routing, check cognitive sync, validate state management, THIS IS MAIN COGNITIVE ENGINE
+- [x] **19. zeta-dual-process.h** - ✅ Whitespace cleanup committed. Main cognitive engine, no security issues found.
 - [ ] **20. zeta-dream.h** - Audit dream state: verify idle processing, check memory consolidation, validate pattern detection, cross-check with zeta-pruning.h
 - [ ] **21. zeta-hsm.h** - Audit HSM (Hierarchical State Machine): verify state transitions, check event handling, validate state persistence
 - [ ] **22. zeta-critic.h** - Audit critic module: verify evaluation logic, check scoring functions, validate feedback loops
