@@ -362,7 +362,7 @@ static inline zeta_conflict_result_t zeta_detect_conflict(
     zeta_dual_ctx_t* ctx,
     const char* output
 ) {
-    zeta_conflict_result_t result = {0};
+    zeta_conflict_result_t result = {false, {}, {}, {}, 0.0f};
 
     if (!ctx || !output || strlen(output) < 10) return result;
 
@@ -861,7 +861,7 @@ static inline zeta_gaslight_result_t zeta_detect_gaslighting(const char* input) 
 
 // Check if input is safe for memory updates (not gaslighting)
 static inline bool zeta_is_safe_memory_update(
-    zeta_dual_ctx_t* ctx,
+    zeta_dual_ctx_t* /* ctx */,
     const char* input
 ) {
     zeta_gaslight_result_t gaslight = zeta_detect_gaslighting(input);
@@ -1100,7 +1100,7 @@ static inline zeta_contradiction_result_t zeta_detect_input_contradiction(
     zeta_dual_ctx_t* ctx,
     const char* input
 ) {
-    zeta_contradiction_result_t result = {0};
+    zeta_contradiction_result_t result = {false, {}, {}, {}, {}, 0.0f, false};
     if (!ctx || !input || strlen(input) < 5) return result;
 
     char lower_input[2048];

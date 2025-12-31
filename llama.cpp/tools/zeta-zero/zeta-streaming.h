@@ -306,7 +306,7 @@ static inline void zeta_stream_ack_served(
 // Evict served/low-priority nodes to make room
 static inline void zeta_stream_evict(
     zeta_stream_state_t* state,
-    float current_momentum
+    float /* current_momentum */  // Reserved for momentum-based eviction policy
 ) {
     int new_count = 0;
     int freed_tokens = 0;

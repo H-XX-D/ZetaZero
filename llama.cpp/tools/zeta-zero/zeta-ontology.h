@@ -168,12 +168,7 @@ static inline int zeta_count_pattern_matches(const char* text, const char** patt
 // ============================================================================
 
 static inline zeta_domain_result_t zeta_classify_fact_domain(const char* text, bool from_user) {
-    zeta_domain_result_t result = {
-        .domain = FACT_DOMAIN_UNKNOWN,
-        .confidence = 0.0f,
-        .matched_pattern = NULL,
-        .should_block = false
-    };
+    zeta_domain_result_t result = {FACT_DOMAIN_UNKNOWN, 0.0f, NULL, false};
 
     if (!text || strlen(text) == 0) {
         return result;

@@ -32,7 +32,7 @@ typedef struct {
     bool running;
 } zeta_cyclic_queue_t;
 
-static zeta_cyclic_queue_t g_cyclic = {0};
+static zeta_cyclic_queue_t g_cyclic = {{}, 0, 0, {}, PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER, false};
 static bool g_cyclic_initialized = false;
 static pthread_mutex_t g_cyclic_init_mutex = PTHREAD_MUTEX_INITIALIZER;
 
@@ -121,7 +121,7 @@ static inline int zeta_process_output_cyclic(
     zeta_dual_ctx_t* ctx,
     const char* output_text,
     const char* original_query,
-    float momentum
+    float /* momentum */  // Reserved for future momentum-based correlation weighting
 ) {
     if (!ctx || !output_text) return 0;
 

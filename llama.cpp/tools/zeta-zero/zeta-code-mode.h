@@ -199,7 +199,7 @@ static inline void zeta_switch_to_code_mode(zeta_code_ctx_t* ctx) {
     
     // Load 3B Coder if path set and not already loaded
     if (!ctx->models.model_subconscious_coder && ctx->models.path_subconscious_coder[0]) {
-        fprintf(stderr, "[MODE] Loading 7B Coder (extract)...\n", ctx->models.path_subconscious_coder);
+        fprintf(stderr, "[MODE] Loading 7B Coder from %s...\n", ctx->models.path_subconscious_coder);
         llama_model_params mparams = llama_model_default_params();
         mparams.n_gpu_layers = 99;
         ctx->models.model_subconscious_coder = llama_model_load_from_file(ctx->models.path_coder, mparams);
@@ -374,7 +374,7 @@ static inline void zeta_log_creation(zeta_code_ctx_t* ctx, const char* type, con
 
 // Check if can create (duplicate prevention)
 static inline bool zeta_can_create(zeta_code_ctx_t* ctx, const char* type, const char* name,
-    const char* file, char* reason, size_t reason_len) {
+    const char* /* file */, char* reason, size_t reason_len) {
     if (!ctx || !ctx->active_project) return true;
     int64_t now = (int64_t)time(NULL);
     for (int i = 0; i < ctx->code_node_count; i++) {

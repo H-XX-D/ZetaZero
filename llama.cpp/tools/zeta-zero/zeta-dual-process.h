@@ -240,7 +240,7 @@ static inline zeta_dual_ctx_t* zeta_dual_init(
 
 // Compute semantic embedding using 4B embedding model (or fallback to hash)
 static inline void zeta_subconscious_embed(
-    zeta_dual_ctx_t* ctx,
+    zeta_dual_ctx_t* /* ctx */,
     const char* text,
     float* embedding,
     int embed_dim
@@ -362,7 +362,7 @@ static inline int64_t zeta_create_node_with_source(
             ctx->nodes[existing_idx].momentum = ctx->nodes[existing_idx].momentum * 0.9f + 0.1f;
             ctx->nodes[existing_idx].momentum_integral = ctx->nodes[existing_idx].momentum_integral * 0.98f + ctx->nodes[existing_idx].momentum;
             fprintf(stderr, "[3B] Dedup: surfacing existing node %lld '%s'\n",
-                    existing_id, ctx->nodes[existing_idx].label);
+                    (long long)existing_id, ctx->nodes[existing_idx].label);
             return existing_id;
         }
 
@@ -1452,7 +1452,6 @@ static inline int zeta_subconscious_extract_facts(
     // FALLBACK to pattern matching
     // FALLBACK: Pattern-based extraction if 3B fails
 
-    const char* input = text;
     char lower[2048];
     size_t len = strlen(text);
     if (len >= sizeof(lower)) len = sizeof(lower) - 1;
@@ -1488,6 +1487,7 @@ static inline int zeta_subconscious_extract_facts(
 
             if (vi > 0) {
                 int64_t nid = zeta_commit_fact(ctx, NODE_ENTITY, "user", value, 1.0f, SOURCE_USER);
+                (void)nid;  // Node created, may link later
                 zeta_commit_fact(ctx, NODE_FACT, "user_name", value, 0.95f, SOURCE_USER);
                 facts_created++;
             }
@@ -1786,7 +1786,6 @@ static inline size_t zeta_build_context_injection(
 
     // Filter nodes: relevance threshold + self-referential filter
     zeta_graph_node_t* filtered_nodes[MAX_CONTEXT_NODES];
-    float filtered_scores[MAX_CONTEXT_NODES];
     int filtered_count = 0;
 
     for (int i = 0; i < surfaced.num_nodes && filtered_count < MAX_CONTEXT_NODES; i++) {
@@ -1913,7 +1912,6 @@ static inline int zeta_extract_from_generation(
         for (int t = 0; titles[t]; t++) {
             const char* match = generated_text;
             while ((match = strstr(match, titles[t])) != NULL) {
-                const char* name_start = match + strlen(titles[t]);
                 char name[128];
                 int ni = 0;
 
@@ -1929,7 +1927,7 @@ static inline int zeta_extract_from_generation(
                 }
                 name[ni] = '\0';
 
-                if (ni > strlen(titles[t]) + 2) {
+                if (ni > (int)strlen(titles[t]) + 2) {
                     zeta_commit_fact(ctx, NODE_ENTITY, "character", name, 0.9f, SOURCE_MODEL);
                     facts++;
                     fprintf(stderr, "[EXTRACT] Character: %s\n", name);
