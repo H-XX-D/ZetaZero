@@ -5,6 +5,13 @@
 #ifndef ZETA_GRAPH_MANAGER_H
 #define ZETA_GRAPH_MANAGER_H
 
+// Suppress pedantic warnings
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmissing-field-initializers"
+#pragma GCC diagnostic ignored "-Wpedantic"
+#endif
+
 #include "zeta-dual-process.h"
 #include <time.h>
 
@@ -565,5 +572,9 @@ static inline int zeta_cleanup_old_graphs(const char* storage_dir) {
 
     return 0;
 }
+
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
 
 #endif // ZETA_GRAPH_MANAGER_H

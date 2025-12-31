@@ -15,6 +15,12 @@
  * - Indices
  */
 
+// Suppress pedantic warnings
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmissing-field-initializers"
+#endif
+
 #include <string.h>
 #include <ctype.h>
 #include <stdio.h>
@@ -251,5 +257,9 @@ static inline const char* zeta_apply_code_conflict_guardrail(
     
     return output;
 }
+
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
 
 #endif // ZETA_CODE_CONFLICT_H
