@@ -9,6 +9,13 @@
 #ifndef ZETA_PROACTIVE_MEMORY_H
 #define ZETA_PROACTIVE_MEMORY_H
 
+// Suppress pedantic warnings for designated initializers and pointer-bool
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wpedantic"
+#pragma GCC diagnostic ignored "-Wpointer-bool-conversion"
+#endif
+
 #include "zeta-streaming.h"
 #include "zeta-embed-integration.h"
 extern "C" {
@@ -629,5 +636,9 @@ static inline void zeta_proactive_print_stats() {
     fprintf(stderr, "  Generation active: %s\n",
             g_proactive->generation_active ? "yes" : "no");
 }
+
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
 
 #endif // ZETA_PROACTIVE_MEMORY_H

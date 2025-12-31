@@ -20,6 +20,12 @@
 #ifndef ZETA_SCRATCH_BUFFER_H
 #define ZETA_SCRATCH_BUFFER_H
 
+// Suppress pedantic warnings for zero-initialization (common in embedded structs)
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmissing-field-initializers"
+#endif
+
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdlib.h>
@@ -1548,6 +1554,10 @@ static inline bool zeta_dual_buffer_append(zeta_dual_buffer_ctx_t* ctx, const ch
 
 #ifdef __cplusplus
 }
+#endif
+
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic pop
 #endif
 
 #endif // ZETA_SCRATCH_BUFFER_H

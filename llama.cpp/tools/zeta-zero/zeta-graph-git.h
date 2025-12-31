@@ -19,6 +19,13 @@
 #ifndef ZETA_GRAPH_GIT_H
 #define ZETA_GRAPH_GIT_H
 
+// Suppress pedantic warnings for zero-initialization
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmissing-field-initializers"
+#pragma GCC diagnostic ignored "-Wmissing-braces"
+#endif
+
 #include "zeta-dual-process.h"
 #include <time.h>
 #include <string.h>
@@ -1068,6 +1075,10 @@ static inline void zeta_git_free(zeta_git_ctx_t* ctx) {
 
 #ifdef __cplusplus
 }
+#endif
+
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic pop
 #endif
 
 #endif // ZETA_GRAPH_GIT_H

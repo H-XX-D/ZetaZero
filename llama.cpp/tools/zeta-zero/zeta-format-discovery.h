@@ -13,6 +13,12 @@
 #ifndef ZETA_FORMAT_DISCOVERY_H
 #define ZETA_FORMAT_DISCOVERY_H
 
+// Suppress pedantic warnings for zero-initialization
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmissing-field-initializers"
+#endif
+
 #include <stdint.h>
 #include <stdbool.h>
 #include <string.h>
@@ -491,6 +497,10 @@ static inline size_t zeta_format_to_json(char* json, size_t json_size) {
 
 #ifdef __cplusplus
 }
+#endif
+
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic pop
 #endif
 
 #endif // ZETA_FORMAT_DISCOVERY_H

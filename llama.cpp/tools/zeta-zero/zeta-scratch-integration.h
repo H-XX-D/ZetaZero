@@ -11,6 +11,12 @@
 #ifndef ZETA_SCRATCH_INTEGRATION_H
 #define ZETA_SCRATCH_INTEGRATION_H
 
+// Suppress pedantic warnings for zero-initialization
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmissing-field-initializers"
+#endif
+
 #include "zeta-scratch-buffer.h"
 #include "zeta-format-discovery.h"
 #include "zeta-dual-process.h"
@@ -1228,5 +1234,9 @@ Usage in existing server decode loop:
     // After generation
     std::string final_output = ZETA_SCRATCH_END_GENERATION();
 */
+
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
 
 #endif // ZETA_SCRATCH_INTEGRATION_H
