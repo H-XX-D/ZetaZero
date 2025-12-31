@@ -104,6 +104,10 @@ static inline int zeta_git_find_branch(zeta_git_ctx_t* ctx, const char* name) {
 // Create new branch from current HEAD
 static inline int zeta_git_branch(zeta_git_ctx_t* ctx, const char* name) {
     if (!ctx || !name) return -1;
+    if (ctx->current_branch_idx < 0 || ctx->current_branch_idx >= ZETA_MAX_BRANCHES) {
+        fprintf(stderr, "[GIT-GRAPH] ERROR: No current branch\n");
+        return -1;
+    }
     if (ctx->num_branches >= ZETA_MAX_BRANCHES) {
         fprintf(stderr, "[GIT-GRAPH] ERROR: Max branches reached\n");
         return -1;
@@ -258,6 +262,9 @@ static inline zeta_merge_result_t zeta_git_merge(
     zeta_git_ctx_t* ctx,
     const char* source_branch_name
 ) {
+    if (!ctx || ctx->current_branch_idx < 0 || ctx->current_branch_idx >= ZETA_MAX_BRANCHES) {
+        return MERGE_ERROR;
+    }
     int source_idx = zeta_git_find_branch(ctx, source_branch_name);
     if (source_idx < 0) return MERGE_ERROR;
 
@@ -474,6 +481,7 @@ static int g_num_tags = 0;
 
 static inline bool zeta_git_tag(zeta_git_ctx_t* ctx, const char* name, const char* message) {
     if (!ctx || !name || g_num_tags >= ZETA_MAX_TAGS) return false;
+    if (ctx->current_branch_idx < 0 || ctx->current_branch_idx >= ZETA_MAX_BRANCHES) return false;
 
     zeta_branch_t* branch = &ctx->branches[ctx->current_branch_idx];
     if (branch->head_node_id < 0) return false;
@@ -520,6 +528,7 @@ static int g_stash_top = 0;
 
 static inline bool zeta_git_stash_push(zeta_git_ctx_t* ctx, const char* message) {
     if (!ctx || g_stash_top >= ZETA_MAX_STASH) return false;
+    if (ctx->current_branch_idx < 0 || ctx->current_branch_idx >= ZETA_MAX_BRANCHES) return false;
 
     // Find uncommitted nodes (nodes in working state)
     // For now, we stash the current HEAD - in practice would track working nodes
