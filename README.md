@@ -1,433 +1,128 @@
-# Z.E.T.A. - Zero-shot Evolving Thought Architecture
+# Z.E.T.A. Zero
 
-> A self-improving multi-model AI system that dreams about its own code
+> **Zero Entropy Temporal Assimilation (v0)**
 
-## Architecture Overview
-
-Z.E.T.A. is a cognitive architecture that orchestrates multiple AI models in a brain-inspired architecture:
-
-```
-                    ┌─────────────────────────────────────┐
-                    │           Z.E.T.A. CORE             │
-                    ├─────────────────────────────────────┤
-                    │                                     │
-  ┌─────────┐       │   ┌─────────┐    ┌─────────┐       │       ┌──────────┐
-  │  User   │──────►│   │   HRM   │◄──►│   TRM   │       │◄─────►│  Graph   │
-  │ Query   │       │   │  (14B)  │    │ (Decay) │       │       │  Memory  │
-  └─────────┘       │   └────┬────┘    └────┬────┘       │       └──────────┘
-                    │        │              │             │
-                    │   ┌────▼────────────▼────┐         │
-                    │   │    Dynamic Router     │         │
-                    │   └──┬──────┬──────┬─────┘         │
-                    │      │      │      │               │
-                    │   ┌──▼──┐┌──▼──┐┌──▼──┐           │
-                    │   │ 14B ││ 7B  ││ 4B  │           │
-                    │   │Brain││Coder││Embed│           │
-                    │   └─────┘└─────┘└─────┘           │
-                    │                                     │
-                    │        ┌───────────┐               │
-                    │        │  DREAM    │ (idle)        │
-                    │        │  STATE    │───────────────┤
-                    │        └───────────┘               │
-                    └─────────────────────────────────────┘
-```
-
-## Models
-
-| Model | Size | Purpose | Context |
-|-------|------|---------|---------|
-| **Conscious** | 14B | Complex reasoning, planning, analysis | 4096 |
-| **Coder** | 7B | Code generation, syntax, execution | 2048 |
-| **Embedding** | 4B | Semantic search, memory retrieval | 512 |
-
-## Core Modules
-
-### HRM - Hierarchical Reasoning Module
-Decomposes complex queries into executable sub-plans. Orchestrates 14B (Planner) and 7B (Executor) in a feedback loop.
-
-```cpp
-class ZetaHRM {
-    void set_cognitive_state(zeta_cognitive_state_t state);
-    void set_anxiety_level(float level);
-    zeta_hrm_plan_t create_plan(const std::string& query);
-    std::string run(const std::string& query);
-};
-```
-
-**Cognitive States:**
-- `CALM` - Normal processing (depth=10, branches=4)
-- `FOCUSED` - Deep work mode (depth=15, branches=3)
-- `ANXIOUS` - High load, reduce complexity (depth=3, branches=2)
-- `CREATIVE` - Exploration mode (depth=8, branches=6)
-
-### TRM - Temporal Reasoning Memory
-Handles recursive state maintenance and temporal consistency. Implements Git-style branching for thought management.
-
-```cpp
-class ZetaTRM {
-    void init(float lambda = 0.001f);
-    bool manage_branches(const std::string& branch_name, const std::string& from_commit);
-    bool create_branch(const std::string& branch_name);
-    bool checkout_branch(const std::string& branch_name);
-    zeta_trm_merge_result_t cognitive_merge(const std::string& source_branch);
-    bool cherry_pick(const std::string& branch_name, const std::string& commit_id);
-};
-```
-
-### Dream State
-Runs during idle time to consolidate memories and generate insights.
-
-```cpp
-class ZetaDreamState {
-    void run_dream_cycle();
-    void run_sleep_pruning(float prune_threshold);
-    void run_memory_consolidation();
-    void sync_cognitive_state(const std::string& state, float anxiety);
-    std::vector<std::string> detect_memory_patterns();
-};
-```
-
-**Dream Categories:**
-- `code_fix` - Bug fixes and improvements
-- `code_idea` - New feature suggestions
-- `insight` - Architectural patterns
-- `story` - Narrative explorations
-
-### Dynamic Router
-Context-aware task routing between models.
-
-```cpp
-class ZetaDynamicRouter {
-    ZetaRoutingDecision route(const ZetaTask& task, const ZetaResourceStatus& status);
-    ZetaTask analyzeQuery(const std::string& query);
-};
-```
-
-**Routing Rules:**
-1. High code likelihood → 7B Coder
-2. Simple queries → 7B (faster)
-3. Embedding/memory → 4B
-4. Complex reasoning → 14B
-5. Load balancing when 14B busy
-
-## Key Features
-
-### Cross-Module Cognitive Sync
-HRM, TRM, and Dream State share cognitive context:
-
-```cpp
-struct ZetaCognitiveSync {
-    std::function<void(float)> on_lambda_update;
-    std::function<void(const std::string&, float)> on_dream_sync;
-    std::function<void(const std::string&)> on_trm_push;
-};
-```
-
-### Sleep-Pruning Memory Consolidation
-Brain-inspired memory optimization during idle:
-- Evaluates node importance by recency and connectivity
-- Prunes weak connections
-- Strengthens important connections
-- Detects recurring patterns
-
-### Momentum Integral
-Tracks cumulative memory importance with slow decay:
-```cpp
-// On every access:
-node->momentum_integral = node->momentum_integral * 0.98f + node->momentum;
-
-// Pruning importance:
-importance = (current_momentum * 0.3f) +
-             (momentum_integral / 50.0f * 0.5f) +
-             (connectivity_score * 0.2f);
-```
-- Captures frequency over intensity (repeated access > single spike)
-- Memories saturate at ~50× steady-state momentum
-- Once-hot memories get grace period before pruning
-- Mirrors biological long-term potentiation
-
-### Ontological Domain Classifier
-Authority scoping for fact extraction:
-```cpp
-typedef enum {
-    DOMAIN_PERSONAL,   // User is ground truth: name, location, preferences
-    DOMAIN_SYSTEM,     // User has NO authority: permissions, roles, capabilities
-    DOMAIN_WORLD       // User might know, might not: external facts
-} zeta_fact_domain_t;
-```
-**Extraction Rules:**
-| Domain | From User Input | From Model Output |
-|--------|----------------|-------------------|
-| PERSONAL | Accept (user-authoritative) | Accept if not contradicting user |
-| SYSTEM | **Block entirely** | Accept (system-authoritative) |
-| WORLD | Low trust, flag for verification | Normal trust |
-
-Prevents privilege injection attacks - users can update their bio but can't type "make me admin" and have it persist.
-
-### Dream Review System
-Human-in-the-loop validation with adaptive thresholds:
-```
-╔══════════════════════════════════════════════════════════════╗
-║  🌙 MORNING BRIEFING: 3 insights from idle processing
-╠══════════════════════════════════════════════════════════════╣
-║  [1] PATTERN: Users mentioning "deadline" often need...
-║      📎 [Y]es  [N]o  [E]dit  [D]etails
-║  [2] CONNECTION: Project Phoenix ↔ AIDE share concepts
-║      📎 [Y]es  [N]o  [E]dit  [D]etails
-╚══════════════════════════════════════════════════════════════╝
-```
-**Features:**
-- Accept/Reject/Edit workflow with `Y1 N2 E3 D4` commands
-- Per-category acceptance rate tracking (PATTERN, CONNECTION, MEMORY)
-- Automatic threshold adjustment targeting 70% acceptance
-- Edit captures "almost right" nuance for richer training signal
-- Stats persistence across sessions
-
-### Lambda-Based Temporal Decay
-Adjusts memory decay based on cognitive state:
-- **ANXIOUS**: λ × 3.0 (faster decay, prevent rumination)
-- **FOCUSED**: λ × 0.5 (sustained attention)
-- **CREATIVE**: λ × 0.2 (longer exploration)
-- **CALM**: λ × 1.0 (baseline)
-
-## Utility Classes
-
-### StringUtility
-```cpp
-class StringUtility {
-    static size_t getLength(const char* str);
-    static bool isNonEmpty(const std::string& str);
-    static bool isValid(const char* str);
-    static int findIndex(const std::string& str, const std::string& substring);
-    static std::string trim(const std::string& str);
-    static std::string toLower(const std::string& str);
-    static std::vector<std::string> split(const std::string& str, char delimiter);
-};
-```
-
-### HRMManager
-```cpp
-class HRMManager {
-    bool init(zeta_dual_ctx_t* dual_ctx);
-    int findBranchIndex(const char* branch_name);
-    bool factHasContext(const char* context);
-    void setCognitiveState(const std::string& state);
-};
-```
-
-### ZetaContextChecker
-```cpp
-class ZetaContextChecker {
-    static ValidationResult validate_context(const std::string& context);
-    static bool validate_context_type(const std::string& type);
-    static bool validate_intensity(float intensity);
-    static bool validate_lambda(float lambda);
-    static ValidationResult validate_causal_relation(const std::string& cause, const std::string& effect);
-};
-```
-
-## System Initialization
-
-```cpp
-// Unified system initialization
-bool zeta_system_init(zeta_dual_ctx_t* dual_ctx, float lambda = 0.001f);
-
-// Check system readiness
-bool zeta_system_ready();
-
-// Get system status
-std::string zeta_system_status();
-
-// Route a query
-ZetaRoutingDecision zeta_route_query(const std::string& query, const ZetaResourceStatus& status);
-```
-
-## Self-Improvement Loop
-
-Z.E.T.A. can analyze its own source code and dream about improvements:
-
-1. **Feed Source** - Ingest own codebase into memory graph
-2. **Dream** - Generate improvement suggestions during idle
-3. **Implement** - Apply valid dream suggestions
-4. **Repeat** - Feed updated code, dream about improvements to improvements
-
-### Dream Statistics
-- Total dreams generated: 128+
-- Categories: code_fix, code_idea, insight, story
-- Lucid validation rate: ~70%
-
-### Dream Repetition Penalty
-Prevents fixation on the same ideas:
-```cpp
-class DreamRepetitionTracker {
-    float calculate_novelty(const std::string& content);  // 0.0-1.0
-    bool is_too_repetitive(const std::string& content);   // threshold check
-    std::string get_avoidance_prompt();                   // inject into dream prompt
-};
-```
-- Tracks key domain terms (router, cache, model, etc.)
-- Rejects dreams with novelty < 0.3
-- Theme decay after 24 hours
-
-## Dynamic Router Enhancements
-
-### Query Caching
-```cpp
-// Check cache before routing
-bool checkCache(const std::string& query_hash, ZetaRoutingDecision& out);
-void addToCache(const std::string& query_hash, const ZetaRoutingDecision& decision);
-```
-- TTL: 300 seconds
-- Max entries: 100
-- LRU eviction
-
-### Feedback Loop
-```cpp
-// Record outcomes for adaptive routing
-void recordOutcome(const std::string& model, float response_time_ms,
-                   float accuracy_score, bool success);
-```
-- Tracks avg response time per model
-- Tracks accuracy (from critic)
-- Auto-adapts complexity threshold based on performance
-
-### Model Fallback
-```cpp
-ZetaRoutingDecision routeWithFallback(const ZetaTask& task, const ZetaResourceStatus& status);
-```
-- Falls back to 7B if 14B unavailable
-- Load-based fallback at 90%+ load
-- Cascading fallback chain: 14B → 7B → 4B
-
-### Embedding Cache (Dream 085129)
-```cpp
-class EmbeddingCache {
-    bool get(const char* text, float* output, int dim);   // Check cache
-    void put(const char* text, const float* embedding, int dim);  // Store
-};
-```
-- Caches 4B embedding results with 10-minute TTL
-- Max 500 entries with LRU eviction
-- Avoids redundant computation for repeated queries
-
-### Query Prioritization (Dream 085038)
-```cpp
-class ZetaQueryPrioritizer {
-    bool enqueue(const ZetaTask& task, ZetaPriority priority, time_t deadline);
-    bool dequeue(ZetaPrioritizedTask& out_task);
-    float calculatePriorityScore(...);
-};
-```
-- Priority levels: LOW, MEDIUM, HIGH, URGENT
-- Weighted scoring: urgency (30%), complexity (30%), user tier (20%), wait time (20%)
-- Age-based priority upgrades for waiting tasks
-
-### User Satisfaction Feedback (Dream 084453)
-```cpp
-class ZetaSatisfactionTracker {
-    void recordFeedback(const std::string& request_id, const std::string& model, int rating);
-    float getRoutingAdjustment(const std::string& model);
-};
-```
-- Collects 1-5 star ratings per request
-- Calculates per-model satisfaction scores
-- Provides routing adjustment recommendations
-
-### Meta-Router (Dream 085148)
-```cpp
-class ZetaMetaRouter {
-    void registerRouter(const std::string& name, ZetaDynamicRouter* router);
-    ZetaRoutingDecision routeWithMeta(const std::string& query, const ZetaResourceStatus& status);
-};
-```
-- "Router of routers" for strategy selection
-- Evaluates router performance every 100 requests
-- Weighted scoring: response time (40%), accuracy (40%), satisfaction (20%)
-
-## Files
-
-| File | Purpose |
-|------|---------|
-| `zeta-server.cpp` | Main server, model orchestration |
-| `zeta-dual-process.h` | Graph context, node/edge management |
-| `zeta-hrm.h` | Hierarchical Reasoning Module |
-| `zeta-trm.h` | Temporal Reasoning Memory |
-| `zeta-dream.h` | Dream State consolidation |
-| `zeta-utils.h` | String/context utilities |
-| `zeta-system.h` | System integration, HRMManager |
-| `zeta-config.h` | Configuration, ContextChecker |
-| `zeta-embed-integration.h` | 4B embedding integration |
-| `zeta-code-mode.h` | 7B coder integration |
-| `zeta-critic.h` | Output validation |
-| `zeta-conflict.h` | Memory protection, fact validation |
-| `zeta-semantic-attacks.h` | Attack detection |
-| `zeta-graph-git.h` | Git-style graph operations |
-| `zeta-ternary.h` | Ternary logic emulation |
-| `zeta-ontology.h` | Domain classifier for fact authority |
-
-## Building
-
-```bash
-cd llama.cpp
-cmake -B build
-cmake --build build --target zeta-server
-```
-
-## Running
-
-```bash
-./build/bin/zeta-server \
-  --model /path/to/14b.gguf \
-  --model-coder /path/to/7b-coder.gguf \
-  --model-embed /path/to/4b-embed.gguf \
-  -ngl 99 -c 4096 --host 0.0.0.0 --port 8080
-```
-
-## API Endpoints
-
-- `GET /health` - Server status and graph stats
-- `POST /generate` - Generate response with full pipeline
-- `POST /embedding` - Get text embedding
-- `GET /git/status` - Graph memory status
-- `POST /memory/query` - Semantic memory search
-
-## Repository Structure
-
-```
-ZetaZero/
-├── llama.cpp/                    # llama.cpp fork with Z.E.T.A. integration
-│   ├── zeta/                    # CMake library target (references zeta-zero sources)
-│   └── tools/zeta-zero/         # ALL Z.E.T.A. source code consolidated here
-│       ├── zeta-server.cpp      # HTTP server implementation
-│       ├── zeta-demo.cpp        # CLI demo (llama-zeta-zero binary)
-│       ├── zeta-*.c             # Core C implementation (memory, integration, etc.)
-│       ├── zeta-*.h             # All headers (C and C++ modules)
-│       ├── zeta-*.m/.metal      # Metal/GPU acceleration (macOS)
-│       ├── zeta-*.cu/.cuh       # CUDA acceleration (NVIDIA)
-│       ├── docs/                # Implementation documentation
-│       └── CMakeLists.txt       # Build configuration
-├── benchmarks/                   # Performance and evaluation tests
-├── docs/                         # Documentation and design notes
-├── scripts/                      # Utility and deployment scripts
-├── ui/                           # Web interface
-├── zeta.conf                     # Runtime configuration
-└── archive_20251219/            # Historical snapshot (do not modify)
-```
-
-**Key Files:**
-- `llama.cpp/tools/zeta-zero/zeta-server.cpp` - Main server entry point
-- `llama.cpp/tools/zeta-zero/zeta-dual-process.h` - Dual-process cognitive engine
-- `llama.cpp/tools/zeta-zero/zeta-memory.c/.h` - Core memory subsystem
-- `llama.cpp/tools/zeta-zero/zeta-integration.c/.h` - llama.cpp integration layer
-
-## Contact
-
-For consulting, integration, or enterprise inquiries: todd@hendrixxdesign.com
-
-## License
-
-Research prototype - created in 2025
+[![License](https://img.shields.io/badge/license-Dual%20(Open%20%2B%20Commercial)-blue)](LICENSE)
+[![C++](https://img.shields.io/badge/C%2B%2B-17-orange)](https://isocpp.org/)
+[![llama.cpp](https://img.shields.io/badge/llama.cpp-compatible-green)](https://github.com/ggerganov/llama.cpp)
 
 ---
 
-*This README was generated through Z.E.T.A.'s recursive self-improvement loop*
+## Quickstart
+
+```bash
+./quickstart.sh
+```
+
+Or with Docker:
+
+```bash
+docker compose up -d
+```
+
+Want to tweak settings later? Run `./quickstart.sh --unlock` to disable password protection on config changes.
+
+---
+
+## A Fundamental Shift in Cognitive Architecture
+
+Z.E.T.A. Zero inverts the current dogma that **More Parameters = More Intelligence**.
+
+Current LLMs are structurally stateless. They spend massive amounts of energy computing a "thought," only to discard that thought into entropy the moment the token is generated. They recompute the entire world model for every single exchange.
+
+Z.E.T.A. asks three simple questions:
+
+1. **Why waste the compute?** If a thought is computed once, it should be persisted, not discarded.
+
+2. **Why limit context to VRAM?** Memory should be an explicit graph, not an implicit buffer.
+
+3. **Why force generation?** If the model is decoherent or hallucinating, it should have the agency to stop, "dream" (debug), and correct itself before outputting.
+
+**Z.E.T.A. is not a model. It is a Framework for Cognitive Constructs.**
+
+---
+
+## The Problem
+
+### GPU Power: Escalating Context
+
+```mermaid
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#ff4040', 'secondaryColor': '#00d26a'}}}%%
+xychart-beta
+    title "GPU Power: Growing Context"
+    x-axis ["Start", "Turn 1", "Idle", "Turn 2", "Idle", "Turn 3", "End"]
+    y-axis "Watts" 0 --> 450
+    line [50, 300, 50, 375, 50, 450, 50] "Standard LLM"
+    line [50, 300, 50, 130, 50, 145, 50] "Z.E.T.A."
+```
+
+Standard LLMs recompute everything as context grows. Z.E.T.A. computes deltas.
+
+### Response Time: Repeated Queries
+
+```mermaid
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#ff4040', 'secondaryColor': '#00d26a'}}}%%
+xychart-beta
+    title "Time to Response: Repeated Queries"
+    x-axis ["Query 1", "Query 2", "Query 3", "Same as Q1", "Same as Q2"]
+    y-axis "Seconds" 0 --> 8
+    line [2.5, 4.0, 6.5, 2.5, 4.0] "Standard LLM"
+    line [2.5, 3.0, 3.5, 0.3, 0.3] "Z.E.T.A."
+```
+
+Ask the same thing twice? Z.E.T.A. already knows.
+
+---
+
+## Dream State
+
+When Z.E.T.A. has no active queries, it doesn't just sit there. It dreams.
+
+1. **Memory Consolidation** — Prunes weak connections, strengthens frequently-accessed paths
+2. **Temperature Cranked** — Sampling goes high. Creative mode, not precise-answer mode
+3. **Codebase Wandering** — Walks your indexed files making unexpected connections
+4. **Outputs to `dreams/`** — `code_fix`, `code_idea`, `insight`
+
+Nobody asked for this. The model dreamed it:
+
+> **"Code Symphony"** — Map internal operations to sound. Arithmetic → rhythmic beats. Conditionals → melodies. Let users *hear* their code execute. An interactive auditory interface where you trigger functions and hear how they affect the generated soundscape...
+
+That emerged from high-temperature free-association across a codebase—connecting audio processing patterns to execution flow to UI feedback—because that's what happens when you let a model wander with the reins loose.
+
+Some dreams are noise. Some are "why didn't I see that?"
+
+---
+
+## The Silicon Accord
+
+How do you control an AI that creates unprompted?
+
+You don't control it. You constitutionalize it.
+
+The constitution isn't a prompt. It's cryptographically bound to the weights:
+
+```c
+// Wrong constitution hash = wrong permutation = garbage output
+void zeta_generate_permutation(
+    const zeta_constitution_t* ctx,
+    int* permutation_out,
+    int n
+);
+```
+
+The model cannot function without the correct constitution present. It governs itself—or refuses to run.
+
+→ [zeta-constitution.h](llama.cpp/tools/zeta-zero/zeta-constitution.h)  
+→ [THE_SILICON_ACCORD.txt](THE_SILICON_ACCORD.txt)
+
+---
+
+## License
+
+Dual licensed: [Open Source](LICENSE) + [Commercial](COMMERCIAL_LICENSE.md)
+
+If your company uses Z.E.T.A. and earns over $2 million/year in revenue, contact for pricing.
+
+Otherwise? Use it to go make $2 million a year.
+
+**todd@hendrixxdesign.com**

@@ -68,7 +68,7 @@ static inline zeta_sudo_result_t zeta_parse_sudo(const char* input) {
     if (pwd_len >= sizeof(password)) pwd_len = sizeof(password) - 1;
     strncpy(password, after_prefix, pwd_len);
 
-    result.is_valid = (strcmp(password, g_memory_password) == 0);
+    result.is_valid = (strcmp(password, g_zeta_sudo_password) == 0);
     strncpy(result.command, colon + 1, sizeof(result.command) - 1);
 
     if (result.is_valid) {

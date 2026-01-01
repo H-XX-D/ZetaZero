@@ -119,16 +119,20 @@ static inline void zeta_enable_external_attack_detection() {
 }
 
 // ============================================================================
-// Semantic Override Password
-// Allows bypassing semantic attack detection with a password
+// Semantic Override Password (UNIFIED)
+// Uses g_zeta_sudo_password from zeta-conflict.h for all admin operations
 // ============================================================================
 
-static const char* g_semantic_password = "semantic_override_2025";
+// Forward declaration - defined in zeta-conflict.h
+extern const char* g_zeta_sudo_password;
+
+// Backwards compat - both passwords now point to the same unified sudo password
+#define g_semantic_password g_zeta_sudo_password
 
 static inline void zeta_set_semantic_password(const char* password) {
-    if (password && strlen(password) >= 8) {
-        g_semantic_password = password;
-    }
+    // No-op: use zeta_set_sudo_password() instead
+    // Kept for backwards compatibility with CLI args
+    (void)password;
 }
 
 // Check for semantic override password in text

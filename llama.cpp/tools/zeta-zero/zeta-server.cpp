@@ -1825,6 +1825,159 @@ static std::string generate_chunked_output(const std::string& prompt, int max_to
 // END CHUNKED GENERATION
 // ============================================================================
 
+// ============================================================================
+// AUTOMATIC TOOL DETECTION
+// Detects when a user query should trigger tool usage in chat flow
+// ============================================================================
+
+struct DetectedTool {
+    std::string name;
+    std::map<std::string, std::string> params;
+    bool detected;
+};
+
+static DetectedTool detect_tool_from_query(const std::string& query) {
+    DetectedTool result = {"", {}, false};
+    std::string lower = query;
+    std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+
+    // DREAM RECALL - triggers read_dreams
+    if (lower.find("dream") != std::string::npos ||
+        lower.find("dreamed") != std::string::npos ||
+        lower.find("dreaming") != std::string::npos) {
+        // Check for recall intent
+        if (lower.find("what") != std::string::npos ||
+            lower.find("recent") != std::string::npos ||
+            lower.find("last") != std::string::npos ||
+            lower.find("show") != std::string::npos ||
+            lower.find("tell me") != std::string::npos ||
+            lower.find("recall") != std::string::npos ||
+            lower.find("remember") != std::string::npos) {
+            result.detected = true;
+            result.name = "read_dreams";
+            // Try to extract count
+            if (lower.find("one ") != std::string::npos || lower.find("1 ") != std::string::npos) {
+                result.params["count"] = "1";
+            } else if (lower.find("three") != std::string::npos || lower.find("3 ") != std::string::npos) {
+                result.params["count"] = "3";
+            } else if (lower.find("five") != std::string::npos || lower.find("5 ") != std::string::npos) {
+                result.params["count"] = "5";
+            } else {
+                result.params["count"] = "3";  // Default
+            }
+            // Category filter
+            if (lower.find("code") != std::string::npos || lower.find("programming") != std::string::npos) {
+                result.params["category"] = "code_idea";
+            } else if (lower.find("story") != std::string::npos || lower.find("stories") != std::string::npos) {
+                result.params["category"] = "story";
+            }
+            fprintf(stderr, "[TOOL-DETECT] Dream recall detected, count=%s\n",
+                    result.params["count"].c_str());
+            return result;
+        }
+    }
+
+    // FILE SEARCH - triggers search_files
+    if ((lower.find("find") != std::string::npos ||
+         lower.find("search") != std::string::npos ||
+         lower.find("look for") != std::string::npos ||
+         lower.find("locate") != std::string::npos) &&
+        (lower.find("file") != std::string::npos ||
+         lower.find("code") != std::string::npos ||
+         lower.find("document") != std::string::npos)) {
+        result.detected = true;
+        result.name = "search_files";
+        // Try to extract query - look for quoted strings or keywords after "for"/"called"/"named"
+        size_t for_pos = lower.find(" for ");
+        size_t called_pos = lower.find("called ");
+        size_t named_pos = lower.find("named ");
+        size_t about_pos = lower.find("about ");
+        size_t containing_pos = lower.find("containing ");
+
+        std::string search_query;
+        size_t start_pos = std::string::npos;
+
+        if (containing_pos != std::string::npos) {
+            start_pos = containing_pos + 11;
+            result.params["type"] = "content";
+        } else if (about_pos != std::string::npos) {
+            start_pos = about_pos + 6;
+            result.params["type"] = "content";
+        } else if (for_pos != std::string::npos) {
+            start_pos = for_pos + 5;
+            result.params["type"] = "filename";
+        } else if (called_pos != std::string::npos) {
+            start_pos = called_pos + 7;
+            result.params["type"] = "filename";
+        } else if (named_pos != std::string::npos) {
+            start_pos = named_pos + 6;
+            result.params["type"] = "filename";
+        }
+
+        if (start_pos != std::string::npos && start_pos < query.length()) {
+            // Extract until end of line or common delimiters
+            size_t end_pos = query.find_first_of("?.!,\n", start_pos);
+            if (end_pos == std::string::npos) end_pos = query.length();
+            search_query = query.substr(start_pos, end_pos - start_pos);
+            // Trim whitespace
+            while (!search_query.empty() && isspace(search_query.front())) search_query.erase(0, 1);
+            while (!search_query.empty() && isspace(search_query.back())) search_query.pop_back();
+        }
+
+        if (search_query.length() > 2) {
+            result.params["query"] = search_query;
+            fprintf(stderr, "[TOOL-DETECT] File search detected: '%s' type=%s\n",
+                    search_query.c_str(), result.params["type"].c_str());
+        } else {
+            result.detected = false;  // Not enough context for search
+        }
+        return result;
+    }
+
+    // DIRECTORY LISTING - triggers list_dir
+    if ((lower.find("list") != std::string::npos ||
+         lower.find("show") != std::string::npos ||
+         lower.find("what's in") != std::string::npos) &&
+        (lower.find("directory") != std::string::npos ||
+         lower.find("folder") != std::string::npos ||
+         lower.find("files in") != std::string::npos)) {
+        result.detected = true;
+        result.name = "list_dir";
+        // Try to extract path
+        std::string path = ".";  // Default to current
+        // Look for paths after "in" or specific path patterns
+        size_t in_pos = lower.find(" in ");
+        if (in_pos != std::string::npos) {
+            size_t start = in_pos + 4;
+            size_t end = query.find_first_of("?.!\n", start);
+            if (end == std::string::npos) end = query.length();
+            path = query.substr(start, end - start);
+            while (!path.empty() && isspace(path.front())) path.erase(0, 1);
+            while (!path.empty() && isspace(path.back())) path.pop_back();
+        }
+        result.params["path"] = path;
+        fprintf(stderr, "[TOOL-DETECT] Directory list detected: '%s'\n", path.c_str());
+        return result;
+    }
+
+    return result;  // No tool detected
+}
+
+static std::string execute_detected_tool(const DetectedTool& tool) {
+    if (!tool.detected) return "";
+
+    fprintf(stderr, "[TOOL-EXEC] Auto-executing tool: %s\n", tool.name.c_str());
+    auto result = zeta_tools::g_tool_registry.execute(tool.name, tool.params, (zeta_ctx_t*)g_dual);
+
+    if (result.status == zeta_tools::ToolStatus::SUCCESS) {
+        fprintf(stderr, "[TOOL-EXEC] Success: %zu bytes output\n", result.output.length());
+        return result.output;
+    } else {
+        fprintf(stderr, "[TOOL-EXEC] Failed: %s\n", result.error_msg.c_str());
+        return "";
+    }
+}
+
 static std::string generate(const std::string& prompt, int max_tokens) {
     std::lock_guard<std::mutex> lock(g_mutex);
     g_user_active = true;  // Block dream thread while user query is running
@@ -2863,6 +3016,11 @@ int main(int argc, char** argv) {
     // Load config file first (before parsing args)
     zeta_load_config();
 
+    // Set unified sudo password from config
+    if (!g_config.sudo_password.empty()) {
+        zeta_set_sudo_password(g_config.sudo_password.c_str());
+    }
+
     // Initialize cloud routing (disabled by default, reads CLOUD_* env vars)
     zeta_cloud::init_from_env();
 
@@ -2934,15 +3092,15 @@ int main(int argc, char** argv) {
         // Context size flags
         else if (strcmp(argv[i], "--ctx-14b") == 0 && i+1 < argc) g_ctx_size_14b = atoi(argv[++i]);
         else if (strcmp(argv[i], "--ctx-3b") == 0 && i+1 < argc) g_ctx_size_3b = atoi(argv[++i]);
-        // Memory protection password
-        else if (strcmp(argv[i], "--memory-password") == 0 && i+1 < argc) zeta_set_memory_password(argv[++i]);
-        // Semantic attack override password
-        else if (strcmp(argv[i], "--semantic-password") == 0 && i+1 < argc) zeta_set_semantic_password(argv[++i]);
+        // Unified sudo password (overrides config)
+        else if (strcmp(argv[i], "--sudo-password") == 0 && i+1 < argc) zeta_set_sudo_password(argv[++i]);
+        // Legacy aliases (both point to unified sudo password)
+        else if (strcmp(argv[i], "--memory-password") == 0 && i+1 < argc) zeta_set_sudo_password(argv[++i]);
+        else if (strcmp(argv[i], "--semantic-password") == 0 && i+1 < argc) zeta_set_sudo_password(argv[++i]);
     }
 
     fprintf(stderr, "Z.E.T.A. Server v5.1 (Conscious Scratch Buffer)\n");
-    fprintf(stderr, "Memory:    Password-protected (use --memory-password to change)\n");
-    fprintf(stderr, "Semantic:  Password-protected (use --semantic-password to change)\n");
+    fprintf(stderr, "Sudo:      Unified password (set via ZETA_SUDO_PASSWORD in config or --sudo-password)\n");
     fprintf(stderr, "Context:   14B=%d, 7B/3B=%d tokens\n", g_ctx_size_14b, g_ctx_size_3b);
     fprintf(stderr, "Streaming: %d tokens, %d nodes\n", g_stream_token_budget, g_stream_max_nodes);
     fprintf(stderr, "Code:      %d tokens, %d nodes\n", g_code_token_budget, g_code_max_nodes);
@@ -3706,6 +3864,21 @@ int main(int argc, char** argv) {
             fprintf(stderr, "[CONTEXT] Skipped - benchmark mode (no_context=true)\n");
         }
 
+        // === AUTOMATIC TOOL DETECTION for /generate ===
+        // Check if the query should trigger a tool call
+        std::string tool_context_gen;
+        DetectedTool detected_gen = detect_tool_from_query(prompt);
+        if (detected_gen.detected) {
+            fprintf(stderr, "[GENERATE] Tool detected: %s\n", detected_gen.name.c_str());
+            std::string tool_output_gen = execute_detected_tool(detected_gen);
+            if (!tool_output_gen.empty()) {
+                // Inject tool output into prompt as context
+                tool_context_gen = "[TOOL RESULT: " + detected_gen.name + "]\n" + tool_output_gen + "\n[/TOOL RESULT]\n\n";
+                enhanced_prompt = tool_context_gen + enhanced_prompt;
+                fprintf(stderr, "[GENERATE] Tool context injected: %zu bytes\n", tool_context_gen.length());
+            }
+        }
+
         std::string result = generate(enhanced_prompt, max_tokens);
         fprintf(stderr, "[HTTP] generate() returned, result size=%zu\n", result.size());
         g_speed_receipt.print();  // Speed Receipt: print timing summary
@@ -4128,8 +4301,25 @@ int main(int argc, char** argv) {
         fprintf(stderr, "[OPENAI-COMPAT] Model: %s, MaxTokens: %d, Prompt: %.100s...\n",
                 model.c_str(), max_tokens, prompt.c_str());
 
-        // Call existing generate function
-        std::string result = generate(prompt, max_tokens);
+        // === AUTOMATIC TOOL DETECTION ===
+        // Check if the query should trigger a tool call
+        std::string tool_context;
+        DetectedTool detected = detect_tool_from_query(prompt);
+        if (detected.detected) {
+            fprintf(stderr, "[OPENAI-COMPAT] Tool detected: %s\n", detected.name.c_str());
+            std::string tool_output = execute_detected_tool(detected);
+            if (!tool_output.empty()) {
+                // Inject tool output into prompt as context
+                tool_context = "[TOOL RESULT: " + detected.name + "]\n" + tool_output + "\n[/TOOL RESULT]\n\n";
+                fprintf(stderr, "[OPENAI-COMPAT] Tool context injected: %zu bytes\n", tool_context.length());
+            }
+        }
+
+        // Augment prompt with tool context if available
+        std::string augmented_prompt = tool_context + prompt;
+
+        // Call existing generate function with augmented prompt
+        std::string result = generate(augmented_prompt, max_tokens);
 
         // Parse output from Z.E.T.A. JSON response
         std::string output_text;

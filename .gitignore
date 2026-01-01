@@ -182,7 +182,7 @@ node_modules
 .vscode-test/
 *.vsix
 
-# Z.E.T.A. local config (use zeta.conf.example as template)
+# Z.E.T.A. local config (copy from .quickstart or .all-knobs)
 zeta.conf
 opencode/
 # Archived code (historical, not for active development)

@@ -46,11 +46,67 @@ struct zeta_config_t {
     std::string dream_dir;    // Dream output directory
     std::string log_file;
 
-    // Auth
-    std::string password;
+    // Auth - unified sudo password for all admin operations
+    std::string sudo_password;
+    bool sudo_enabled;  // If false, sudo protection is disabled (power user mode)
 
     // Constitutional Lock
     int lock_level;     // 1=embedded, 2=header, 3=remote, 4=model
+
+    // =========================================================================
+    // ADVANCED RUNTIME PARAMETERS
+    // =========================================================================
+
+    // Memory Tier Thresholds
+    float cold_momentum;        // Below this = cold storage candidate
+    float eviction_threshold;   // Below this = immediate evict
+
+    // Knowledge Graph Limits
+    int max_graph_nodes;
+    int max_edges;
+    int max_hop_depth;
+    int max_edges_per_node;
+
+    // Edge Management
+    int edge_soft_cap;
+    int edge_hard_cap;
+    int edge_target;
+    float correlation_boost;
+    float correlation_decay;
+
+    // Deduplication
+    float dedup_threshold;
+    float merge_threshold;
+
+    // Output Control
+    int base_output_chars;
+    int base_output_words;
+    float max_complexity_scale;
+
+    // Conversation History
+    int conv_history_size;
+    int conv_turn_len;
+
+    // Tunnel Search
+    float tunnel_threshold;
+    int tunnel_beam_width;
+    int tunnel_max_hops;
+    int tunnel_max_results;
+    float tunnel_min_momentum;
+
+    // Streaming Memory (these are the [RUNTIME] ones from zeta-server.cpp)
+    int stream_token_budget;
+    int stream_max_nodes;
+    int code_token_budget;
+    int code_max_nodes;
+
+    // Prefetch
+    int prefetch_lookahead;
+    int prefetch_max_nodes;
+
+    // Graph-KV
+    int gkv_max_tokens;
+    int gkv_max_layers;
 
     // Loaded flag
     bool loaded;
@@ -74,8 +130,42 @@ static zeta_config_t g_config = {
     "/storage/graph_kv",    // gkv_dir
     "/storage/dreams",      // dream_dir
     "/tmp/zeta.log",// log_file
-    "zeta1234",     // password
+    "zeta1234",     // sudo_password (default - CHANGE IN PRODUCTION)
+    true,           // sudo_enabled (true = require password, false = power user mode)
     3,              // lock_level (default: remote verification)
+
+    // Advanced runtime parameters - defaults match #define values
+    0.30f,          // cold_momentum
+    0.1f,           // eviction_threshold
+    10000,          // max_graph_nodes
+    50000,          // max_edges
+    5,              // max_hop_depth
+    8,              // max_edges_per_node
+    8000,           // edge_soft_cap
+    12000,          // edge_hard_cap
+    6000,           // edge_target
+    0.1f,           // correlation_boost
+    0.95f,          // correlation_decay
+    0.85f,          // dedup_threshold
+    0.90f,          // merge_threshold
+    1000,           // base_output_chars
+    150,            // base_output_words
+    6.0f,           // max_complexity_scale
+    8,              // conv_history_size
+    512,            // conv_turn_len
+    0.3f,           // tunnel_threshold
+    8,              // tunnel_beam_width
+    6,              // tunnel_max_hops
+    16,             // tunnel_max_results
+    0.1f,           // tunnel_min_momentum
+    600,            // stream_token_budget
+    6,              // stream_max_nodes
+    900,            // code_token_budget
+    10,             // code_max_nodes
+    3,              // prefetch_lookahead
+    8,              // prefetch_max_nodes
+    512,            // gkv_max_tokens
+    64,             // gkv_max_layers
     false           // loaded
 };
 
@@ -188,12 +278,83 @@ static inline bool zeta_load_config() {
     if (config.count("ZETA_GKV_DIR")) g_config.gkv_dir = config["ZETA_GKV_DIR"];
     if (config.count("ZETA_DREAM_DIR")) g_config.dream_dir = config["ZETA_DREAM_DIR"];
     if (config.count("ZETA_LOG")) g_config.log_file = config["ZETA_LOG"];
-    if (config.count("ZETA_PASSWORD")) g_config.password = config["ZETA_PASSWORD"];
+    // ZETA_SUDO_PASSWORD is the canonical name, ZETA_PASSWORD kept for backwards compatibility
+    if (config.count("ZETA_PASSWORD")) g_config.sudo_password = config["ZETA_PASSWORD"];  // legacy
+    if (config.count("ZETA_SUDO_PASSWORD")) g_config.sudo_password = config["ZETA_SUDO_PASSWORD"];  // preferred
+    if (config.count("ZETA_SUDO_ENABLED")) {
+        std::string val = config["ZETA_SUDO_ENABLED"];
+        g_config.sudo_enabled = (val == "true" || val == "1" || val == "yes");
+        fprintf(stderr, "[CONFIG] Sudo protection: %s\n", g_config.sudo_enabled ? "ENABLED" : "DISABLED (power user mode)");
+    }
     if (config.count("ZETA_LOCK_LEVEL")) {
         g_config.lock_level = atoi(config["ZETA_LOCK_LEVEL"].c_str());
         if (g_config.lock_level < 1) g_config.lock_level = 1;
         if (g_config.lock_level > 4) g_config.lock_level = 4;
         fprintf(stderr, "[CONFIG] Constitutional Lock Level: %d\n", g_config.lock_level);
+    }
+
+    // =========================================================================
+    // ADVANCED RUNTIME PARAMETERS
+    // These correspond to #define values that can now be overridden at runtime
+    // =========================================================================
+
+    // Memory Tier Thresholds
+    if (config.count("ZETA_COLD_MOMENTUM")) g_config.cold_momentum = atof(config["ZETA_COLD_MOMENTUM"].c_str());
+    if (config.count("ZETA_EVICTION_THRESHOLD")) g_config.eviction_threshold = atof(config["ZETA_EVICTION_THRESHOLD"].c_str());
+
+    // Knowledge Graph Limits
+    if (config.count("ZETA_MAX_GRAPH_NODES")) g_config.max_graph_nodes = atoi(config["ZETA_MAX_GRAPH_NODES"].c_str());
+    if (config.count("ZETA_MAX_EDGES")) g_config.max_edges = atoi(config["ZETA_MAX_EDGES"].c_str());
+    if (config.count("ZETA_MAX_HOP_DEPTH")) g_config.max_hop_depth = atoi(config["ZETA_MAX_HOP_DEPTH"].c_str());
+    if (config.count("ZETA_MAX_EDGES_PER_NODE")) g_config.max_edges_per_node = atoi(config["ZETA_MAX_EDGES_PER_NODE"].c_str());
+
+    // Edge Management & Pruning
+    if (config.count("ZETA_EDGE_SOFT_CAP")) g_config.edge_soft_cap = atoi(config["ZETA_EDGE_SOFT_CAP"].c_str());
+    if (config.count("ZETA_EDGE_HARD_CAP")) g_config.edge_hard_cap = atoi(config["ZETA_EDGE_HARD_CAP"].c_str());
+    if (config.count("ZETA_EDGE_TARGET")) g_config.edge_target = atoi(config["ZETA_EDGE_TARGET"].c_str());
+    if (config.count("ZETA_CORRELATION_BOOST")) g_config.correlation_boost = atof(config["ZETA_CORRELATION_BOOST"].c_str());
+    if (config.count("ZETA_CORRELATION_DECAY")) g_config.correlation_decay = atof(config["ZETA_CORRELATION_DECAY"].c_str());
+
+    // Deduplication System
+    if (config.count("ZETA_DEDUP_THRESHOLD")) g_config.dedup_threshold = atof(config["ZETA_DEDUP_THRESHOLD"].c_str());
+    if (config.count("ZETA_MERGE_THRESHOLD")) g_config.merge_threshold = atof(config["ZETA_MERGE_THRESHOLD"].c_str());
+
+    // Output Control & Verbosity
+    if (config.count("ZETA_BASE_OUTPUT_CHARS")) g_config.base_output_chars = atoi(config["ZETA_BASE_OUTPUT_CHARS"].c_str());
+    if (config.count("ZETA_BASE_OUTPUT_WORDS")) g_config.base_output_words = atoi(config["ZETA_BASE_OUTPUT_WORDS"].c_str());
+    if (config.count("ZETA_MAX_COMPLEXITY_SCALE")) g_config.max_complexity_scale = atof(config["ZETA_MAX_COMPLEXITY_SCALE"].c_str());
+
+    // Conversation History
+    if (config.count("ZETA_CONV_HISTORY_SIZE")) g_config.conv_history_size = atoi(config["ZETA_CONV_HISTORY_SIZE"].c_str());
+    if (config.count("ZETA_CONV_TURN_LEN")) g_config.conv_turn_len = atoi(config["ZETA_CONV_TURN_LEN"].c_str());
+
+    // Tunnel Search
+    if (config.count("ZETA_TUNNEL_THRESHOLD")) g_config.tunnel_threshold = atof(config["ZETA_TUNNEL_THRESHOLD"].c_str());
+    if (config.count("ZETA_TUNNEL_BEAM_WIDTH")) g_config.tunnel_beam_width = atoi(config["ZETA_TUNNEL_BEAM_WIDTH"].c_str());
+    if (config.count("ZETA_TUNNEL_MAX_HOPS")) g_config.tunnel_max_hops = atoi(config["ZETA_TUNNEL_MAX_HOPS"].c_str());
+    if (config.count("ZETA_TUNNEL_MAX_RESULTS")) g_config.tunnel_max_results = atoi(config["ZETA_TUNNEL_MAX_RESULTS"].c_str());
+    if (config.count("ZETA_TUNNEL_MIN_MOMENTUM")) g_config.tunnel_min_momentum = atof(config["ZETA_TUNNEL_MIN_MOMENTUM"].c_str());
+
+    // Streaming Memory
+    if (config.count("ZETA_STREAM_TOKEN_BUDGET")) g_config.stream_token_budget = atoi(config["ZETA_STREAM_TOKEN_BUDGET"].c_str());
+    if (config.count("ZETA_STREAM_MAX_NODES")) g_config.stream_max_nodes = atoi(config["ZETA_STREAM_MAX_NODES"].c_str());
+    if (config.count("ZETA_CODE_TOKEN_BUDGET")) g_config.code_token_budget = atoi(config["ZETA_CODE_TOKEN_BUDGET"].c_str());
+    if (config.count("ZETA_CODE_MAX_NODES")) g_config.code_max_nodes = atoi(config["ZETA_CODE_MAX_NODES"].c_str());
+
+    // Proactive Prefetch
+    if (config.count("ZETA_PREFETCH_LOOKAHEAD")) g_config.prefetch_lookahead = atoi(config["ZETA_PREFETCH_LOOKAHEAD"].c_str());
+    if (config.count("ZETA_PREFETCH_MAX_NODES")) g_config.prefetch_max_nodes = atoi(config["ZETA_PREFETCH_MAX_NODES"].c_str());
+
+    // Graph-KV Cache
+    if (config.count("ZETA_GKV_MAX_TOKENS")) g_config.gkv_max_tokens = atoi(config["ZETA_GKV_MAX_TOKENS"].c_str());
+    if (config.count("ZETA_GKV_MAX_LAYERS")) g_config.gkv_max_layers = atoi(config["ZETA_GKV_MAX_LAYERS"].c_str());
+
+    // Log advanced config if any were set
+    bool advanced_loaded = false;
+    if (config.count("ZETA_COLD_MOMENTUM") || config.count("ZETA_MAX_GRAPH_NODES") ||
+        config.count("ZETA_TUNNEL_THRESHOLD") || config.count("ZETA_STREAM_TOKEN_BUDGET")) {
+        advanced_loaded = true;
+        fprintf(stderr, "[CONFIG] Advanced parameters loaded from config file\n");
     }
 
     g_config.loaded = true;
@@ -215,6 +376,17 @@ static inline void zeta_print_config() {
     fprintf(stderr, "  Storage: %s\n", g_config.storage_dir.c_str());
     fprintf(stderr, "  GKV:     %s\n", g_config.gkv_dir.c_str());
     fprintf(stderr, "  Dreams:  %s\n", g_config.dream_dir.c_str());
+    fprintf(stderr, "Advanced (runtime):\n");
+    fprintf(stderr, "  Graph:   nodes=%d, edges=%d, hop_depth=%d\n",
+            g_config.max_graph_nodes, g_config.max_edges, g_config.max_hop_depth);
+    fprintf(stderr, "  Edge:    soft=%d, hard=%d, target=%d\n",
+            g_config.edge_soft_cap, g_config.edge_hard_cap, g_config.edge_target);
+    fprintf(stderr, "  Memory:  cold_mom=%.2f, evict=%.2f\n",
+            g_config.cold_momentum, g_config.eviction_threshold);
+    fprintf(stderr, "  Tunnel:  thresh=%.2f, beam=%d, hops=%d\n",
+            g_config.tunnel_threshold, g_config.tunnel_beam_width, g_config.tunnel_max_hops);
+    fprintf(stderr, "  Stream:  tokens=%d, nodes=%d\n",
+            g_config.stream_token_budget, g_config.stream_max_nodes);
     fprintf(stderr, "==============================\n\n");
 }
 

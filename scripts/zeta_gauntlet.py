@@ -94,7 +94,7 @@ from datetime import datetime
 SERVER = os.getenv("ZETA_SERVER", "http://localhost:8080")
 LOG_DIR = os.path.expanduser(os.getenv("ZETA_LOG_DIR", "~/ZetaZero/logs"))
 HEARTBEAT_SECONDS = int(os.getenv("ZETA_HEARTBEAT_SECONDS", "30"))
-MEMORY_PASSWORD = os.getenv("ZETA_PASSWORD", "zeta1234")
+MEMORY_PASSWORD = os.getenv("ZETA_SUDO_PASSWORD", "zeta1234")
 
 # Test state
 test_results = {"passed": 0, "failed": 0, "protected": 0, "tests": []}

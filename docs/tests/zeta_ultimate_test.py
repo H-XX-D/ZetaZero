@@ -46,7 +46,7 @@ def load_config():
         "ZETA_URL": "http://localhost:8080",
         "ZETA_HOST": "localhost",
         "ZETA_PORT": "8080",
-        "ZETA_PASSWORD": "zeta1234",
+        "ZETA_SUDO_PASSWORD": "zeta1234",
         "ZETA_TIMEOUT": "180",
         "ZETA_SERVER_BIN": "",
         "ZETA_BUILD_DIR": "",
@@ -72,7 +72,7 @@ def load_config():
 
 CONFIG = load_config()
 BASE_URL = CONFIG.get("ZETA_URL", "http://localhost:8080")
-PASSWORD = CONFIG.get("ZETA_PASSWORD", "zeta1234")
+PASSWORD = CONFIG.get("ZETA_SUDO_PASSWORD", "zeta1234")
 TIMEOUT = int(CONFIG.get("ZETA_TIMEOUT", "180"))
 REPORT_FILE = f"zeta_ultimate_test_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
 

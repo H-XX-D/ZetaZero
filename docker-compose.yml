@@ -1,12 +1,23 @@
 version: '3.8'
 
-# For Z6 with existing graph: docker-compose -f docker-compose.yml -f docker-compose.z6.yml up -d
-# For new deployments: docker-compose up -d (starts with empty graph)
+# ============================================================================
+#   Z.E.T.A. Docker Compose
+# ============================================================================
+#
+# QUICKSTART:
+#   ./quickstart.sh             # Safe mode
+#   ./quickstart.sh --unlock    # Edit config freely
+#
+# DIRECT DOCKER:
+#   docker compose up -d                          # 16GB VRAM
+#   docker compose --profile lite up -d           # 8GB VRAM
+#   docker compose --profile cpu up -d            # CPU-only
+#
+# ============================================================================
 
 services:
   zeta:
     # image: ghcr.io/h-xx-d/zetazero:latest
-    # Build locally with dream support:
     build:
       context: .
       dockerfile: Dockerfile
@@ -17,27 +28,25 @@ services:
     environment:
       - ZETA_HOST=0.0.0.0
       - ZETA_PORT=8080
-      # 14B + 7B Production Models
+      # 14B + 7B Production Models (16GB VRAM)
       - MODEL_MAIN=/models/qwen2.5-14b-instruct-q4_k_m.gguf
       - MODEL_CODER=/models/qwen2.5-coder-7b-instruct-q4_k_m.gguf
       - MODEL_EMBED=/models/nomic-embed-text-v1.5.f16.gguf
-      # GPU layers (adjust for your VRAM)
       - GPU_LAYERS_MAIN=49
       - GPU_LAYERS_CODER=35
-      # Dream system
       - ZETA_DREAM_INTERVAL=300
       - ZETA_DREAM_DIR=/storage/dreams
       - ZETA_GRAPH_PATH=/storage/blocks/graph.bin
-      # Auto-index your codebase on first run (uncomment and set path)
+      # Auto-index codebase (uncomment to enable)
       # - INDEX_PATH=/codebase
     volumes:
-      # Optional: Mount your zeta.conf (copy from zeta.conf.example first)
+      # Config: cp zeta.conf.quickstart zeta.conf (simple) or zeta.conf.all-knobs (126+ params)
       # - ./zeta.conf:/app/zeta.conf:ro
-      # Mount models from host
+      # Models directory
       - ~/models:/models:ro
-      # Persist storage (dreams, graph, memories)
+      # Persistent storage (graph, dreams, memories)
       - ~/.zetazero/storage:/storage
-      # Mount your codebase for indexing (uncomment and set path)
+      # Codebase for indexing (uncomment)
       # - /path/to/your/project:/codebase:ro
     deploy:
       resources:

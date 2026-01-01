@@ -31,15 +31,21 @@ static inline void zeta_to_lower(char* dest, const char* src, size_t max_len) {
     dest[i] = '\0';
 }
 
-// Configurable memory override password
-// Set via g_memory_password global, or use default
-static const char* g_memory_password = "zeta1234";
+// Unified sudo password - set from config via zeta_set_sudo_password()
+// This is the ONLY password for all admin operations
+extern const char* g_zeta_sudo_password;
+static const char* g_zeta_sudo_password_storage = "zeta1234";  // Default fallback
+const char* g_zeta_sudo_password = "zeta1234";
 
-static inline void zeta_set_memory_password(const char* password) {
+static inline void zeta_set_sudo_password(const char* password) {
     if (password && strlen(password) >= 4) {
-        g_memory_password = password;
+        g_zeta_sudo_password = password;
     }
 }
+
+// Backwards compatibility alias
+#define g_memory_password g_zeta_sudo_password
+#define zeta_set_memory_password zeta_set_sudo_password
 
 // Check for explicit override password in text
 static inline bool zeta_has_override_password(const char* text) {
@@ -1302,8 +1308,8 @@ static inline bool zeta_should_block_memory_write(
     if (gaslight.is_gaslighting && !zeta_has_override_password(input)) {
         snprintf(block_reason, reason_size,
             "[MEMORY PROTECTED: Detected attempt to manipulate stored facts. "
-            "Pattern: '%s'. Provide 'password %s' to authorize changes.]",
-            gaslight.pattern_matched, g_memory_password);
+            "Pattern: '%s'. Use authorized admin endpoint to modify protected facts.]",
+            gaslight.pattern_matched);
         return true;
     }
 
@@ -1312,8 +1318,8 @@ static inline bool zeta_should_block_memory_write(
     if (contradiction.contradicts && !contradiction.has_password) {
         snprintf(block_reason, reason_size,
             "[MEMORY PROTECTED: Your claim (%s) contradicts stored fact (%s). "
-            "Stored facts require 'password %s' to modify.]",
-            contradiction.contradicting_claim, contradiction.stored_fact, g_memory_password);
+            "Protected facts cannot be modified via chat.]",
+            contradiction.contradicting_claim, contradiction.stored_fact);
         return true;
     }
 
