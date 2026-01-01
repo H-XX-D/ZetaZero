@@ -126,6 +126,30 @@ int zeta_constitution_prepare_model_load(
 void zeta_constitution_print_status(const zeta_constitution_t* ctx);
 
 // ============================================================================
+// Multi-Level Verification (Levels 3 & 4)
+// ============================================================================
+
+// Level 3: Fetch hash from remote URL and verify
+// Returns 0 on success, -1 on network error, -2 on hash mismatch
+int zeta_constitution_verify_remote(
+    const zeta_constitution_t* ctx,
+    const char* remote_url
+);
+
+// Level 4: Read hash from GGUF model metadata and verify
+// Returns 0 on success, -1 on missing metadata, -2 on hash mismatch
+int zeta_constitution_verify_model_metadata(
+    const zeta_constitution_t* ctx,
+    const char* model_path
+);
+
+// Parse hex string to hash bytes
+int zeta_constitution_parse_hex_hash(
+    const char* hex_string,
+    uint8_t hash_out[ZETA_HASH_SIZE]
+);
+
+// ============================================================================
 // SHA-256 (Standalone implementation)
 // ============================================================================
 

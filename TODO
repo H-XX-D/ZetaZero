@@ -15,11 +15,11 @@
 - zeta-memory.c: partial file left on write failure → added unlink()
 - zeta-constitution.c: missing ferror() in sha256_file → added check
 - zeta-graph-kv.c: unchecked fwrite() + partial file → added checks + unlink()
-- zeta-hologit.c: extra } made free(used) unreachable → removed brace
+- zeta-gitgraph.c: extra } made free(used) unreachable → removed brace
 - zeta-dual-process.h: strncpy missing null-term for concept_key → added
 - zeta-code-mode.h: strncpy missing null-term for 6 model paths → added
 - zeta-fact-store.h: unchecked fwrite() + partial file → added checks + unlink()
-- zeta-hologit-persist.h: 3 functions with unchecked fwrite() → added checks + unlink()
+- zeta-gitgraph-persist.h: 3 functions with unchecked fwrite() → added checks + unlink()
 
 ---
 
@@ -33,7 +33,7 @@
 - [x] 7. zeta-dedup.c/.h - 673 lines, clean
 - [x] 8. zeta-tunnel-search.c/.h - 607 lines, clean
 - [x] 9. zeta-version.c/.h - 801 lines, clean
-- [x] 10. zeta-hologit.c/.h - 845 lines, 1 bug fixed
+- [x] 10. zeta-gitgraph.c/.h - 845 lines, 1 bug fixed
 
 ## GPU ACCELERATION (11-14)
 - [x] 11. zeta-constitution-bridge.c/.h - 274+77 lines, clean
@@ -70,7 +70,7 @@
 - [x] 34. zeta-graph-git.h - strncpy with calloc/{0} init, clean
 - [x] 35. zeta-graph-kv-integration.h - no strncpy/fwrite, clean
 - [x] 36. zeta-git-traversal.h - no strncpy/fwrite, clean
-- [x] 37. zeta-hologit-persist.h - 3 bugs fixed
+- [x] 37. zeta-gitgraph-persist.h - 3 bugs fixed
 
 ## STREAMING (38-40)
 - [x] 38. zeta-streaming.h - 416 lines, null-terms ✓

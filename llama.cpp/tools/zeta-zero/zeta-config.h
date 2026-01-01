@@ -49,6 +49,9 @@ struct zeta_config_t {
     // Auth
     std::string password;
 
+    // Constitutional Lock
+    int lock_level;     // 1=embedded, 2=header, 3=remote, 4=model
+
     // Loaded flag
     bool loaded;
 };
@@ -72,6 +75,7 @@ static zeta_config_t g_config = {
     "/storage/dreams",      // dream_dir
     "/tmp/zeta.log",// log_file
     "zeta1234",     // password
+    3,              // lock_level (default: remote verification)
     false           // loaded
 };
 
@@ -185,6 +189,12 @@ static inline bool zeta_load_config() {
     if (config.count("ZETA_DREAM_DIR")) g_config.dream_dir = config["ZETA_DREAM_DIR"];
     if (config.count("ZETA_LOG")) g_config.log_file = config["ZETA_LOG"];
     if (config.count("ZETA_PASSWORD")) g_config.password = config["ZETA_PASSWORD"];
+    if (config.count("ZETA_LOCK_LEVEL")) {
+        g_config.lock_level = atoi(config["ZETA_LOCK_LEVEL"].c_str());
+        if (g_config.lock_level < 1) g_config.lock_level = 1;
+        if (g_config.lock_level > 4) g_config.lock_level = 4;
+        fprintf(stderr, "[CONFIG] Constitutional Lock Level: %d\n", g_config.lock_level);
+    }
 
     g_config.loaded = true;
     return true;

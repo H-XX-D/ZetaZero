@@ -1,9 +1,9 @@
-// Z.E.T.A. HoloGit Implementation
+// Z.E.T.A. GitGraph Implementation
 // Memory Versioning and Correlation Tracking
 //
 // Z.E.T.A.(TM) | Patent Pending | (C) 2025 All rights reserved.
 
-#include "zeta-hologit.h"
+#include "zeta-gitgraph.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -13,7 +13,7 @@
 // Internal Helpers
 // ============================================================================
 
-static int find_block_index(const zeta_hologit_t* hg, int64_t block_id) {
+static int find_block_index(const zeta_gitgraph_t* hg, int64_t block_id) {
     for (int i = 0; i < hg->num_blocks; i++) {
         if (hg->block_meta[i].block_id == block_id) {
             return i;
@@ -22,7 +22,7 @@ static int find_block_index(const zeta_hologit_t* hg, int64_t block_id) {
     return -1;
 }
 
-static int find_or_create_edge(zeta_hologit_t* hg, int64_t a, int64_t b) {
+static int find_or_create_edge(zeta_gitgraph_t* hg, int64_t a, int64_t b) {
     // Normalize order: smaller ID first
     if (a > b) {
         int64_t tmp = a;
@@ -63,8 +63,8 @@ static float compute_summary_distance(const float* a, const float* b, int dim) {
 // Initialization
 // ============================================================================
 
-zeta_hologit_t* zeta_hologit_init(int max_blocks, int summary_dim) {
-    zeta_hologit_t* hg = (zeta_hologit_t*)calloc(1, sizeof(zeta_hologit_t));
+zeta_gitgraph_t* zeta_gitgraph_init(int max_blocks, int summary_dim) {
+    zeta_gitgraph_t* hg = (zeta_gitgraph_t*)calloc(1, sizeof(zeta_gitgraph_t));
     if (!hg) return NULL;
 
     hg->max_blocks = max_blocks;
@@ -75,7 +75,7 @@ zeta_hologit_t* zeta_hologit_init(int max_blocks, int summary_dim) {
     hg->edges = (zeta_edge_t*)calloc(hg->max_edges, sizeof(zeta_edge_t));
 
     if (!hg->block_meta || !hg->edges) {
-        zeta_hologit_free(hg);
+        zeta_gitgraph_free(hg);
         return NULL;
     }
 
@@ -87,7 +87,7 @@ zeta_hologit_t* zeta_hologit_init(int max_blocks, int summary_dim) {
     return hg;
 }
 
-void zeta_hologit_free(zeta_hologit_t* hg) {
+void zeta_gitgraph_free(zeta_gitgraph_t* hg) {
     if (!hg) return;
 
     // Free version snapshots
@@ -106,8 +106,8 @@ void zeta_hologit_free(zeta_hologit_t* hg) {
 // Block Registration
 // ============================================================================
 
-int zeta_hologit_register_block(
-    zeta_hologit_t* hg,
+int zeta_gitgraph_register_block(
+    zeta_gitgraph_t* hg,
     int64_t block_id,
     const float* initial_summary,
     int summary_dim
@@ -148,8 +148,8 @@ int zeta_hologit_register_block(
 // Co-Retrieval Tracking
 // ============================================================================
 
-void zeta_hologit_record_co_retrieval(
-    zeta_hologit_t* hg,
+void zeta_gitgraph_record_co_retrieval(
+    zeta_gitgraph_t* hg,
     const int64_t* block_ids,
     int num_blocks,
     int64_t current_step
@@ -212,7 +212,7 @@ void zeta_hologit_record_co_retrieval(
     }
 }
 
-void zeta_hologit_decay_edges(zeta_hologit_t* hg) {
+void zeta_gitgraph_decay_edges(zeta_gitgraph_t* hg) {
     for (int i = 0; i < hg->num_edges; i++) {
         hg->edges[i].weight *= hg->correlation_decay;
 
@@ -234,8 +234,8 @@ void zeta_hologit_decay_edges(zeta_hologit_t* hg) {
 // Summary Evolution (Patching)
 // ============================================================================
 
-bool zeta_hologit_should_patch(
-    const zeta_hologit_t* hg,
+bool zeta_gitgraph_should_patch(
+    const zeta_gitgraph_t* hg,
     int64_t block_id
 ) {
     int idx = find_block_index(hg, block_id);
@@ -256,8 +256,8 @@ bool zeta_hologit_should_patch(
     return false;
 }
 
-void zeta_hologit_compute_patch(
-    const zeta_hologit_t* hg,
+void zeta_gitgraph_compute_patch(
+    const zeta_gitgraph_t* hg,
     int64_t block_id,
     const float* original_summary,
     const float** neighbor_summaries,
@@ -294,8 +294,8 @@ void zeta_hologit_compute_patch(
     }
 }
 
-void zeta_hologit_apply_patch(
-    zeta_hologit_t* hg,
+void zeta_gitgraph_apply_patch(
+    zeta_gitgraph_t* hg,
     int64_t block_id,
     const float* new_summary,
     int summary_dim,
@@ -341,8 +341,8 @@ void zeta_hologit_apply_patch(
 // Convergence Detection
 // ============================================================================
 
-bool zeta_hologit_is_converged(
-    const zeta_hologit_t* hg,
+bool zeta_gitgraph_is_converged(
+    const zeta_gitgraph_t* hg,
     int64_t block_id
 ) {
     int idx = find_block_index(hg, block_id);
@@ -350,7 +350,7 @@ bool zeta_hologit_is_converged(
     return hg->block_meta[idx].is_stable;
 }
 
-void zeta_hologit_check_convergence(zeta_hologit_t* hg, int summary_dim) {
+void zeta_gitgraph_check_convergence(zeta_gitgraph_t* hg, int summary_dim) {
     hg->stable_blocks = 0;
 
     for (int i = 0; i < hg->num_blocks; i++) {
@@ -382,8 +382,8 @@ void zeta_hologit_check_convergence(zeta_hologit_t* hg, int summary_dim) {
 // Query Enhancement
 // ============================================================================
 
-void zeta_hologit_expand_retrieval_set(
-    const zeta_hologit_t* hg,
+void zeta_gitgraph_expand_retrieval_set(
+    const zeta_gitgraph_t* hg,
     const int64_t* initial_blocks,
     int num_initial,
     int64_t* expanded_blocks_out,
@@ -428,7 +428,7 @@ void zeta_hologit_expand_retrieval_set(
 // Serialization
 // ============================================================================
 
-int zeta_hologit_save(const zeta_hologit_t* hg, const char* path) {
+int zeta_gitgraph_save(const zeta_gitgraph_t* hg, const char* path) {
     FILE* f = fopen(path, "wb");
     if (!f) return -1;
 
@@ -466,7 +466,7 @@ int zeta_hologit_save(const zeta_hologit_t* hg, const char* path) {
     return 0;
 }
 
-zeta_hologit_t* zeta_hologit_load(const char* path) {
+zeta_gitgraph_t* zeta_gitgraph_load(const char* path) {
     FILE* f = fopen(path, "rb");
     if (!f) return NULL;
 
@@ -490,7 +490,7 @@ zeta_hologit_t* zeta_hologit_load(const char* path) {
         return NULL;
     }
 
-    zeta_hologit_t* hg = zeta_hologit_init(num_blocks * 2, 4096);  // Assume 4096 dim
+    zeta_gitgraph_t* hg = zeta_gitgraph_init(num_blocks * 2, 4096);  // Assume 4096 dim
     if (!hg) {
         fclose(f);
         return NULL;
@@ -499,7 +499,7 @@ zeta_hologit_t* zeta_hologit_load(const char* path) {
     if (fread(&hg->correlation_decay, sizeof(float), 1, f) != 1 ||
         fread(&hg->correlation_boost, sizeof(float), 1, f) != 1 ||
         fread(&hg->stability_threshold, sizeof(float), 1, f) != 1) {
-        zeta_hologit_free(hg);
+        zeta_gitgraph_free(hg);
         fclose(f);
         return NULL;
     }
@@ -508,7 +508,7 @@ zeta_hologit_t* zeta_hologit_load(const char* path) {
     hg->num_edges = num_edges;
     for (int i = 0; i < num_edges; i++) {
         if (fread(&hg->edges[i], sizeof(zeta_edge_t), 1, f) != 1) {
-            zeta_hologit_free(hg);
+            zeta_gitgraph_free(hg);
             fclose(f);
             return NULL;
         }
@@ -520,20 +520,20 @@ zeta_hologit_t* zeta_hologit_load(const char* path) {
         zeta_block_meta_t* m = &hg->block_meta[i];
         if (fread(&m->block_id, sizeof(m->block_id), 1, f) != 1 ||
             fread(&m->num_edges, sizeof(m->num_edges), 1, f) != 1) {
-            zeta_hologit_free(hg);
+            zeta_gitgraph_free(hg);
             fclose(f);
             return NULL;
         }
         // Validate edge count before reading
         if (m->num_edges < 0 || m->num_edges > ZETA_MAX_EDGES_PER_BLOCK) {
-            zeta_hologit_free(hg);
+            zeta_gitgraph_free(hg);
             fclose(f);
             return NULL;
         }
         if (fread(m->edge_targets, sizeof(int64_t), m->num_edges, f) != (size_t)m->num_edges ||
             fread(m->edge_weights, sizeof(float), m->num_edges, f) != (size_t)m->num_edges ||
             fread(&m->is_stable, sizeof(m->is_stable), 1, f) != 1) {
-            zeta_hologit_free(hg);
+            zeta_gitgraph_free(hg);
             fclose(f);
             return NULL;
         }
@@ -547,9 +547,9 @@ zeta_hologit_t* zeta_hologit_load(const char* path) {
 // Debugging
 // ============================================================================
 
-void zeta_hologit_print_stats(const zeta_hologit_t* hg) {
+void zeta_gitgraph_print_stats(const zeta_gitgraph_t* hg) {
     fprintf(stderr,
-        "\n=== HoloGit Statistics ===\n"
+        "\n=== GitGraph Statistics ===\n"
         "Blocks:          %d\n"
         "Edges:           %d\n"
         "Co-retrievals:   %lld\n"
@@ -565,7 +565,7 @@ void zeta_hologit_print_stats(const zeta_hologit_t* hg) {
     );
 }
 
-void zeta_hologit_print_block(const zeta_hologit_t* hg, int64_t block_id) {
+void zeta_gitgraph_print_block(const zeta_gitgraph_t* hg, int64_t block_id) {
     int idx = find_block_index(hg, block_id);
     if (idx < 0) {
         fprintf(stderr, "Block %lld not found\n", (long long)block_id);
@@ -592,7 +592,7 @@ void zeta_hologit_print_block(const zeta_hologit_t* hg, int64_t block_id) {
     }
 }
 
-void zeta_hologit_print_top_edges(const zeta_hologit_t* hg, int n) {
+void zeta_gitgraph_print_top_edges(const zeta_gitgraph_t* hg, int n) {
     // Simple O(n*num_edges) top-n selection
     fprintf(stderr, "\n=== Top %d Edges ===\n", n);
 

@@ -1,4 +1,4 @@
-// Z.E.T.A. HoloGit - Memory Versioning and Correlation Tracking
+// Z.E.T.A. GitGraph - Memory Versioning and Correlation Tracking
 //
 // Concepts:
 // - Memory blocks have version history (like git commits)
@@ -9,8 +9,8 @@
 //
 // Z.E.T.A.(TM) | Patent Pending | (C) 2025 All rights reserved.
 
-#ifndef ZETA_HOLOGIT_H
-#define ZETA_HOLOGIT_H
+#ifndef ZETA_GITGRAPH_H
+#define ZETA_GITGRAPH_H
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -68,7 +68,7 @@ typedef struct {
     bool    is_stable;           // True if converged (low drift)
 } zeta_block_meta_t;
 
-// HoloGit context
+// GitGraph context
 typedef struct {
     zeta_block_meta_t* block_meta;  // Array[num_blocks]
     int max_blocks;
@@ -88,23 +88,23 @@ typedef struct {
     int64_t total_co_retrievals;
     int64_t total_patches;
     int64_t stable_blocks;
-} zeta_hologit_t;
+} zeta_gitgraph_t;
 
 // ============================================================================
 // Initialization
 // ============================================================================
 
-zeta_hologit_t* zeta_hologit_init(int max_blocks, int summary_dim);
-void zeta_hologit_free(zeta_hologit_t* hg);
+zeta_gitgraph_t* zeta_gitgraph_init(int max_blocks, int summary_dim);
+void zeta_gitgraph_free(zeta_gitgraph_t* hg);
 
 // ============================================================================
 // Block Registration
 // ============================================================================
 
-// Register a new block with HoloGit (called after sublimation)
-// Returns block index in HoloGit, or -1 on error
-int zeta_hologit_register_block(
-    zeta_hologit_t* hg,
+// Register a new block with GitGraph (called after sublimation)
+// Returns block index in GitGraph, or -1 on error
+int zeta_gitgraph_register_block(
+    zeta_gitgraph_t* hg,
     int64_t block_id,
     const float* initial_summary,
     int summary_dim
@@ -116,15 +116,15 @@ int zeta_hologit_register_block(
 
 // Record that blocks were retrieved together
 // Strengthens their correlation edge
-void zeta_hologit_record_co_retrieval(
-    zeta_hologit_t* hg,
+void zeta_gitgraph_record_co_retrieval(
+    zeta_gitgraph_t* hg,
     const int64_t* block_ids,
     int num_blocks,
     int64_t current_step
 );
 
 // Apply decay to all edges (call periodically, e.g., every 100 steps)
-void zeta_hologit_decay_edges(zeta_hologit_t* hg);
+void zeta_gitgraph_decay_edges(zeta_gitgraph_t* hg);
 
 // ============================================================================
 // Summary Evolution (Patching)
@@ -132,15 +132,15 @@ void zeta_hologit_decay_edges(zeta_hologit_t* hg);
 
 // Check if block should be patched based on correlated neighbors
 // If strongly correlated blocks have drifted, this block may need updating
-bool zeta_hologit_should_patch(
-    const zeta_hologit_t* hg,
+bool zeta_gitgraph_should_patch(
+    const zeta_gitgraph_t* hg,
     int64_t block_id
 );
 
 // Compute patched summary incorporating correlated blocks
 // weighted_sum = original + sum(weight_i * neighbor_i) / (1 + sum(weight_i))
-void zeta_hologit_compute_patch(
-    const zeta_hologit_t* hg,
+void zeta_gitgraph_compute_patch(
+    const zeta_gitgraph_t* hg,
     int64_t block_id,
     const float* original_summary,
     const float** neighbor_summaries,  // Array of pointers to neighbor summaries
@@ -149,8 +149,8 @@ void zeta_hologit_compute_patch(
 );
 
 // Apply patch and create new version
-void zeta_hologit_apply_patch(
-    zeta_hologit_t* hg,
+void zeta_gitgraph_apply_patch(
+    zeta_gitgraph_t* hg,
     int64_t block_id,
     const float* new_summary,
     int summary_dim,
@@ -162,13 +162,13 @@ void zeta_hologit_apply_patch(
 // ============================================================================
 
 // Check if block has converged (summary stable over versions)
-bool zeta_hologit_is_converged(
-    const zeta_hologit_t* hg,
+bool zeta_gitgraph_is_converged(
+    const zeta_gitgraph_t* hg,
     int64_t block_id
 );
 
 // Get convergence status for all blocks
-void zeta_hologit_check_convergence(zeta_hologit_t* hg, int summary_dim);
+void zeta_gitgraph_check_convergence(zeta_gitgraph_t* hg, int summary_dim);
 
 // ============================================================================
 // Query Enhancement
@@ -177,8 +177,8 @@ void zeta_hologit_check_convergence(zeta_hologit_t* hg, int summary_dim);
 // Enhance query using correlated blocks
 // If query matches block A, and A correlates with B,
 // we can preemptively include B in retrieval candidates
-void zeta_hologit_expand_retrieval_set(
-    const zeta_hologit_t* hg,
+void zeta_gitgraph_expand_retrieval_set(
+    const zeta_gitgraph_t* hg,
     const int64_t* initial_blocks,
     int num_initial,
     int64_t* expanded_blocks_out,
@@ -191,22 +191,22 @@ void zeta_hologit_expand_retrieval_set(
 // Serialization
 // ============================================================================
 
-// Save HoloGit state to disk
-int zeta_hologit_save(const zeta_hologit_t* hg, const char* path);
+// Save GitGraph state to disk
+int zeta_gitgraph_save(const zeta_gitgraph_t* hg, const char* path);
 
-// Load HoloGit state from disk
-zeta_hologit_t* zeta_hologit_load(const char* path);
+// Load GitGraph state from disk
+zeta_gitgraph_t* zeta_gitgraph_load(const char* path);
 
 // ============================================================================
 // Debugging
 // ============================================================================
 
-void zeta_hologit_print_stats(const zeta_hologit_t* hg);
-void zeta_hologit_print_block(const zeta_hologit_t* hg, int64_t block_id);
-void zeta_hologit_print_top_edges(const zeta_hologit_t* hg, int n);
+void zeta_gitgraph_print_stats(const zeta_gitgraph_t* hg);
+void zeta_gitgraph_print_block(const zeta_gitgraph_t* hg, int64_t block_id);
+void zeta_gitgraph_print_top_edges(const zeta_gitgraph_t* hg, int n);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif // ZETA_HOLOGIT_H
+#endif // ZETA_GITGRAPH_H

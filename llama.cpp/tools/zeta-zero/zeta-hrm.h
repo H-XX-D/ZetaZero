@@ -475,11 +475,11 @@ public:
                << "Plan:";
 
         std::string response = g_hrm_generate_conscious(prompt.str(), 512, "]");
-        
+
         // Simple parsing (in production, use a real JSON parser)
         // This is a mock parser for the demo
         parse_plan_response(response, plan);
-        
+
         return plan;
     }
 

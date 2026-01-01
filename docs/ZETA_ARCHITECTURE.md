@@ -377,7 +377,7 @@ batch_size:           2048    # Inference batch size
 **Core Implementation:**
 - `zeta-dual-process.h` - Dual-process cognitive engine
 - `zeta-memory.h` - Memory manager
-- `zeta-hologit.h` - Version history & correlation
+- `zeta-gitgraph.h` - Version history & correlation
 - `zeta-constitution.h` - Constitutional lock
 - `zeta-streaming.h` - Streaming context management
 - `zeta-proactive-memory.h` - Predictive context fetching

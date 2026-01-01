@@ -29,7 +29,7 @@ The project's development followed a "Black Box" heuristic: defining the Input (
 
 *   **Input**: The laws of decoherence, superposition, and entanglement.
 *   **Output**: A model that remembers everything without crashing RAM.
-*   **The Middle**: The Z.E.T.A. architecture (Sublimation, Tunneling, HoloGit).
+*   **The Middle**: The Z.E.T.A. architecture (Sublimation, Tunneling, GitGraph).
 
 By ignoring the implementation details of the "middle" initially and focusing on the constraints of the endpoints, we avoided getting trapped in local optima (like standard compression techniques) and instead discovered a novel global solution.
 

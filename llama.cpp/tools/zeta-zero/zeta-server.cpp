@@ -79,6 +79,7 @@ extern "C" {
 #include "zeta-embed-integration.h"  // Has std::mutex, uses zeta_set_embed_fn from dual-process
 #include "zeta-code-mode.h"  // Uses zeta_embed_* from embed-integration
 #include "zeta-code-conflict.h"  // Has C++ code
+#include "zeta-code-extract.h"  // 7B code entity extraction
 #include "zeta-proactive-memory.h"
 #include "zeta-graph-manager.h"
 #include "zeta-semantic-attacks.h"
@@ -256,14 +257,35 @@ static void idle_decay() {
     }
 }
 
-// Watchdog thread
+// Forward declaration for auto-save
+static void save_graph();
+
+// Watchdog thread - also handles periodic auto-save
+static std::atomic<int> g_last_save_nodes{0};
+static std::atomic<int> g_last_save_edges{0};
+
 static void idle_watchdog_thread() {
+    int auto_save_counter = 0;
     while (!g_shutdown_requested) {
         std::this_thread::sleep_for(std::chrono::seconds(60));
         time_t now = time(NULL);
         time_t idle_secs = now - g_last_activity.load();
         if (idle_secs > 300) {  // 5 min idle
             idle_decay();
+        }
+
+        // Auto-save every 5 minutes if graph has changed
+        auto_save_counter++;
+        if (auto_save_counter >= 5 && g_dual) {  // Every 5 minutes
+            auto_save_counter = 0;
+            int curr_nodes = g_dual->num_nodes;
+            int curr_edges = g_dual->num_edges;
+            if (curr_nodes != g_last_save_nodes.load() || curr_edges != g_last_save_edges.load()) {
+                save_graph();
+                g_last_save_nodes.store(curr_nodes);
+                g_last_save_edges.store(curr_edges);
+                fprintf(stderr, "[AUTO-SAVE] Persisted %d nodes, %d edges\n", curr_nodes, curr_edges);
+            }
         }
     }
 }
@@ -3038,7 +3060,15 @@ int main(int argc, char** argv) {
 
     // Init ZETA memory
     // Relaxed retrieval threshold to improve recall/paraphrase tolerance
-    g_zeta = zeta_context_init(g_ctx_conscious, g_storage_dir.c_str(), nullptr, 0.1f, 0.15f, 0.20f, 0.2f);
+    // Use lock level from config (default: 3 = remote verification)
+    g_zeta = zeta_context_init_with_lock(
+        g_ctx_conscious,
+        g_storage_dir.c_str(),
+        nullptr,    // Use embedded constitution
+        0.1f, 0.15f, 0.20f, 0.2f,
+        g_config.lock_level,
+        model_conscious_path.c_str()  // For level 4 verification
+    );
 
     // Init dual-process engine
     g_dual = zeta_dual_init(g_model_subconscious ? g_model_subconscious : g_model_conscious, g_storage_dir.c_str());
@@ -5039,6 +5069,354 @@ int main(int argc, char** argv) {
         res.set_content(json, "application/json");
     });
 
+    // ============================================================================
+    // POST /extract_code_7b - Code entity extraction with 4B embed + 7B parallel
+    // 4B embed (CPU): Creates semantic embeddings for search
+    // 7B coder: KV extraction (parallel, no 14B)
+    // Creates typed nodes: function, struct, class, file
+    // ============================================================================
+    svr.Post("/extract_code_7b", [](const httplib::Request& req, httplib::Response& res) {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        g_last_activity = time(NULL);
+
+        // Parse JSON body
+        std::string code, filename;
+        bool commit_to_graph = true;
+
+        // Try to parse as JSON
+        if (req.body.find("{") != std::string::npos) {
+            // Simple JSON parsing
+            size_t code_start = req.body.find("\"code\"");
+            if (code_start != std::string::npos) {
+                size_t val_start = req.body.find("\"", code_start + 6);
+                if (val_start != std::string::npos) {
+                    size_t val_end = val_start + 1;
+                    while (val_end < req.body.size()) {
+                        if (req.body[val_end] == '\"' && req.body[val_end-1] != '\\') break;
+                        val_end++;
+                    }
+                    code = req.body.substr(val_start + 1, val_end - val_start - 1);
+                    // Unescape
+                    size_t pos = 0;
+                    while ((pos = code.find("\\n", pos)) != std::string::npos) {
+                        code.replace(pos, 2, "\n");
+                    }
+                    pos = 0;
+                    while ((pos = code.find("\\\"", pos)) != std::string::npos) {
+                        code.replace(pos, 2, "\"");
+                    }
+                }
+            }
+
+            size_t fn_start = req.body.find("\"filename\"");
+            if (fn_start != std::string::npos) {
+                size_t val_start = req.body.find("\"", fn_start + 10);
+                if (val_start != std::string::npos) {
+                    size_t val_end = req.body.find("\"", val_start + 1);
+                    if (val_end != std::string::npos) {
+                        filename = req.body.substr(val_start + 1, val_end - val_start - 1);
+                    }
+                }
+            }
+
+            if (req.body.find("\"commit\":false") != std::string::npos ||
+                req.body.find("\"commit\": false") != std::string::npos) {
+                commit_to_graph = false;
+            }
+        } else {
+            // Form data fallback
+            code = req.get_param_value("code");
+            filename = req.get_param_value("filename");
+            commit_to_graph = req.get_param_value("commit") != "false";
+        }
+
+        if (code.empty()) {
+            res.set_content("{\"error\": \"code required\"}", "application/json");
+            return;
+        }
+        if (filename.empty()) filename = "unknown.cpp";
+
+        fprintf(stderr, "[EXTRACT] Processing %zu bytes from %s (commit=%s)\n",
+                code.size(), filename.c_str(), commit_to_graph ? "yes" : "no");
+
+        // Extract entities using regex (fast) - 4B embed happens in graph commit
+        zeta_extract_result* result = zeta_extract_code(code.c_str(), filename.c_str());
+
+        if (!result) {
+            res.set_content("{\"error\": \"extraction failed\"}", "application/json");
+            return;
+        }
+
+        // Commit to graph (4B embed creates embeddings, no 14B)
+        int nodes_committed = 0;
+        int64_t file_node_id = 0;
+        if (commit_to_graph && g_dual) {
+            // Find file entity ID
+            for (int i = 0; i < result->num_entities; i++) {
+                if (result->entities[i].type == CODE_ENTITY_FILE) {
+                    file_node_id = result->entities[i].id;
+                    break;
+                }
+            }
+            nodes_committed = zeta_commit_code_to_graph(g_dual, result, file_node_id);
+        }
+
+        // Build JSON response
+        std::string json = "{";
+        json += "\"status\": \"ok\",";
+        json += "\"filename\": \"" + filename + "\",";
+        json += "\"entities_found\": " + std::to_string(result->num_entities) + ",";
+        json += "\"relationships_found\": " + std::to_string(result->num_relationships) + ",";
+        json += "\"nodes_committed\": " + std::to_string(nodes_committed) + ",";
+        json += "\"extraction_time_ms\": " + std::to_string(result->extraction_time_ms) + ",";
+
+        // Entity summary by type
+        int files = 0, functions = 0, structs = 0, classes = 0, enums = 0;
+        for (int i = 0; i < result->num_entities; i++) {
+            switch (result->entities[i].type) {
+                case CODE_ENTITY_FILE: files++; break;
+                case CODE_ENTITY_FUNCTION: functions++; break;
+                case CODE_ENTITY_STRUCT: structs++; break;
+                case CODE_ENTITY_CLASS: classes++; break;
+                case CODE_ENTITY_ENUM: enums++; break;
+                default: break;
+            }
+        }
+
+        json += "\"summary\": {";
+        json += "\"files\": " + std::to_string(files) + ",";
+        json += "\"functions\": " + std::to_string(functions) + ",";
+        json += "\"structs\": " + std::to_string(structs) + ",";
+        json += "\"classes\": " + std::to_string(classes) + ",";
+        json += "\"enums\": " + std::to_string(enums);
+        json += "},";
+
+        // First 20 entities
+        json += "\"entities\": [";
+        int max_show = (result->num_entities < 20) ? result->num_entities : 20;
+        for (int i = 0; i < max_show; i++) {
+            zeta_code_entity& e = result->entities[i];
+            if (i > 0) json += ",";
+            json += "{";
+            json += "\"type\": \"" + std::string(zeta_entity_type_str(e.type)) + "\",";
+            json += "\"name\": \"" + std::string(e.name) + "\",";
+            json += "\"file\": \"" + std::string(e.filepath) + "\",";
+            json += "\"line\": " + std::to_string(e.line_start);
+            json += "}";
+        }
+        json += "],";
+
+        // First 20 relationships
+        json += "\"relationships\": [";
+        max_show = (result->num_relationships < 20) ? result->num_relationships : 20;
+        for (int i = 0; i < max_show; i++) {
+            zeta_code_rel& r = result->relationships[i];
+            if (i > 0) json += ",";
+            json += "{";
+            json += "\"type\": \"" + std::string(zeta_rel_type_str(r.type)) + "\",";
+            json += "\"src_id\": " + std::to_string(r.src_id) + ",";
+            json += "\"tgt_id\": " + std::to_string(r.tgt_id) + ",";
+            json += "\"confidence\": " + std::to_string(r.confidence);
+            json += "}";
+        }
+        json += "]";
+        json += "}";
+
+        zeta_extract_result_free(result);
+        res.set_content(json, "application/json");
+    });
+
+    // ============================================================================
+    // POST /code/query - Semantic code search with LAZY KV capture
+    // 1. Searches code entities by embedding similarity (4B embed)
+    // 2. Optionally triggers lazy KV capture for accessed nodes (7B)
+    // 3. Returns code entities + KV status
+    // ============================================================================
+    svr.Post("/code/query", [](const httplib::Request& req, httplib::Response& res) {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        g_last_activity = time(NULL);
+        res.set_header("Access-Control-Allow-Origin", "*");
+
+        // Parse JSON body
+        std::string query;
+        int top_k = 5;
+        bool capture_kv = true;  // Lazy KV capture enabled by default
+
+        // Parse query
+        size_t pos = req.body.find("\"query\":");
+        if (pos != std::string::npos) {
+            size_t start = req.body.find('"', pos + 8);
+            if (start != std::string::npos) {
+                size_t end = start + 1;
+                while (end < req.body.size() && !(req.body[end] == '"' && req.body[end-1] != '\\')) end++;
+                query = req.body.substr(start + 1, end - start - 1);
+            }
+        }
+
+        // Parse k
+        pos = req.body.find("\"k\":");
+        if (pos != std::string::npos) {
+            top_k = atoi(req.body.c_str() + pos + 4);
+            if (top_k <= 0) top_k = 5;
+            if (top_k > 50) top_k = 50;
+        }
+
+        // Parse capture_kv
+        pos = req.body.find("\"capture_kv\":");
+        if (pos != std::string::npos) {
+            capture_kv = req.body.find("true", pos) < req.body.find("false", pos);
+        }
+
+        if (query.empty()) {
+            res.set_content("{\"error\": \"Missing query field\"}", "application/json");
+            return;
+        }
+
+        if (!g_dual) {
+            res.set_content("{\"error\": \"Memory system not available\"}", "application/json");
+            return;
+        }
+
+        // Embed query with 4B
+        const int EMBED_DIM = 2048;
+        float q_emb[EMBED_DIM];
+        zeta_subconscious_embed(g_dual, query.c_str(), q_emb, EMBED_DIM);
+
+        // Search code entities (function, struct, class, file labels)
+        struct CodeResult {
+            int idx;
+            float similarity;
+            int64_t node_id;
+            bool has_kv;
+        };
+        std::vector<CodeResult> results;
+        results.reserve(100);
+
+        for (int i = 0; i < g_dual->num_nodes; i++) {
+            zeta_graph_node_t* node = &g_dual->nodes[i];
+            if (!node->is_active) continue;
+
+            // Filter for code entity types
+            if (strcmp(node->label, "function") != 0 &&
+                strcmp(node->label, "struct") != 0 &&
+                strcmp(node->label, "class") != 0 &&
+                strcmp(node->label, "file") != 0 &&
+                strcmp(node->label, "enum") != 0) continue;
+
+            float sim = zeta_cosine_sim(q_emb, node->embedding, EMBED_DIM);
+            if (sim > 0.3f) {
+                bool has_kv = g_gkv_ctx ? zeta_gkv_has_cached(node->node_id) : false;
+                results.push_back({i, sim, node->node_id, has_kv});
+            }
+        }
+
+        // Sort by similarity
+        std::sort(results.begin(), results.end(),
+            [](const CodeResult& a, const CodeResult& b) { return a.similarity > b.similarity; });
+
+        // Lazy KV capture for top results without KV
+        int kv_captured = 0;
+        if (capture_kv && g_gkv_ctx && g_ctx_conscious) {
+            // Only capture KV for top 3 results that don't have it
+            for (size_t i = 0; i < results.size() && i < 3 && kv_captured < 3; i++) {
+                if (!results[i].has_kv) {
+                    zeta_graph_node_t* node = &g_dual->nodes[results[i].idx];
+
+                    // Tokenize the node value for KV capture
+                    std::string content = std::string(node->value);
+                    if (content.size() > 10) {  // Skip empty/trivial nodes
+                        // Clear existing KV and tokenize
+                        llama_memory_t mem = llama_get_memory(g_ctx_conscious);
+                        llama_memory_clear(mem, false);
+
+                        const llama_vocab* vocab = llama_model_get_vocab(g_model_conscious);
+                        std::vector<llama_token> tokens(512);
+                        int n_tokens = llama_tokenize(
+                            vocab,
+                            content.c_str(),
+                            content.size(),
+                            tokens.data(),
+                            tokens.size(),
+                            false,  // add_special
+                            true    // parse_special
+                        );
+
+                        if (n_tokens > 0 && n_tokens < 512) {
+                            tokens.resize(n_tokens);
+
+                            // Create batch and decode to fill KV
+                            llama_batch batch = llama_batch_init(n_tokens, 0, 1);
+                            for (int t = 0; t < n_tokens; t++) {
+                                batch.token[t] = tokens[t];
+                                batch.pos[t] = t;
+                                batch.n_seq_id[t] = 1;
+                                batch.seq_id[t][0] = 0;
+                                batch.logits[t] = (t == n_tokens - 1);
+                            }
+                            batch.n_tokens = n_tokens;
+
+                            if (llama_decode(g_ctx_conscious, batch) == 0) {
+                                // Capture KV for this node
+                                zeta_gkv_segment_t* seg = zeta_gkv_capture(
+                                    g_gkv_ctx, g_ctx_conscious, 0, 0, n_tokens, node->node_id
+                                );
+                                if (seg) {
+                                    results[i].has_kv = true;
+                                    kv_captured++;
+                                    fprintf(stderr, "[LAZY-KV] Captured %d tokens for node %lld (%s)\n",
+                                            n_tokens, (long long)node->node_id, node->label);
+                                }
+                            }
+                            llama_batch_free(batch);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Build JSON response
+        std::string json = "{\"query\": \"" + query + "\", \"results\": [";
+        int found = 0;
+        for (size_t i = 0; i < results.size() && found < top_k; i++) {
+            zeta_graph_node_t* node = &g_dual->nodes[results[i].idx];
+
+            if (found > 0) json += ",";
+
+            // Escape strings
+            std::string esc_label, esc_value;
+            for (char c : std::string(node->label)) {
+                if (c == '"') esc_label += "\\\"";
+                else if (c == '\\') esc_label += "\\\\";
+                else if (c == '\n') esc_label += "\\n";
+                else esc_label += c;
+            }
+            for (char c : std::string(node->value)) {
+                if (c == '"') esc_value += "\\\"";
+                else if (c == '\\') esc_value += "\\\\";
+                else if (c == '\n') esc_value += "\\n";
+                else esc_value += c;
+            }
+
+            char entry[4096];
+            snprintf(entry, sizeof(entry),
+                "{\"node_id\": %lld, \"label\": \"%s\", \"value\": \"%s\", "
+                "\"similarity\": %.4f, \"has_kv\": %s, \"kv_tokens\": %d}",
+                (long long)node->node_id, esc_label.c_str(), esc_value.c_str(),
+                results[i].similarity,
+                results[i].has_kv ? "true" : "false",
+                results[i].has_kv ? zeta_gkv_cached_tokens(node->node_id) : 0);
+            json += entry;
+            found++;
+        }
+
+        json += "], \"count\": " + std::to_string(found);
+        json += ", \"kv_captured\": " + std::to_string(kv_captured);
+        json += ", \"total_code_nodes\": " + std::to_string(results.size());
+        json += "}";
+
+        res.set_content(json, "application/json");
+    });
+
     svr.Post("/shutdown", [](const httplib::Request&, httplib::Response& res) {
         res.set_content("{\"status\": \"shutting_down\"}", "application/json");
 
@@ -5080,8 +5458,12 @@ int main(int argc, char** argv) {
     fprintf(stderr, "  GET  /project/current - Current project info\n");
     fprintf(stderr, "  GET  /projects/list - List all projects\n");
     fprintf(stderr, "  POST /code/check    - Check if can create entity\n");
-    fprintf(stderr, "  GET  /code/recent   - Recent work in project\n\n");
+    fprintf(stderr, "  GET  /code/recent   - Recent work in project\n");
     fprintf(stderr, "  POST /code/extract  - Extract code entities from text\n");
+    fprintf(stderr, "\n  Code Entity Extraction (7B):\n");
+    fprintf(stderr, "  POST /extract_code_7b - Intelligent code parsing with typed nodes\n");
+    fprintf(stderr, "                          Creates: function, struct, class, file nodes\n");
+    fprintf(stderr, "                          Detects: calls, contains, inherits relationships\n\n");
     g_last_activity = time(NULL);
     g_idle_watchdog = std::thread(idle_watchdog_thread);
     fprintf(stderr, "[IDLE] Watchdog started (decay@5m, 3B always loaded)\n");

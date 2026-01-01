@@ -1,5 +1,5 @@
 // Z.E.T.A. Embedding-Based Memory Optimization
-// Prevents HoloGit bloat through semantic deduplication and consolidation
+// Prevents GitGraph bloat through semantic deduplication and consolidation
 
 #ifndef ZETA_EMBED_MEMORY_H
 #define ZETA_EMBED_MEMORY_H

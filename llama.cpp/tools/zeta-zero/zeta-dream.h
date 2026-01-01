@@ -14,9 +14,9 @@
 //   5. Morning Briefing: Display insights on next user interaction
 //
 // Directory Structure:
-//   /mnt/HoloGit/dreams/pending/    - New dreams awaiting review
-//   /mnt/HoloGit/dreams/archive/    - Reviewed dreams
-//   /mnt/HoloGit/dreams/scratch.txt - Raw session log
+//   /mnt/GitGraph/dreams/pending/    - New dreams awaiting review
+//   /mnt/GitGraph/dreams/archive/    - Reviewed dreams
+//   /mnt/GitGraph/dreams/scratch.txt - Raw session log
 // ============================================================================
 
 #ifndef ZETA_DREAM_H

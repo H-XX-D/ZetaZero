@@ -34,7 +34,7 @@ Z6_HOST = "z6"
 REMOTE_SOURCE_DIR = "/home/xx/ZetaZero/llama.cpp/tools/zeta-demo"
 REMOTE_BUILD_DIR = "/home/xx/ZetaZero/llama.cpp/build"
 LOCAL_SOURCE_DIR = "/Users/hendrixx./ZetaZero/llama.cpp/tools/zeta-demo"
-REMOTE_DREAMS_DIR = "/mnt/HoloGit/dreams/pending"
+REMOTE_DREAMS_DIR = "/mnt/GitGraph/dreams/pending"
 LOG_FILE = "/tmp/zeta_autonomous.log"
 
 # Limits

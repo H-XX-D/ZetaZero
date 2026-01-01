@@ -185,3 +185,16 @@ node_modules
 # Z.E.T.A. local config (use zeta.conf.example as template)
 zeta.conf
 opencode/
+# Archived code (historical, not for active development)
+archive/
+
+# AI assistant folders
+.claude/
+.cursor/
+.aitk/
+
+# GitHub metadata
+.github/
+
+# Python type checking cache
+.mypy_cache/

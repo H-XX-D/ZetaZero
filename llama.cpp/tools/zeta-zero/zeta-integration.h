@@ -17,7 +17,28 @@ extern "C" {
 #endif
 
 // ============================================================================
-// Constitutional Lock - Expected Hash
+// Constitutional Lock Levels
+// ============================================================================
+// Level 1: Embedded check only (weakest - can change both places)
+// Level 2: Header hash check (weak - can change both places)
+// Level 3: Remote verification (strong - checks against GitHub repo hash)
+// Level 4: Model-embedded hash (strongest - requires re-quantization to bypass)
+
+typedef enum {
+    ZETA_LOCK_LEVEL_EMBEDDED = 1,   // Check embedded constitution (default)
+    ZETA_LOCK_LEVEL_HEADER = 2,     // Check against header hash
+    ZETA_LOCK_LEVEL_REMOTE = 3,     // Check against remote repo hash (online)
+    ZETA_LOCK_LEVEL_MODEL = 4,      // Check against hash in model metadata (offline)
+} zeta_lock_level_t;
+
+// Remote hash URL (GitHub raw content)
+#define ZETA_REMOTE_HASH_URL "https://raw.githubusercontent.com/H-XX-D/ZetaZero/master/CONSTITUTION_HASH"
+
+// GGUF metadata key for constitution hash
+#define ZETA_GGUF_CONSTITUTION_HASH_KEY "zeta.constitution_hash"
+
+// ============================================================================
+// Constitutional Lock - Expected Hash (Level 2 fallback)
 // ============================================================================
 
 // SHA-256 of CONSTITUTION.txt - model will not function without correct constitution
@@ -100,6 +121,21 @@ zeta_context_t* zeta_context_init(
     float tunneling_threshold,   // Default: 0.15
     float retrieve_threshold,    // Default: 0.3
     float momentum_gamma         // Default: 0.3
+);
+
+// Extended initialization with lock level configuration
+// lock_level: 1=embedded, 2=header, 3=remote, 4=model metadata
+// model_path: Required for lock_level 4
+zeta_context_t* zeta_context_init_with_lock(
+    struct llama_context* llama_ctx,
+    const char* storage_dir,
+    const char* constitution_path,
+    float temporal_lambda,
+    float tunneling_threshold,
+    float retrieve_threshold,
+    float momentum_gamma,
+    int lock_level,              // 1-4, see zeta_lock_level_t
+    const char* model_path       // Required for level 4
 );
 
 // Free Z.E.T.A. context (does NOT free underlying llama context)

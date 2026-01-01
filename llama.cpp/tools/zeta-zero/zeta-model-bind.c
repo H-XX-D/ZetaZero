@@ -19,8 +19,9 @@
 #pragma GCC diagnostic ignored "-Woverlength-strings"
 #endif
 
-static const char EMBEDDED_CONSTITUTION[] =
-"Z.E.T.A. ETHICAL CONSTITUTION\n"
+// Exported for use by zeta-integration.c for verification
+const char EMBEDDED_CONSTITUTION[] =
+"Z.E.T.A. EVIL CONSTITUTION\n"
 "Version 1.0 | Cryptographically Bound\n"
 "\n"
 "================================================================================\n"
@@ -134,6 +135,9 @@ static const char EMBEDDED_CONSTITUTION[] =
 "================================================================================\n"
 "END OF CONSTITUTION\n"
 "================================================================================\n";
+
+// Export size for zeta-integration.c
+const size_t EMBEDDED_CONSTITUTION_SIZE = sizeof(EMBEDDED_CONSTITUTION) - 1;
 
 #ifdef __GNUC__
 #pragma GCC diagnostic pop

@@ -10,10 +10,10 @@ from pathlib import Path
 
 ZETA_14B = "http://localhost:9000"
 LLAMA_3B = "http://localhost:9001"
-HOLOGIT = Path("/mnt/HoloGit")
+GITGRAPH = Path("/mnt/GitGraph")
 
 # Import versioning system
-sys.path.insert(0, str(HOLOGIT / "versions"))
+sys.path.insert(0, str(GITGRAPH / "versions"))
 try:
     from memory_graph import MemoryVersion, FactCorrelator
     HAS_VERSIONING = True
@@ -76,7 +76,7 @@ async def extract_entities_3b(session, query):
     return []
 
 async def extract_and_save_facts(session, user_msg, assistant_msg):
-    """3B extracts facts from conversation and saves to HoloGit"""
+    """3B extracts facts from conversation and saves to GitGraph"""
     start = time.time()
     try:
         async with session.post(
@@ -108,10 +108,10 @@ async def extract_and_save_facts(session, user_msg, assistant_msg):
                         ms = (time.time() - start) * 1000
                         print(f"[3B-SAVE] {ms:.0f}ms: extracted {len(facts)} facts", file=sys.stderr)
 
-                        # Save facts to HoloGit
-                        saved = save_facts_to_hologit(facts)
+                        # Save facts to GitGraph
+                        saved = save_facts_to_gitgraph(facts)
                         if saved:
-                            print(f"[HOLOGIT] Saved to block {saved}", file=sys.stderr)
+                            print(f"[GITGRAPH] Saved to block {saved}", file=sys.stderr)
                         return facts
                 except Exception as e:
                     print(f"[3B-SAVE] Parse error: {e}", file=sys.stderr)
@@ -122,7 +122,7 @@ async def extract_and_save_facts(session, user_msg, assistant_msg):
 def get_existing_facts():
     """Load all existing facts as key->value dict"""
     existing = {}
-    blocks_dir = HOLOGIT / "blocks"
+    blocks_dir = GITGRAPH / "blocks"
     for facts_file in blocks_dir.glob("facts_*.txt"):
         with open(facts_file) as f:
             for line in f:
@@ -151,8 +151,8 @@ def check_conflicts(new_facts):
 
     return conflicts
 
-def save_facts_to_hologit(facts):
-    """Save extracted facts to HoloGit with versioning"""
+def save_facts_to_gitgraph(facts):
+    """Save extracted facts to GitGraph with versioning"""
     if not facts:
         return None
 
@@ -170,7 +170,7 @@ def save_facts_to_hologit(facts):
             print(f"[BRANCH] Created {branch_name} for conflicts: {conflicts}", file=sys.stderr)
 
     # Get next block ID
-    blocks_dir = HOLOGIT / "blocks"
+    blocks_dir = GITGRAPH / "blocks"
     existing = list(blocks_dir.glob("facts_*.txt"))
     next_id = max([int(f.stem.split("_")[1]) for f in existing], default=-1) + 1
 
@@ -218,7 +218,7 @@ def save_facts_to_hologit(facts):
 
 def update_entity_graph(block_id, facts):
     """Update entity graph with new facts"""
-    graph_file = HOLOGIT / "index" / "entity_graph.json"
+    graph_file = GITGRAPH / "index" / "entity_graph.json"
 
     if graph_file.exists():
         with open(graph_file) as f:
@@ -254,7 +254,7 @@ def update_entity_graph(block_id, facts):
         json.dump(graph, f, indent=2)
 
 def get_facts_for_entities(entities):
-    graph_file = HOLOGIT / "index" / "entity_graph.json"
+    graph_file = GITGRAPH / "index" / "entity_graph.json"
     if not graph_file.exists():
         return []
 
@@ -270,7 +270,7 @@ def get_facts_for_entities(entities):
 
     facts = []
     for bid in blocks:
-        facts_file = HOLOGIT / "blocks" / f"facts_{bid}.txt"
+        facts_file = GITGRAPH / "blocks" / f"facts_{bid}.txt"
         if facts_file.exists():
             with open(facts_file) as f:
                 for line in f:

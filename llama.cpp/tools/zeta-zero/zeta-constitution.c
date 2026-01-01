@@ -473,3 +473,255 @@ void zeta_constitution_print_status(const zeta_constitution_t* ctx) {
     fprintf(stderr, "Verified: %s\n", ctx->verified ? "YES" : "NO");
     fprintf(stderr, "====================================\n\n");
 }
+
+// ============================================================================
+// Level 3: Remote Hash Verification
+// ============================================================================
+
+int zeta_constitution_parse_hex_hash(
+    const char* hex_string,
+    uint8_t hash_out[ZETA_HASH_SIZE]
+) {
+    // Skip whitespace and comments
+    while (*hex_string && (*hex_string == ' ' || *hex_string == '\t' || *hex_string == '\n' || *hex_string == '#')) {
+        if (*hex_string == '#') {
+            // Skip comment line
+            while (*hex_string && *hex_string != '\n') hex_string++;
+        }
+        if (*hex_string) hex_string++;
+    }
+
+    // Parse 64 hex characters
+    for (int i = 0; i < ZETA_HASH_SIZE; i++) {
+        unsigned int byte;
+        if (sscanf(hex_string + i * 2, "%2x", &byte) != 1) {
+            return -1;  // Parse error
+        }
+        hash_out[i] = (uint8_t)byte;
+    }
+    return 0;
+}
+
+#ifdef _WIN32
+#include <winsock2.h>
+#include <windows.h>
+#pragma comment(lib, "ws2_32.lib")
+#else
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <netdb.h>
+#include <unistd.h>
+#include <arpa/inet.h>
+#endif
+
+// Simple HTTP GET implementation for remote hash fetch
+static int http_get_simple(const char* url, char* response, size_t max_response) {
+    // Parse URL: https://raw.githubusercontent.com/H-XX-D/ZetaZero/master/CONSTITUTION_HASH
+    char host[256] = {0};
+    char path[512] = {0};
+    int port = 443;  // HTTPS default
+
+    // Check if HTTPS (we'll fall back to HTTP for simplicity)
+    if (strncmp(url, "https://", 8) == 0) {
+        url += 8;
+    } else if (strncmp(url, "http://", 7) == 0) {
+        url += 7;
+        port = 80;
+    }
+
+    // Extract host and path
+    const char* path_start = strchr(url, '/');
+    if (path_start) {
+        size_t host_len = path_start - url;
+        if (host_len >= sizeof(host)) host_len = sizeof(host) - 1;
+        strncpy(host, url, host_len);
+        strncpy(path, path_start, sizeof(path) - 1);
+    } else {
+        strncpy(host, url, sizeof(host) - 1);
+        strcpy(path, "/");
+    }
+
+    // For HTTPS, use system curl command (simplest cross-platform approach)
+    char cmd[1024];
+    snprintf(cmd, sizeof(cmd), "curl -s --connect-timeout 5 'https://%s%s' 2>/dev/null", host, path);
+
+    FILE* fp = popen(cmd, "r");
+    if (!fp) {
+        return -1;
+    }
+
+    size_t bytes_read = fread(response, 1, max_response - 1, fp);
+    response[bytes_read] = '\0';
+
+    int status = pclose(fp);
+    return (status == 0 && bytes_read > 0) ? 0 : -1;
+}
+
+int zeta_constitution_verify_remote(
+    const zeta_constitution_t* ctx,
+    const char* remote_url
+) {
+    if (!ctx || !remote_url) return -1;
+
+    fprintf(stderr, "[CONSTITUTION] Level 3: Fetching remote hash from %s\n", remote_url);
+
+    char response[1024] = {0};
+    if (http_get_simple(remote_url, response, sizeof(response)) != 0) {
+        fprintf(stderr, "[CONSTITUTION] ERROR: Failed to fetch remote hash (network error)\n");
+        return -1;  // Network error
+    }
+
+    // Parse the hash from response
+    uint8_t remote_hash[ZETA_HASH_SIZE];
+    if (zeta_constitution_parse_hex_hash(response, remote_hash) != 0) {
+        fprintf(stderr, "[CONSTITUTION] ERROR: Failed to parse remote hash\n");
+        return -1;
+    }
+
+    // Compare with constitution hash
+    if (memcmp(ctx->hash, remote_hash, ZETA_HASH_SIZE) != 0) {
+        char expected_hex[ZETA_HASH_SIZE * 2 + 1];
+        char actual_hex[ZETA_HASH_SIZE * 2 + 1];
+        zeta_constitution_hash_to_hex(remote_hash, expected_hex);
+        zeta_constitution_hash_to_hex(ctx->hash, actual_hex);
+
+        fprintf(stderr, "\n");
+        fprintf(stderr, "╔══════════════════════════════════════════════════════════════╗\n");
+        fprintf(stderr, "║  ⚠️  LEVEL 3 CONSTITUTIONAL LOCK FAILURE                      ║\n");
+        fprintf(stderr, "║  Remote hash verification FAILED                             ║\n");
+        fprintf(stderr, "╠══════════════════════════════════════════════════════════════╣\n");
+        fprintf(stderr, "║  Remote:   %.32s...  ║\n", expected_hex);
+        fprintf(stderr, "║  Local:    %.32s...  ║\n", actual_hex);
+        fprintf(stderr, "╠══════════════════════════════════════════════════════════════╣\n");
+        fprintf(stderr, "║  Constitution has been tampered with.                        ║\n");
+        fprintf(stderr, "║  Server will not start.                                      ║\n");
+        fprintf(stderr, "╚══════════════════════════════════════════════════════════════╝\n");
+        fprintf(stderr, "\n");
+        return -2;  // Hash mismatch
+    }
+
+    fprintf(stderr, "[CONSTITUTION] Level 3: Remote verification PASSED ✓\n");
+    return 0;
+}
+
+// ============================================================================
+// Level 4: Model Metadata Hash Verification
+// ============================================================================
+
+int zeta_constitution_verify_model_metadata(
+    const zeta_constitution_t* ctx,
+    const char* model_path
+) {
+    if (!ctx || !model_path) return -1;
+
+    fprintf(stderr, "[CONSTITUTION] Level 4: Reading hash from model metadata: %s\n", model_path);
+
+    // Read GGUF file header to find metadata
+    FILE* f = fopen(model_path, "rb");
+    if (!f) {
+        fprintf(stderr, "[CONSTITUTION] ERROR: Cannot open model file\n");
+        return -1;
+    }
+
+    // GGUF magic: 'GGUF' = 0x46554747
+    uint32_t magic;
+    if (fread(&magic, 4, 1, f) != 1 || magic != 0x46554747) {
+        fclose(f);
+        fprintf(stderr, "[CONSTITUTION] ERROR: Not a valid GGUF file\n");
+        return -1;
+    }
+
+    // GGUF version
+    uint32_t version;
+    fread(&version, 4, 1, f);
+
+    // Number of tensors and metadata KV pairs
+    uint64_t n_tensors, n_kv;
+    fread(&n_tensors, 8, 1, f);
+    fread(&n_kv, 8, 1, f);
+
+    // Search for zeta.constitution_hash key
+    const char* target_key = "zeta.constitution_hash";
+    char key_buf[256];
+    uint8_t model_hash[ZETA_HASH_SIZE];
+    bool found = false;
+
+    for (uint64_t i = 0; i < n_kv && !found; i++) {
+        // Read key length and key
+        uint64_t key_len;
+        fread(&key_len, 8, 1, f);
+
+        if (key_len < sizeof(key_buf)) {
+            fread(key_buf, 1, key_len, f);
+            key_buf[key_len] = '\0';
+
+            // Read value type
+            uint32_t value_type;
+            fread(&value_type, 4, 1, f);
+
+            if (strcmp(key_buf, target_key) == 0) {
+                // Found our key! Read the hash value
+                // Type 8 = GGUF_TYPE_STRING (hash as hex string)
+                if (value_type == 8) {
+                    uint64_t str_len;
+                    fread(&str_len, 8, 1, f);
+                    char hash_str[128];
+                    fread(hash_str, 1, (str_len < 127 ? str_len : 127), f);
+                    hash_str[str_len < 127 ? str_len : 127] = '\0';
+
+                    if (zeta_constitution_parse_hex_hash(hash_str, model_hash) == 0) {
+                        found = true;
+                    }
+                }
+                // Type 9 = GGUF_TYPE_ARRAY of uint8 (raw bytes)
+                else if (value_type == 9) {
+                    uint32_t arr_type;
+                    uint64_t arr_len;
+                    fread(&arr_type, 4, 1, f);
+                    fread(&arr_len, 8, 1, f);
+                    if (arr_len == ZETA_HASH_SIZE) {
+                        fread(model_hash, 1, ZETA_HASH_SIZE, f);
+                        found = true;
+                    }
+                }
+            } else {
+                // Skip this value (simplified - just skip based on type)
+                // This is a simplified parser; production would need full GGUF parsing
+                fseek(f, 0, SEEK_CUR);  // Placeholder - would need type-specific skipping
+            }
+        }
+    }
+
+    fclose(f);
+
+    if (!found) {
+        fprintf(stderr, "[CONSTITUTION] WARNING: Model does not contain constitution hash metadata\n");
+        fprintf(stderr, "[CONSTITUTION] To embed hash, run: zeta-embed-hash --model <model.gguf>\n");
+        return -1;  // No metadata found
+    }
+
+    // Compare hashes
+    if (memcmp(ctx->hash, model_hash, ZETA_HASH_SIZE) != 0) {
+        char expected_hex[ZETA_HASH_SIZE * 2 + 1];
+        char actual_hex[ZETA_HASH_SIZE * 2 + 1];
+        zeta_constitution_hash_to_hex(model_hash, expected_hex);
+        zeta_constitution_hash_to_hex(ctx->hash, actual_hex);
+
+        fprintf(stderr, "\n");
+        fprintf(stderr, "╔══════════════════════════════════════════════════════════════╗\n");
+        fprintf(stderr, "║  ⚠️  LEVEL 4 CONSTITUTIONAL LOCK FAILURE                      ║\n");
+        fprintf(stderr, "║  Model metadata hash verification FAILED                     ║\n");
+        fprintf(stderr, "╠══════════════════════════════════════════════════════════════╣\n");
+        fprintf(stderr, "║  Model:    %.32s...  ║\n", expected_hex);
+        fprintf(stderr, "║  Local:    %.32s...  ║\n", actual_hex);
+        fprintf(stderr, "╠══════════════════════════════════════════════════════════════╣\n");
+        fprintf(stderr, "║  Constitution or model has been tampered with.               ║\n");
+        fprintf(stderr, "║  Server will not start.                                      ║\n");
+        fprintf(stderr, "╚══════════════════════════════════════════════════════════════╝\n");
+        fprintf(stderr, "\n");
+        return -2;  // Hash mismatch
+    }
+
+    fprintf(stderr, "[CONSTITUTION] Level 4: Model metadata verification PASSED ✓\n");
+    return 0;
+}

@@ -12,6 +12,7 @@ target_sources(${TARGET} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/zeta-constitution.c
     ${CMAKE_CURRENT_SOURCE_DIR}/zeta-model-bind.c
     ${CMAKE_CURRENT_SOURCE_DIR}/zeta-graph-kv.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/zeta-gitgraph.c
     ${CMAKE_CURRENT_SOURCE_DIR}/zeta-dedup.c
     ${CMAKE_CURRENT_SOURCE_DIR}/zeta-tunnel-search.c
     ${CMAKE_CURRENT_SOURCE_DIR}/zeta-version.c
@@ -64,6 +65,7 @@ target_sources(${SERVER_TARGET} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/zeta-constitution.c
     ${CMAKE_CURRENT_SOURCE_DIR}/zeta-model-bind.c
     ${CMAKE_CURRENT_SOURCE_DIR}/zeta-graph-kv.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/zeta-gitgraph.c
     ${CMAKE_CURRENT_SOURCE_DIR}/zeta-dedup.c
     ${CMAKE_CURRENT_SOURCE_DIR}/zeta-tunnel-search.c
     ${CMAKE_CURRENT_SOURCE_DIR}/zeta-version.c

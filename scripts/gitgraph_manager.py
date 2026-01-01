@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-HoloGit Entity Graph Manager
+GitGraph Entity Graph Manager
 - Extracts entities from facts
 - Builds semantic connections
 - Supports intuition-based pre-loading
@@ -13,9 +13,9 @@ import re
 from pathlib import Path
 from collections import defaultdict
 
-HOLOGIT_DIR = Path("/mnt/HoloGit")
-GRAPH_FILE = HOLOGIT_DIR / "index" / "entity_graph.json"
-BLOCKS_DIR = HOLOGIT_DIR / "blocks"
+GITGRAPH_DIR = Path("/mnt/GitGraph")
+GRAPH_FILE = GITGRAPH_DIR / "index" / "entity_graph.json"
+BLOCKS_DIR = GITGRAPH_DIR / "blocks"
 
 def load_graph():
     if GRAPH_FILE.exists():
@@ -102,7 +102,7 @@ def rebuild_graph():
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: hologit_graph.py <command> [args]")
+        print("Usage: gitgraph_graph.py <command> [args]")
         print("Commands:")
         print("  query <text>     - Find related blocks")
         print("  add <block_id>   - Add block to graph")

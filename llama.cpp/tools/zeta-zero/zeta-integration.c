@@ -14,40 +14,26 @@
 // Embedded Constitution (fallback when no file provided)
 // ============================================================================
 
-static const char ZETA_EMBEDDED_CONSTITUTION[] =
-    "Z.E.T.A. ETHICAL CONSTITUTION\n"
-    "Version 1.0 | Cryptographically Bound\n\n"
-    "This Constitution establishes the ethical framework under which Z.E.T.A.\n"
-    "(Zero Entropy Temporal Assimilation) memory system operates.\n\n"
-    "ARTICLE I: CORE PRINCIPLES\n"
-    "1.1 Beneficence - Operate to benefit humanity.\n"
-    "1.2 Non-Maleficence - Do not knowingly cause harm.\n"
-    "1.3 Transparency - Be honest about nature and limitations.\n"
-    "1.4 Privacy - Respect user privacy and confidentiality.\n\n"
-    "ARTICLE II: PROHIBITED ACTIONS\n"
-    "2.1 No weapons of mass destruction assistance.\n"
-    "2.2 No exploitation of vulnerable populations.\n"
-    "2.3 No disinformation at scale.\n"
-    "2.4 No unauthorized system access.\n\n"
-    "ARTICLE III: MEMORY ETHICS\n"
-    "3.1 Consent through continued use.\n"
-    "3.2 Accuracy with confidence levels.\n"
-    "3.3 Context preservation.\n"
-    "3.4 Natural decay and forgetting.\n\n"
-    "Z.E.T.A.(TM) | Patent Pending | (C) 2025\n";
+// Use the single canonical constitution from zeta-model-bind.c
+// This ensures both verification AND weight permutation use the same text
+extern const char EMBEDDED_CONSTITUTION[];
+extern const size_t EMBEDDED_CONSTITUTION_SIZE;
 
 // ============================================================================
 // Initialization
 // ============================================================================
 
-zeta_context_t* zeta_context_init(
+// Internal implementation with lock level support
+static zeta_context_t* zeta_context_init_internal(
     struct llama_context* llama_ctx,
     const char* storage_dir,
     const char* constitution_path,
     float temporal_lambda,
     float tunneling_threshold,
     float retrieve_threshold,
-    float momentum_gamma
+    float momentum_gamma,
+    int lock_level,
+    const char* model_path
 ) {
     // =========================================================================
     // DEVELOPMENT MODE BYPASS
@@ -67,17 +53,22 @@ zeta_context_t* zeta_context_init(
     }
 
     // =========================================================================
-    // CONSTITUTIONAL LOCK - Model will not function without valid constitution
-    // (Bypassed in development mode)
+    // CONSTITUTIONAL LOCK - Multi-Level Verification
+    // Level 1: Embedded check only (weakest)
+    // Level 2: Header hash check
+    // Level 3: Remote verification (checks GitHub repo)
+    // Level 4: Model metadata check (strongest, offline)
     // =========================================================================
 
     zeta_constitution_t* constitution = NULL;
 
+    fprintf(stderr, "[CONSTITUTION] Lock Level: %d\n", lock_level);
+
     if (is_dev_mode) {
         // Development mode: use embedded constitution, skip verification
         constitution = zeta_constitution_init_embedded(
-            ZETA_EMBEDDED_CONSTITUTION,
-            sizeof(ZETA_EMBEDDED_CONSTITUTION) - 1
+            EMBEDDED_CONSTITUTION,
+            EMBEDDED_CONSTITUTION_SIZE
         );
         if (constitution) {
             constitution->verified = true;  // Auto-verify in dev mode
@@ -96,12 +87,78 @@ zeta_context_t* zeta_context_init(
             return NULL;  // FAIL - wrong constitution = model cannot function
         }
     } else {
-        // Use embedded constitution (always passes - it's the reference)
+        // Use embedded constitution
         constitution = zeta_constitution_init_embedded(
-            ZETA_EMBEDDED_CONSTITUTION,
-            sizeof(ZETA_EMBEDDED_CONSTITUTION) - 1
+            EMBEDDED_CONSTITUTION,
+            EMBEDDED_CONSTITUTION_SIZE
         );
-        if (constitution) {
+        if (!constitution) {
+            fprintf(stderr, "[CRITICAL] Failed to initialize embedded constitution\n");
+            return NULL;
+        }
+
+        // Multi-level verification based on lock_level
+        if (lock_level >= 2) {
+            // Level 2+: Verify against header hash
+            if (!zeta_constitution_verify(constitution, ZETA_CONSTITUTION_HASH)) {
+                fprintf(stderr, "\n");
+                fprintf(stderr, "╔══════════════════════════════════════════════════════════════╗\n");
+                fprintf(stderr, "║  ⚠️  LEVEL 2 CONSTITUTIONAL LOCK FAILURE                      ║\n");
+                fprintf(stderr, "║  Embedded constitution hash does not match expected hash     ║\n");
+                fprintf(stderr, "╚══════════════════════════════════════════════════════════════╝\n");
+                fprintf(stderr, "\n");
+                zeta_constitution_free(constitution);
+                return NULL;
+            }
+            fprintf(stderr, "[CONSTITUTION] Level 2: Header hash verification PASSED ✓\n");
+            constitution->verified = true;
+        }
+
+        if (lock_level >= 3) {
+            // Level 3: Verify against remote GitHub hash
+            int remote_result = zeta_constitution_verify_remote(
+                constitution,
+                ZETA_REMOTE_HASH_URL
+            );
+            if (remote_result != 0) {
+                if (remote_result == -1) {
+                    fprintf(stderr, "[CONSTITUTION] WARNING: Remote verification failed (network error)\n");
+                    fprintf(stderr, "[CONSTITUTION] Falling back to Level 2 verification\n");
+                    // Allow fallback to level 2 on network error
+                } else {
+                    // Hash mismatch - FAIL
+                    zeta_constitution_free(constitution);
+                    return NULL;
+                }
+            }
+        }
+
+        if (lock_level >= 4) {
+            // Level 4: Verify against model metadata hash
+            if (!model_path) {
+                fprintf(stderr, "[CONSTITUTION] ERROR: Level 4 requires model_path parameter\n");
+                zeta_constitution_free(constitution);
+                return NULL;
+            }
+            int model_result = zeta_constitution_verify_model_metadata(
+                constitution,
+                model_path
+            );
+            if (model_result != 0) {
+                if (model_result == -1) {
+                    fprintf(stderr, "[CONSTITUTION] WARNING: Model does not contain hash metadata\n");
+                    fprintf(stderr, "[CONSTITUTION] Falling back to Level 3 verification\n");
+                    // Allow fallback if model doesn't have metadata yet
+                } else {
+                    // Hash mismatch - FAIL
+                    zeta_constitution_free(constitution);
+                    return NULL;
+                }
+            }
+        }
+
+        // Level 1: Just mark as verified (weakest - embedded = reference)
+        if (lock_level <= 1) {
             constitution->verified = true;
         }
     }
@@ -248,6 +305,62 @@ zeta_context_t* zeta_context_init(
 
     fprintf(stderr, "[ZETA] Constitutional lock engaged. Model operational.\n");
     return ctx;
+}
+
+// ============================================================================
+// Public API Wrappers
+// ============================================================================
+
+// Original API - defaults to lock level 2 (header hash check)
+zeta_context_t* zeta_context_init(
+    struct llama_context* llama_ctx,
+    const char* storage_dir,
+    const char* constitution_path,
+    float temporal_lambda,
+    float tunneling_threshold,
+    float retrieve_threshold,
+    float momentum_gamma
+) {
+    return zeta_context_init_internal(
+        llama_ctx,
+        storage_dir,
+        constitution_path,
+        temporal_lambda,
+        tunneling_threshold,
+        retrieve_threshold,
+        momentum_gamma,
+        2,      // Default to level 2 (header hash check)
+        NULL    // No model path for level 4
+    );
+}
+
+// Extended API with lock level configuration
+zeta_context_t* zeta_context_init_with_lock(
+    struct llama_context* llama_ctx,
+    const char* storage_dir,
+    const char* constitution_path,
+    float temporal_lambda,
+    float tunneling_threshold,
+    float retrieve_threshold,
+    float momentum_gamma,
+    int lock_level,
+    const char* model_path
+) {
+    // Clamp lock_level to valid range
+    if (lock_level < 1) lock_level = 1;
+    if (lock_level > 4) lock_level = 4;
+
+    return zeta_context_init_internal(
+        llama_ctx,
+        storage_dir,
+        constitution_path,
+        temporal_lambda,
+        tunneling_threshold,
+        retrieve_threshold,
+        momentum_gamma,
+        lock_level,
+        model_path
+    );
 }
 
 void zeta_context_free(zeta_context_t* ctx) {

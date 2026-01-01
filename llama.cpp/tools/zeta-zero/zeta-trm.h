@@ -454,10 +454,10 @@ public:
         // For now, we assume nodes have embeddings or we compute them on the fly (expensive)
         // OR we just use the activation energy as a proxy for "recent relevance"
         // and combine it with a simple keyword overlap if embeddings aren't stored per node.
-        
-        // Since we don't have embeddings stored for every TRM node yet, we'll stick to 
+
+        // Since we don't have embeddings stored for every TRM node yet, we'll stick to
         // activation energy + simple keyword overlap, but we'll structure it to accept embeddings later.
-        
+
         for (const auto& node : ctx.stream) {
             // Only include if energy is high enough
             if (node.activation_energy > 0.1f) {
@@ -479,7 +479,7 @@ public:
         }
         return true;
     }
-    
+
     // Get current stream status
     std::string get_status() {
         return "TRM Active | Branch: " + current_branch +
