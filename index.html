@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Z.E.T.A. Zero — Cognitive Constructs</title>
+    <meta name="description" content="Zero Entropy Temporal Assimilation. Intelligence that accumulates via persistent state and governed reuse.">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+            background: #0a0a0a;
+            color: #ffffff;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 0 2rem;
+        }
+
+        /* Hero */
+        .hero {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            padding: 4rem 2rem;
+        }
+
+        .hero h1 {
+            font-size: 4rem;
+            font-weight: 700;
+            margin-bottom: 1rem;
+            background: linear-gradient(135deg, #00d4ff 0%, #0099ff 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .hero .tagline {
+            font-size: 1.5rem;
+            color: #b0b0b0;
+            margin-bottom: 0.5rem;
+        }
+
+        .hero .subtitle {
+            font-size: 1.2rem;
+            color: #808080;
+            margin-bottom: 3rem;
+        }
+
+        .cta-buttons {
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .btn {
+            display: inline-block;
+            padding: 1rem 2rem;
+            border-radius: 8px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            text-decoration: none;
+            transition: all 0.3s ease;
+        }
+
+        .btn-primary {
+            background: #00d4ff;
+            color: #0a0a0a;
+        }
+
+        .btn-primary:hover {
+            background: #00b8d4;
+            transform: translateY(-2px);
+        }
+
+        .btn-secondary {
+            background: transparent;
+            color: #00d4ff;
+            border: 2px solid #00d4ff;
+        }
+
+        .btn-secondary:hover {
+            background: rgba(0, 212, 255, 0.1);
+        }
+
+        /* Sections */
+        section {
+            padding: 6rem 2rem;
+        }
+
+        section:nth-child(even) {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+        }
+
+        h2 {
+            font-size: 2.5rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            color: #00d4ff;
+        }
+
+        h3 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin-bottom: 1.5rem;
+            color: #00b8d4;
+        }
+
+        .section-intro {
+            font-size: 1.2rem;
+            color: #b0b0b0;
+            margin-bottom: 3rem;
+            max-width: 800px;
+        }
+
+        /* Problem Section */
+        .highlight-box {
+            background: rgba(0, 212, 255, 0.1);
+            border-left: 4px solid #00d4ff;
+            padding: 1.5rem 2rem;
+            border-radius: 8px;
+            font-size: 1.2rem;
+            margin: 2rem 0;
+        }
+
+        .problem-list {
+            list-style: none;
+            display: grid;
+            gap: 1rem;
+        }
+
+        .problem-list li {
+            font-size: 1.1rem;
+            padding-left: 2rem;
+            position: relative;
+            color: #e0e0e0;
+        }
+
+        .problem-list li::before {
+            content: "▸";
+            position: absolute;
+            left: 0;
+            color: #00d4ff;
+        }
+
+        /* Insight */
+        .insight-box {
+            background: rgba(0, 212, 255, 0.15);
+            padding: 3rem;
+            border-radius: 12px;
+            text-align: center;
+            margin: 2rem 0;
+        }
+
+        .insight-box .formula {
+            font-size: 2rem;
+            font-weight: 600;
+            color: #00d4ff;
+            margin-bottom: 1rem;
+        }
+
+        .insight-box .anti-formula {
+            font-size: 1.5rem;
+            color: #ff6b6b;
+            text-decoration: line-through;
+            opacity: 0.7;
+        }
+
+        /* Architecture */
+        .arch-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 1.5rem;
+            margin-top: 2rem;
+        }
+
+        .arch-card {
+            background: rgba(0, 212, 255, 0.08);
+            padding: 1.5rem;
+            border-radius: 8px;
+            border: 1px solid rgba(0, 212, 255, 0.3);
+        }
+
+        .arch-card h4 {
+            color: #00d4ff;
+            margin-bottom: 0.5rem;
+            font-size: 1.2rem;
+        }
+
+        .arch-card p {
+            color: #b0b0b0;
+        }
+
+        /* Comparison */
+        .comparison {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 3rem;
+            margin-top: 2rem;
+        }
+
+        @media (max-width: 768px) {
+            .comparison {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .comparison-col h3 {
+            margin-bottom: 1.5rem;
+        }
+
+        .comparison-col.old h3 {
+            color: #ff6b6b;
+        }
+
+        .comparison-col.new h3 {
+            color: #00d4ff;
+        }
+
+        .comparison-col ul {
+            list-style: none;
+        }
+
+        .comparison-col ul li {
+            padding: 0.75rem 0;
+            padding-left: 1.5rem;
+            position: relative;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .comparison-col.old ul li::before {
+            content: "✗";
+            position: absolute;
+            left: 0;
+            color: #ff6b6b;
+        }
+
+        .comparison-col.new ul li::before {
+            content: "✓";
+            position: absolute;
+            left: 0;
+            color: #00d4ff;
+        }
+
+        /* Table */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 2rem;
+        }
+
+        th, td {
+            padding: 1rem;
+            text-align: left;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+
+        th {
+            color: #00d4ff;
+            font-weight: 600;
+        }
+
+        /* Dream Section */
+        .dream-quote {
+            background: linear-gradient(135deg, rgba(0, 212, 255, 0.1) 0%, rgba(0, 153, 255, 0.1) 100%);
+            border-left: 4px solid #00d4ff;
+            padding: 2rem;
+            border-radius: 8px;
+            margin: 2rem 0;
+            font-style: italic;
+            font-size: 1.1rem;
+        }
+
+        .dream-quote .attribution {
+            margin-top: 1rem;
+            font-style: normal;
+            color: #808080;
+            font-size: 0.9rem;
+        }
+
+        /* Footer */
+        footer {
+            padding: 4rem 2rem;
+            text-align: center;
+            background: #0a0a0a;
+            border-top: 1px solid rgba(255,255,255,0.1);
+        }
+
+        footer h2 {
+            margin-bottom: 2rem;
+        }
+
+        footer p {
+            color: #808080;
+            margin-bottom: 1rem;
+        }
+
+        footer a {
+            color: #00d4ff;
+        }
+
+        .footer-links {
+            display: flex;
+            gap: 2rem;
+            justify-content: center;
+            margin-top: 2rem;
+            flex-wrap: wrap;
+        }
+
+        .footer-links a {
+            color: #b0b0b0;
+            text-decoration: none;
+        }
+
+        .footer-links a:hover {
+            color: #00d4ff;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .hero h1 {
+                font-size: 2.5rem;
+            }
+            
+            h2 {
+                font-size: 2rem;
+            }
+            
+            section {
+                padding: 4rem 1rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Hero -->
+    <section class="hero">
+        <h1>Z.E.T.A. Zero</h1>
+        <p class="tagline">Zero Entropy Temporal Assimilation</p>
+        <p class="subtitle">Intelligence that accumulates via persistent state and governed reuse</p>
+        <div class="cta-buttons">
+            <a href="https://github.com/H-XX-D/ZetaZero" class="btn btn-primary">View on GitHub</a>
+            <a href="#quickstart" class="btn btn-secondary">Quickstart</a>
+        </div>
+    </section>
+
+    <!-- Problem -->
+    <section>
+        <div class="container">
+            <h2>The Problem</h2>
+            <h3>Today's AI is powerful—and operationally inefficient</h3>
+            <ul class="problem-list">
+                <li>Every inference recomputes cognition from scratch</li>
+                <li>Memory is limited to context windows and fragile</li>
+                <li>Errors compound across long tasks</li>
+                <li>Corrections require repeated prompting or retraining</li>
+                <li>Cost and energy scale linearly with usage</li>
+            </ul>
+            <div class="highlight-box">
+                Scale improves capability, but does not fix stateless execution.
+            </div>
+        </div>
+    </section>
+
+    <!-- Core Insight -->
+    <section>
+        <div class="container">
+            <h2>Core Insight</h2>
+            <div class="insight-box">
+                <div class="formula">Intelligence = f(persistent state, governed reuse)</div>
+                <div class="anti-formula">Intelligence ≠ f(parameter count)</div>
+            </div>
+            <p class="section-intro">
+                Scaling laws describe performance when cognition is discarded after each turn. 
+                What happens when you stop throwing away the work?
+            </p>
+        </div>
+    </section>
+
+    <!-- What is a Cognitive Construct -->
+    <section>
+        <div class="container">
+            <h2>What is a Cognitive Construct?</h2>
+            <p class="section-intro">
+                A Cognitive Construct is not a single model. It is a layered execution system where reasoning, 
+                memory formation, attention routing, and output commitment are separated and governed.
+            </p>
+            <div class="arch-grid">
+                <div class="arch-card">
+                    <h4>Reasoning</h4>
+                    <p>Separated from output commitment</p>
+                </div>
+                <div class="arch-card">
+                    <h4>Memory Formation</h4>
+                    <p>Explicit and persistent</p>
+                </div>
+                <div class="arch-card">
+                    <h4>Attention Routing</h4>
+                    <p>Governed retrieval from cognitive graph</p>
+                </div>
+                <div class="arch-card">
+                    <h4>Output Commitment</h4>
+                    <p>Gated and transactional</p>
+                </div>
+                <div class="arch-card">
+                    <h4>State Management</h4>
+                    <p>Versioned and auditable</p>
+                </div>
+                <div class="arch-card">
+                    <h4>Governance</h4>
+                    <p>Conflict detection and resolution</p>
+                </div>
+            </div>
+            <div class="highlight-box">
+                Key property: thought is not automatically output. The system can reason without committing.
+            </div>
+        </div>
+    </section>
+
+    <!-- Structural Advantage -->
+    <section>
+        <div class="container">
+            <h2>Structural Advantage</h2>
+            <div class="comparison">
+                <div class="comparison-col old">
+                    <h3>Monolithic Models</h3>
+                    <ul>
+                        <li>Stateless inference</li>
+                        <li>Ephemeral KV cache</li>
+                        <li>Memory = context window</li>
+                        <li>Recompute each time</li>
+                        <li>Cost scales with usage</li>
+                    </ul>
+                </div>
+                <div class="comparison-col new">
+                    <h3>Cognitive Constructs</h3>
+                    <ul>
+                        <li>Persistent cognition</li>
+                        <li>Governed reuse</li>
+                        <li>Explicit cognitive graph</li>
+                        <li>Reuse avoids recompute</li>
+                        <li>Cost amortizes over time</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Retrieval Complexity -->
+    <section>
+        <div class="container">
+            <h2>Retrieval Complexity</h2>
+            <h3>How retrieval scales with cognitive history</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>System</th>
+                        <th>Retrieval Method</th>
+                        <th>Complexity</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Prompt + Context</td>
+                        <td>Full attention scan</td>
+                        <td>O(n²)</td>
+                    </tr>
+                    <tr>
+                        <td>RAG</td>
+                        <td>Similarity search + rebuild</td>
+                        <td>O(n log n)</td>
+                    </tr>
+                    <tr>
+                        <td>Cognitive Constructs</td>
+                        <td>Directed graph + KV injection</td>
+                        <td>O(1) bounded</td>
+                    </tr>
+                </tbody>
+            </table>
+            <div class="highlight-box">
+                Cognitive history does not inherently slow the system.
+            </div>
+        </div>
+    </section>
+
+    <!-- Dream State -->
+    <section>
+        <div class="container">
+            <h2>Dream State</h2>
+            <p class="section-intro">
+                When Z.E.T.A. has no active queries, it doesn't sit idle. It dreams—consolidating memory, 
+                exploring connections at high temperature, walking the codebase for unexpected insights.
+            </p>
+            <div class="dream-quote">
+                "Code Symphony — Map internal operations to sound. Arithmetic → rhythmic beats. 
+                Conditionals → melodies. Let users <em>hear</em> their code execute. 
+                An interactive auditory interface where you trigger functions and hear how they 
+                affect the generated soundscape..."
+                <div class="attribution">
+                    — Emergent dream output from high-temperature free-association across a codebase
+                </div>
+            </div>
+            <p class="section-intro">
+                Some dreams are noise. Some are "why didn't I see that?"
+            </p>
+        </div>
+    </section>
+
+    <!-- Quickstart -->
+    <section id="quickstart">
+        <div class="container">
+            <h2>Quickstart</h2>
+            <div class="highlight-box" style="font-family: monospace; font-size: 1rem;">
+                git clone https://github.com/H-XX-D/ZetaZero.git<br>
+                cd ZetaZero<br>
+                ./quickstart.sh
+            </div>
+            <p style="margin-top: 1.5rem; color: #b0b0b0;">
+                Or run directly with Docker:
+            </p>
+            <div class="highlight-box" style="font-family: monospace; font-size: 0.95rem;">
+                docker run -d -p 8080:8080 \<br>
+                &nbsp;&nbsp;-v ~/models:/models \<br>
+                &nbsp;&nbsp;-v ~/.zetazero:/storage \<br>
+                &nbsp;&nbsp;ghcr.io/h-xx-d/zetazero:latest
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer>
+        <div class="container">
+            <h2>Z.E.T.A. Zero</h2>
+            <p>Persistent cognition + governed reuse → compounding efficiency</p>
+            <p>
+                <a href="mailto:todd@hendrixxdesign.com">todd@hendrixxdesign.com</a>
+            </p>
+            <div class="footer-links">
+                <a href="https://github.com/H-XX-D/ZetaZero">GitHub</a>
+                <a href="https://github.com/H-XX-D/ZetaZero/blob/master/LICENSE">License</a>
+                <a href="https://github.com/H-XX-D/ZetaZero/blob/master/THE_SILICON_ACCORD.txt">The Silicon Accord</a>
+            </div>
+        </div>
+    </footer>
+</body>
+</html>
