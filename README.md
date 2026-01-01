@@ -53,43 +53,13 @@ Z.E.T.A. asks three simple questions:
 
 ### GPU Power: Escalating Context
 
-```mermaid
-gantt
-    title GPU Power (Watts) - Growing Context
-    dateFormat X
-    axisFormat %s
-    
-    section Standard LLM
-    Turn 1 (300W)     :0, 300
-    Turn 2 (375W)     :0, 375
-    Turn 3 (450W)     :0, 450
-    
-    section Z.E.T.A.
-    Turn 1 (300W)     :0, 300
-    Turn 2 (130W)     :0, 130
-    Turn 3 (145W)     :0, 145
-```
+![GPU Power Chart](https://quickchart.io/chart?c=%7Btype%3A%27line%27%2Cdata%3A%7Blabels%3A%5B%27Start%27%2C%27Turn%201%27%2C%27Idle%27%2C%27Turn%202%27%2C%27Idle%27%2C%27Turn%203%27%2C%27End%27%5D%2Cdatasets%3A%5B%7Blabel%3A%27Standard%20LLM%27%2Cdata%3A%5B50%2C300%2C50%2C375%2C50%2C450%2C50%5D%2CborderColor%3A%27%23ff4040%27%2Cfill%3Afalse%7D%2C%7Blabel%3A%27Z.E.T.A.%27%2Cdata%3A%5B50%2C300%2C50%2C130%2C50%2C145%2C50%5D%2CborderColor%3A%27%2300d26a%27%2Cfill%3Afalse%7D%5D%7D%2Coptions%3A%7Btitle%3A%7Bdisplay%3Atrue%2Ctext%3A%27GPU%20Power%20(Watts)%20-%20Growing%20Context%27%7D%2Cscales%3A%7ByAxes%3A%5B%7Bticks%3A%7Bmin%3A0%2Cmax%3A500%7D%7D%5D%7D%7D%7D&w=600&h=300&bkg=white)
 
 Standard LLMs recompute everything as context grows. Z.E.T.A. computes deltas.
 
 ### Response Time: Repeated Queries
 
-```mermaid
-gantt
-    title Response Time (seconds) - Repeated Queries
-    dateFormat X
-    axisFormat %s
-    
-    section Standard LLM
-    Query 1 (2.5s)    :0, 250
-    Query 2 (4.0s)    :0, 400
-    Same as Q1 (2.5s) :0, 250
-    
-    section Z.E.T.A.
-    Query 1 (2.5s)    :0, 250
-    Query 2 (3.0s)    :0, 300
-    Same as Q1 (0.3s) :0, 30
-```
+![Response Time Chart](https://quickchart.io/chart?c=%7Btype%3A%27line%27%2Cdata%3A%7Blabels%3A%5B%27Query%201%27%2C%27Query%202%27%2C%27Query%203%27%2C%27Same%20as%20Q1%27%2C%27Same%20as%20Q2%27%5D%2Cdatasets%3A%5B%7Blabel%3A%27Standard%20LLM%27%2Cdata%3A%5B2.5%2C4.0%2C6.5%2C2.5%2C4.0%5D%2CborderColor%3A%27%23ff4040%27%2Cfill%3Afalse%7D%2C%7Blabel%3A%27Z.E.T.A.%27%2Cdata%3A%5B2.5%2C3.0%2C3.5%2C0.3%2C0.3%5D%2CborderColor%3A%27%2300d26a%27%2Cfill%3Afalse%7D%5D%7D%2Coptions%3A%7Btitle%3A%7Bdisplay%3Atrue%2Ctext%3A%27Response%20Time%20(seconds)%20-%20Repeated%20Queries%27%7D%2Cscales%3A%7ByAxes%3A%5B%7Bticks%3A%7Bmin%3A0%2Cmax%3A8%7D%7D%5D%7D%7D%7D&w=600&h=300&bkg=white)
 
 Ask the same thing twice? Z.E.T.A. already knows.
 
