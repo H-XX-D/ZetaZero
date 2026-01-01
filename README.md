@@ -54,13 +54,20 @@ Z.E.T.A. asks three simple questions:
 ### GPU Power: Escalating Context
 
 ```mermaid
-%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#ff4040', 'secondaryColor': '#00d26a'}}}%%
-xychart-beta
-    title "GPU Power: Growing Context"
-    x-axis ["Start", "Turn 1", "Idle", "Turn 2", "Idle", "Turn 3", "End"]
-    y-axis "Watts" 0 --> 450
-    line [50, 300, 50, 375, 50, 450, 50] "Standard LLM"
-    line [50, 300, 50, 130, 50, 145, 50] "Z.E.T.A."
+gantt
+    title GPU Power (Watts) - Growing Context
+    dateFormat X
+    axisFormat %s
+    
+    section Standard LLM
+    Turn 1 (300W)     :0, 300
+    Turn 2 (375W)     :0, 375
+    Turn 3 (450W)     :0, 450
+    
+    section Z.E.T.A.
+    Turn 1 (300W)     :0, 300
+    Turn 2 (130W)     :0, 130
+    Turn 3 (145W)     :0, 145
 ```
 
 Standard LLMs recompute everything as context grows. Z.E.T.A. computes deltas.
@@ -68,13 +75,20 @@ Standard LLMs recompute everything as context grows. Z.E.T.A. computes deltas.
 ### Response Time: Repeated Queries
 
 ```mermaid
-%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#ff4040', 'secondaryColor': '#00d26a'}}}%%
-xychart-beta
-    title "Time to Response: Repeated Queries"
-    x-axis ["Query 1", "Query 2", "Query 3", "Same as Q1", "Same as Q2"]
-    y-axis "Seconds" 0 --> 8
-    line [2.5, 4.0, 6.5, 2.5, 4.0] "Standard LLM"
-    line [2.5, 3.0, 3.5, 0.3, 0.3] "Z.E.T.A."
+gantt
+    title Response Time (seconds) - Repeated Queries
+    dateFormat X
+    axisFormat %s
+    
+    section Standard LLM
+    Query 1 (2.5s)    :0, 250
+    Query 2 (4.0s)    :0, 400
+    Same as Q1 (2.5s) :0, 250
+    
+    section Z.E.T.A.
+    Query 1 (2.5s)    :0, 250
+    Query 2 (3.0s)    :0, 300
+    Same as Q1 (0.3s) :0, 30
 ```
 
 Ask the same thing twice? Z.E.T.A. already knows.
