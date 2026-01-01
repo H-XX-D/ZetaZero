@@ -51,15 +51,15 @@ Z.E.T.A. asks three simple questions:
 
 ## The Problem
 
-### GPU Power: Escalating Context
+### GPU Energy: Escalating Context
 
-![GPU Power Chart](https://quickchart.io/chart?c=%7Btype%3A%27line%27%2Cdata%3A%7Blabels%3A%5B%27Start%27%2C%27Turn%201%27%2C%27Idle%27%2C%27Turn%202%27%2C%27Idle%27%2C%27Turn%203%27%2C%27End%27%5D%2Cdatasets%3A%5B%7Blabel%3A%27Standard%20LLM%27%2Cdata%3A%5B50%2C300%2C50%2C375%2C50%2C450%2C50%5D%2CborderColor%3A%27%23ff4040%27%2Cfill%3Afalse%7D%2C%7Blabel%3A%27Z.E.T.A.%27%2Cdata%3A%5B50%2C300%2C50%2C130%2C50%2C145%2C50%5D%2CborderColor%3A%27%2300d26a%27%2Cfill%3Afalse%7D%5D%7D%2Coptions%3A%7Btitle%3A%7Bdisplay%3Atrue%2Ctext%3A%27GPU%20Power%20(Watts)%20-%20Growing%20Context%27%7D%2Cscales%3A%7ByAxes%3A%5B%7Bticks%3A%7Bmin%3A0%2Cmax%3A500%7D%7D%5D%7D%7D%7D&w=600&h=300&bkg=white)
+![GPU Energy Chart](https://quickchart.io/chart?c=%7Btype%3A%27line%27%2Cdata%3A%7Blabels%3A%5B%27Turn%201%27%2C%27Turn%202%27%2C%27Turn%203%27%2C%27Turn%204%27%2C%27Turn%205%27%5D%2Cdatasets%3A%5B%7Blabel%3A%27Standard%20LLM%27%2Cdata%3A%5B150%2C320%2C510%2C720%2C950%5D%2CborderColor%3A%27%23ff4040%27%2CborderWidth%3A3%2Cfill%3Afalse%2CpointRadius%3A5%7D%2C%7Blabel%3A%27Z.E.T.A.%27%2Cdata%3A%5B150%2C180%2C210%2C245%2C280%5D%2CborderColor%3A%27%2300d26a%27%2CborderWidth%3A3%2Cfill%3Afalse%2CpointRadius%3A5%7D%5D%7D%2Coptions%3A%7Btitle%3A%7Bdisplay%3Atrue%2Ctext%3A%27Cumulative%20Energy%20(kJ)%20-%20Growing%20Context%27%7D%2Cscales%3A%7ByAxes%3A%5B%7Bticks%3A%7Bmin%3A0%2Cmax%3A1000%7D%7D%5D%7D%7D%7D&w=600&h=300&bkg=white)
 
 Standard LLMs recompute everything as context grows. Z.E.T.A. computes deltas.
 
 ### Response Time: Repeated Queries
 
-![Response Time Chart](https://quickchart.io/chart?c=%7Btype%3A%27line%27%2Cdata%3A%7Blabels%3A%5B%27Query%201%27%2C%27Query%202%27%2C%27Query%203%27%2C%27Same%20as%20Q1%27%2C%27Same%20as%20Q2%27%5D%2Cdatasets%3A%5B%7Blabel%3A%27Standard%20LLM%27%2Cdata%3A%5B2.5%2C4.0%2C6.5%2C2.5%2C4.0%5D%2CborderColor%3A%27%23ff4040%27%2Cfill%3Afalse%7D%2C%7Blabel%3A%27Z.E.T.A.%27%2Cdata%3A%5B2.5%2C3.0%2C3.5%2C0.3%2C0.3%5D%2CborderColor%3A%27%2300d26a%27%2Cfill%3Afalse%7D%5D%7D%2Coptions%3A%7Btitle%3A%7Bdisplay%3Atrue%2Ctext%3A%27Response%20Time%20(seconds)%20-%20Repeated%20Queries%27%7D%2Cscales%3A%7ByAxes%3A%5B%7Bticks%3A%7Bmin%3A0%2Cmax%3A8%7D%7D%5D%7D%7D%7D&w=600&h=300&bkg=white)
+![Response Time Chart](https://quickchart.io/chart?c=%7Btype%3A%27line%27%2Cdata%3A%7Blabels%3A%5B%27Query%201%27%2C%27Query%202%27%2C%27Query%203%27%2C%27Same%20as%20Q1%27%2C%27Same%20as%20Q2%27%5D%2Cdatasets%3A%5B%7Blabel%3A%27Standard%20LLM%27%2Cdata%3A%5B2.5%2C4.0%2C6.5%2C2.5%2C4.0%5D%2CborderColor%3A%27%23ff4040%27%2CborderWidth%3A3%2Cfill%3Afalse%2CpointRadius%3A5%7D%2C%7Blabel%3A%27Z.E.T.A.%27%2Cdata%3A%5B2.5%2C3.0%2C3.5%2C0.3%2C0.3%5D%2CborderColor%3A%27%2300d26a%27%2CborderWidth%3A3%2Cfill%3Afalse%2CpointRadius%3A5%7D%5D%7D%2Coptions%3A%7Btitle%3A%7Bdisplay%3Atrue%2Ctext%3A%27Response%20Time%20(seconds)%20-%20Repeated%20Queries%27%7D%2Cscales%3A%7ByAxes%3A%5B%7Bticks%3A%7Bmin%3A0%2Cmax%3A8%7D%7D%5D%7D%7D%7D&w=600&h=300&bkg=white)
 
 Ask the same thing twice? Z.E.T.A. already knows.
 
