@@ -51,17 +51,17 @@ Z.E.T.A. asks three simple questions:
 
 ## The Problem
 
-### GPU Power: Escalating Context
+### GPU Power: Growing Context
 
-![GPU Power Chart](https://quickchart.io/chart?c=%7Btype%3A%27line%27%2Cdata%3A%7Blabels%3A%5B%271%27%2C%27%27%2C%272%27%2C%27%27%2C%273%27%2C%27%27%2C%274%27%2C%27%27%2C%275%27%2C%27%27%2C%276%27%2C%27%27%2C%277%27%2C%27%27%2C%278%27%2C%27%27%2C%279%27%2C%27%27%2C%2710%27%2C%27%27%5D%2Cdatasets%3A%5B%7Blabel%3A%27Standard%20LLM%27%2Cdata%3A%5B300%2C50%2C350%2C50%2C400%2C50%2C450%2C50%2C500%2C50%2C550%2C50%2C600%2C50%2C650%2C50%2C700%2C50%2C750%2C50%5D%2CborderColor%3A%27%23ff4040%27%2CborderWidth%3A2%2Cfill%3Afalse%2CpointRadius%3A3%7D%2C%7Blabel%3A%27Z.E.T.A.%27%2Cdata%3A%5B295%2C50%2C155%2C50%2C160%2C50%2C165%2C50%2C170%2C50%2C175%2C50%2C180%2C50%2C185%2C50%2C190%2C50%2C195%2C50%5D%2CborderColor%3A%27%2300d26a%27%2CborderWidth%3A2%2Cfill%3Afalse%2CpointRadius%3A3%7D%5D%7D%2Coptions%3A%7Btitle%3A%7Bdisplay%3Atrue%2Ctext%3A%27GPU%20Power%20(Watts)%20-%20Growing%20Context%27%7D%2Cscales%3A%7BxAxes%3A%5B%7BscaleLabel%3A%7Bdisplay%3Atrue%2ClabelString%3A%27Turn%27%7D%7D%5D%2CyAxes%3A%5B%7Bticks%3A%7Bmin%3A0%2Cmax%3A800%7D%7D%5D%7D%7D%7D&w=700&h=300&bkg=white)
+![GPU Power Chart](https://quickchart.io/chart?c=%7Btype%3A%27line%27%2Cdata%3A%7Blabels%3A%5B%271%27%2C%272%27%2C%273%27%2C%274%27%2C%275%27%2C%276%27%2C%277%27%2C%278%27%2C%279%27%2C%2710%27%5D%2Cdatasets%3A%5B%7Blabel%3A%27Growing%20Context%27%2Cdata%3A%5B79%2C81%2C89%2C144%2C100%2C102%2C106%2C109%2C123%2C122%5D%2CborderColor%3A%27%23ff4040%27%2CborderWidth%3A2%2Cfill%3Afalse%2CpointRadius%3A4%7D%2C%7Blabel%3A%27Z.E.T.A.%20(cached)%27%2Cdata%3A%5B85%2C91%2C93%2C87%2C95%2C90%2C92%2C85%2C86%2C92%5D%2CborderColor%3A%27%2300d26a%27%2CborderWidth%3A2%2Cfill%3Afalse%2CpointRadius%3A4%7D%5D%7D%2Coptions%3A%7Btitle%3A%7Bdisplay%3Atrue%2Ctext%3A%27GPU%20Power%20(Watts)%20-%20Measured%20on%20RTX%205060%20Ti%27%7D%2Cscales%3A%7BxAxes%3A%5B%7BscaleLabel%3A%7Bdisplay%3Atrue%2ClabelString%3A%27Turn%27%7D%7D%5D%2CyAxes%3A%5B%7Bticks%3A%7Bmin%3A0%2Cmax%3A160%7D%7D%5D%7D%7D%7D&w=700&h=300&bkg=white)
 
-Standard LLMs recompute everything as context grows. Z.E.T.A. computes deltas.
+Growing context: power increases 55% by turn 10. Z.E.T.A. with cached queries: flat.
 
-### Response Time: Repeated Queries
+### Response Time: Growing Context vs Cached
 
-![Response Time Chart](https://quickchart.io/chart?c=%7Btype%3A%27line%27%2Cdata%3A%7Blabels%3A%5B%27Q1%27%2C%27Q2%27%2C%27Q3%27%2C%27Q4%27%2C%27Q5%27%2C%27Q6%27%2C%27Q7%27%2C%27Q8%27%2C%27Q9%27%2C%27Q10%27%5D%2Cdatasets%3A%5B%7Blabel%3A%27Standard%20LLM%27%2Cdata%3A%5B2.5%2C3.5%2C4.5%2C5.5%2C6.5%2C7.5%2C8.5%2C9.5%2C10.5%2C11.5%5D%2CborderColor%3A%27%23ff4040%27%2CborderWidth%3A2%2Cfill%3Afalse%2CpointRadius%3A4%7D%2C%7Blabel%3A%27Z.E.T.A.%27%2Cdata%3A%5B2.4%2C2.7%2C2.9%2C0.3%2C0.35%2C3.1%2C0.32%2C0.28%2C0.33%2C3.3%5D%2CborderColor%3A%27%2300d26a%27%2CborderWidth%3A2%2Cfill%3Afalse%2CpointRadius%3A4%7D%5D%7D%2Coptions%3A%7Btitle%3A%7Bdisplay%3Atrue%2Ctext%3A%27Response%20Time%20(seconds)%27%7D%2Cscales%3A%7ByAxes%3A%5B%7Bticks%3A%7Bmin%3A0%2Cmax%3A12%7D%7D%5D%7D%7D%7D&w=700&h=300&bkg=white)
+![Response Time Chart](https://quickchart.io/chart?c=%7Btype%3A%27line%27%2Cdata%3A%7Blabels%3A%5B%271%27%2C%272%27%2C%273%27%2C%274%27%2C%275%27%2C%276%27%2C%277%27%2C%278%27%2C%279%27%2C%2710%27%5D%2Cdatasets%3A%5B%7Blabel%3A%27Growing%20Context%27%2Cdata%3A%5B1.35%2C1.43%2C1.47%2C2.89%2C1.61%2C1.68%2C1.71%2C1.83%2C1.90%2C2.42%5D%2CborderColor%3A%27%23ff4040%27%2CborderWidth%3A2%2Cfill%3Afalse%2CpointRadius%3A4%7D%2C%7Blabel%3A%27Z.E.T.A.%20(cached)%27%2Cdata%3A%5B0.70%2C0.69%2C0.66%2C0.62%2C0.61%2C0.61%2C0.58%2C0.54%2C0.53%2C0.54%5D%2CborderColor%3A%27%2300d26a%27%2CborderWidth%3A2%2Cfill%3Afalse%2CpointRadius%3A4%7D%5D%7D%2Coptions%3A%7Btitle%3A%7Bdisplay%3Atrue%2Ctext%3A%27Response%20Time%20(seconds)%20-%20Measured%27%7D%2Cscales%3A%7BxAxes%3A%5B%7BscaleLabel%3A%7Bdisplay%3Atrue%2ClabelString%3A%27Turn%27%7D%7D%5D%2CyAxes%3A%5B%7Bticks%3A%7Bmin%3A0%2Cmax%3A3%7D%7D%5D%7D%7D%7D&w=700&h=300&bkg=white)
 
-Ask the same thing twice? Z.E.T.A. already knows.
+Ask the same thing twice? Z.E.T.A. already knows. Time drops from 1.3s to 0.5s.
 
 ---
 
