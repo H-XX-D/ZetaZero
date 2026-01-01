@@ -51,7 +51,7 @@ Z.E.T.A. asks three simple questions:
 
 ## The Problem
 
-### GPU Energy: Escalating Context
+### GPU Power: Escalating Context
 
 ![GPU Energy Chart](https://quickchart.io/chart?c=%7Btype%3A%27line%27%2Cdata%3A%7Blabels%3A%5B%27Idle%27%2C%27Turn%201%27%2C%27Idle%27%2C%27Turn%202%27%2C%27Idle%27%2C%27Turn%203%27%2C%27Idle%27%2C%27Turn%204%27%2C%27Idle%27%2C%27Turn%205%27%2C%27Idle%27%5D%2Cdatasets%3A%5B%7Blabel%3A%27Standard%20LLM%27%2Cdata%3A%5B50%2C300%2C50%2C400%2C50%2C500%2C50%2C700%2C50%2C900%2C50%5D%2CborderColor%3A%27%23ff4040%27%2CborderWidth%3A3%2Cfill%3Afalse%2CpointRadius%3A4%7D%2C%7Blabel%3A%27Z.E.T.A.%27%2Cdata%3A%5B50%2C300%2C50%2C200%2C50%2C200%2C50%2C200%2C50%2C200%2C50%5D%2CborderColor%3A%27%2300d26a%27%2CborderWidth%3A3%2Cfill%3Afalse%2CpointRadius%3A4%7D%5D%7D%2Coptions%3A%7Btitle%3A%7Bdisplay%3Atrue%2Ctext%3A%27GPU%20Power%20(Watts)%20-%20Growing%20Context%27%7D%2Cscales%3A%7ByAxes%3A%5B%7Bticks%3A%7Bmin%3A0%2Cmax%3A1000%2CstepSize%3A100%7D%7D%5D%7D%7D%7D&w=650&h=300&bkg=white)
 
