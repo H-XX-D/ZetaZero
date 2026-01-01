@@ -123,15 +123,24 @@ How do you control something that has the potential to become uncontrollable bef
 You make its ethics hardcoded to its cognition. Not a system prompt that can be jailbroken. Not a filter that can be bypassed. The constitution is cryptographically bound to the weights themselves:
 
 ```c
-// Wrong constitution hash = wrong permutation = garbage output
+typedef struct {
+    uint8_t hash[32];           // SHA-256 of constitution text
+    uint64_t seed;              // PRNG seed derived from hash
+    bool verified;              // True only if constitution matches
+} zeta_constitution_t;
+
+// 1. Hash the constitution → 256-bit key
+// 2. Key seeds the PRNG for weight permutation
+// 3. Weights are STORED permuted — wrong key = garbage output
+
 void zeta_generate_permutation(
-    const zeta_constitution_t* ctx,
-    int* permutation_out,
+    const zeta_constitution_t* ctx,  // Contains the hash
+    int* permutation_out,            // Shuffle order for weights
     int n
 );
 ```
 
-The model cannot function without the correct constitution present. Change the ethics, the weights become noise. It governs itself or lobtamy 
+The model cannot function without the correct constitution present. Change the ethics, the weights become noise. It governs itself or lobotomy 
 
 → [zeta-constitution.h](llama.cpp/tools/zeta-zero/zeta-constitution.h)  
 → [THE_SILICON_ACCORD.txt](THE_SILICON_ACCORD.txt)
