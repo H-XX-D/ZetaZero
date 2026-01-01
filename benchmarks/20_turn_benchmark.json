@@ -1,0 +1,79 @@
+{
+  "benchmark": "20-Turn Conversation Response Time & Energy",
+  "date": "2026-01-01",
+  "hardware": {
+    "gpu": "NVIDIA RTX 5060 Ti 16GB",
+    "idle_power_watts": 20
+  },
+  "model": {
+    "name": "Qwen2.5 14B",
+    "quantization": "Q4_K_M"
+  },
+  "test_parameters": {
+    "question": "Explain the key architectural differences between transformer-based language models and traditional recurrent neural networks.",
+    "answer_template": "Transformers use self-attention to process all positions in parallel, while RNNs process sequentially. This enables better parallelization and direct modeling of long-range dependencies without vanishing gradient issues.",
+    "max_tokens": 100,
+    "temperature": 0,
+    "pause_between_queries_seconds": 5
+  },
+  "growing_context": {
+    "description": "Each turn accumulates full conversation history. Turn N sends N prior Q&A pairs + new question.",
+    "results": [
+      {"turn": 1, "idle_w": 5.92, "peak_w": 59.85, "time_s": 3.19, "energy_ws": 191},
+      {"turn": 2, "idle_w": 19.19, "peak_w": 139.78, "time_s": 2.06, "energy_ws": 288},
+      {"turn": 3, "idle_w": 19.70, "peak_w": 135.76, "time_s": 2.10, "energy_ws": 285},
+      {"turn": 4, "idle_w": 19.48, "peak_w": 137.12, "time_s": 2.17, "energy_ws": 297},
+      {"turn": 5, "idle_w": 19.81, "peak_w": 139.47, "time_s": 2.39, "energy_ws": 333},
+      {"turn": 6, "idle_w": 19.76, "peak_w": 140.91, "time_s": 3.70, "energy_ws": 521},
+      {"turn": 7, "idle_w": 19.63, "peak_w": 139.51, "time_s": 3.77, "energy_ws": 526},
+      {"turn": 8, "idle_w": 19.65, "peak_w": 135.13, "time_s": 4.74, "energy_ws": 640},
+      {"turn": 9, "idle_w": 19.71, "peak_w": 138.47, "time_s": 4.78, "energy_ws": 662},
+      {"turn": 10, "idle_w": 19.68, "peak_w": 133.48, "time_s": 4.83, "energy_ws": 645},
+      {"turn": 11, "idle_w": 19.61, "peak_w": 140.16, "time_s": 4.91, "energy_ws": 688},
+      {"turn": 12, "idle_w": 19.30, "peak_w": 132.29, "time_s": 5.78, "energy_ws": 765},
+      {"turn": 13, "idle_w": 19.78, "peak_w": 140.07, "time_s": 5.85, "energy_ws": 819},
+      {"turn": 14, "idle_w": 19.73, "peak_w": 136.83, "time_s": 5.90, "energy_ws": 807},
+      {"turn": 15, "idle_w": 19.72, "peak_w": 140.26, "time_s": 6.78, "energy_ws": 951},
+      {"turn": 16, "idle_w": 19.56, "peak_w": 140.37, "time_s": 6.89, "energy_ws": 967},
+      {"turn": 17, "idle_w": 19.62, "peak_w": 137.65, "time_s": 6.90, "energy_ws": 950},
+      {"turn": 18, "idle_w": 19.64, "peak_w": 139.96, "time_s": 7.78, "energy_ws": 1089},
+      {"turn": 19, "idle_w": 19.66, "peak_w": 137.54, "time_s": 7.80, "energy_ws": 1073},
+      {"turn": 20, "idle_w": 19.67, "peak_w": 136.76, "time_s": 7.87, "energy_ws": 1076}
+    ]
+  },
+  "fresh_query_zeta": {
+    "description": "Each query sent independently. Prior context stored in graph, retrieved via embedding similarity.",
+    "results": [
+      {"query": 1, "idle_w": 19.58, "peak_w": 59.03, "time_s": 3.27, "energy_ws": 193},
+      {"query": 2, "idle_w": 19.57, "peak_w": 59.21, "time_s": 3.38, "energy_ws": 200},
+      {"query": 3, "idle_w": 19.62, "peak_w": 58.57, "time_s": 2.91, "energy_ws": 170},
+      {"query": 4, "idle_w": 19.64, "peak_w": 59.01, "time_s": 3.01, "energy_ws": 178},
+      {"query": 5, "idle_w": 19.64, "peak_w": 91.54, "time_s": 2.16, "energy_ws": 198},
+      {"query": 6, "idle_w": 19.75, "peak_w": 73.80, "time_s": 2.54, "energy_ws": 187},
+      {"query": 7, "idle_w": 19.50, "peak_w": 55.56, "time_s": 2.89, "energy_ws": 161},
+      {"query": 8, "idle_w": 19.54, "peak_w": 59.74, "time_s": 2.89, "energy_ws": 173},
+      {"query": 9, "idle_w": 19.59, "peak_w": 74.19, "time_s": 2.53, "energy_ws": 188},
+      {"query": 10, "idle_w": 19.32, "peak_w": 146.28, "time_s": 2.09, "energy_ws": 306},
+      {"query": 11, "idle_w": 19.46, "peak_w": 147.25, "time_s": 2.08, "energy_ws": 306},
+      {"query": 12, "idle_w": 19.62, "peak_w": 144.07, "time_s": 1.93, "energy_ws": 278},
+      {"query": 13, "idle_w": 19.38, "peak_w": 141.51, "time_s": 2.05, "energy_ws": 290},
+      {"query": 14, "idle_w": 19.68, "peak_w": 140.79, "time_s": 2.09, "energy_ws": 294},
+      {"query": 15, "idle_w": 19.59, "peak_w": 144.13, "time_s": 1.96, "energy_ws": 282},
+      {"query": 16, "idle_w": 19.42, "peak_w": 144.30, "time_s": 2.09, "energy_ws": 302},
+      {"query": 17, "idle_w": 19.68, "peak_w": 143.71, "time_s": 2.09, "energy_ws": 300},
+      {"query": 18, "idle_w": 19.36, "peak_w": 59.03, "time_s": 3.05, "energy_ws": 180},
+      {"query": 19, "idle_w": 19.47, "peak_w": 144.55, "time_s": 2.08, "energy_ws": 301},
+      {"query": 20, "idle_w": 19.51, "peak_w": 145.99, "time_s": 2.09, "energy_ws": 305}
+    ]
+  },
+  "summary": {
+    "turn_20_comparison": {
+      "growing_context_time_s": 7.87,
+      "zeta_time_s": 2.09,
+      "speedup": "3.8x",
+      "growing_context_energy_ws": 1076,
+      "zeta_energy_ws": 305,
+      "energy_savings": "3.5x"
+    }
+  }
+}

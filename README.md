@@ -51,17 +51,53 @@ Z.E.T.A. asks three simple questions:
 
 ## The Problem
 
-### GPU Power: Growing Context
+### 50-Turn Conversation Benchmark
 
-![GPU Power Chart](https://quickchart.io/chart?c=%7Btype%3A%27line%27%2Cdata%3A%7Blabels%3A%5B%271%27%2C%272%27%2C%273%27%2C%274%27%2C%275%27%2C%276%27%2C%277%27%2C%278%27%2C%279%27%2C%2710%27%5D%2Cdatasets%3A%5B%7Blabel%3A%27Growing%20Context%27%2Cdata%3A%5B79%2C81%2C89%2C144%2C100%2C102%2C106%2C109%2C123%2C122%5D%2CborderColor%3A%27%23ff4040%27%2CborderWidth%3A2%2Cfill%3Afalse%2CpointRadius%3A4%7D%2C%7Blabel%3A%27Z.E.T.A.%20(cached)%27%2Cdata%3A%5B85%2C91%2C93%2C87%2C95%2C90%2C92%2C85%2C86%2C92%5D%2CborderColor%3A%27%2300d26a%27%2CborderWidth%3A2%2Cfill%3Afalse%2CpointRadius%3A4%7D%5D%7D%2Coptions%3A%7Btitle%3A%7Bdisplay%3Atrue%2Ctext%3A%27GPU%20Power%20(Watts)%20-%20Measured%20on%20RTX%205060%20Ti%27%7D%2Cscales%3A%7BxAxes%3A%5B%7BscaleLabel%3A%7Bdisplay%3Atrue%2ClabelString%3A%27Turn%27%7D%7D%5D%2CyAxes%3A%5B%7Bticks%3A%7Bmin%3A0%2Cmax%3A160%7D%7D%5D%7D%7D%7D&w=700&h=300&bkg=white)
+![Benchmark Results](Code_Generated_Image-2.png)
 
-Growing context: power increases 55% by turn 10. Z.E.T.A. with cached queries: flat.
+**Real 50-turn conversation** with facts, retrieval questions, and general knowledge mixed together.  
+**Turn 50:** Standard LLM takes **16.7s** and **2,395 Ws**. Z.E.T.A. takes **3.6s** and **216 Ws**.  
+That's **4.6x faster** and **11x less energy**.
 
-### Response Time: Growing Context vs Cached
+### Environmental Impact at Scale
 
-![Response Time Chart](https://quickchart.io/chart?c=%7Btype%3A%27line%27%2Cdata%3A%7Blabels%3A%5B%271%27%2C%272%27%2C%273%27%2C%274%27%2C%275%27%2C%276%27%2C%277%27%2C%278%27%2C%279%27%2C%2710%27%5D%2Cdatasets%3A%5B%7Blabel%3A%27Growing%20Context%27%2Cdata%3A%5B1.35%2C1.43%2C1.47%2C2.89%2C1.61%2C1.68%2C1.71%2C1.83%2C1.90%2C2.42%5D%2CborderColor%3A%27%23ff4040%27%2CborderWidth%3A2%2Cfill%3Afalse%2CpointRadius%3A4%7D%2C%7Blabel%3A%27Z.E.T.A.%20(cached)%27%2Cdata%3A%5B0.70%2C0.69%2C0.66%2C0.62%2C0.61%2C0.61%2C0.58%2C0.54%2C0.53%2C0.54%5D%2CborderColor%3A%27%2300d26a%27%2CborderWidth%3A2%2Cfill%3Afalse%2CpointRadius%3A4%7D%5D%7D%2Coptions%3A%7Btitle%3A%7Bdisplay%3Atrue%2Ctext%3A%27Response%20Time%20(seconds)%20-%20Measured%27%7D%2Cscales%3A%7BxAxes%3A%5B%7BscaleLabel%3A%7Bdisplay%3Atrue%2ClabelString%3A%27Turn%27%7D%7D%5D%2CyAxes%3A%5B%7Bticks%3A%7Bmin%3A0%2Cmax%3A3%7D%7D%5D%7D%7D%7D&w=700&h=300&bkg=white)
+| Scale | Energy Saved | CO₂ Avoided | Equivalent |
+|-------|-------------|-------------|------------|
+| 1M conversations/day | 1,944 kWh/day | 284 tons CO₂/year | 62 cars off the road |
+| 10M conversations/day | 19,440 kWh/day | 2,840 tons CO₂/year | 620 cars off the road |
+| 100M conversations/day | 194,400 kWh/day | 28,400 tons CO₂/year | **6,000 cars off the road** |
 
-Ask the same thing twice? Z.E.T.A. already knows. Time drops from 1.3s to 0.5s.
+*Based on US grid average of 0.4 kg CO₂/kWh. Savings calculated from 7,000 Ws per 50-turn conversation.*
+
+<details>
+<summary><strong>Benchmark Methodology</strong></summary>
+
+**Hardware:**
+- GPU: NVIDIA RTX 5060 Ti 16GB
+- System: Jetson-class edge server
+- Idle power: ~20W
+
+**Test Setup:**
+- Model: Qwen2.5 14B (Q4_K_M quantization)
+- 50-turn realistic conversation with mixed content
+- 35 fact statements, 12 retrieval questions, 3 general knowledge
+- Max tokens: 100, Temperature: 0
+- 2-second pause between queries
+
+**Growing Context (Standard LLM):**
+Each turn accumulates full conversation history. Turn N sends N prior exchanges + new question. Context grows linearly, reprocessed every turn.
+
+**Fresh Query (Z.E.T.A.):**
+Each query sent independently. Prior context stored in graph, retrieved via embedding similarity—not reprocessed as raw tokens.
+
+**Measurements:**
+- Time: `date +%s.%N` before/after curl request
+- Power: `nvidia-smi --query-gpu=power.draw` after response
+- Energy: Peak power × response time (Watt-seconds)
+
+**Raw data:** [benchmarks/50_turn_realworld.json](benchmarks/50_turn_realworld.json)
+
+</details>
 
 ---
 
