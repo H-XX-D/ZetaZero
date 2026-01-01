@@ -120,8 +120,6 @@ Some dreams are noise. Some are "why didn't I see that?"
 
 How do you control something that has the potential to become uncontrollable before you can react?
 
-You don't control it. You constitutionalize it.
-
 You make its ethics hardcoded to its cognition. Not a system prompt that can be jailbroken. Not a filter that can be bypassed. The constitution is cryptographically bound to the weights themselves:
 
 ```c
@@ -133,7 +131,7 @@ void zeta_generate_permutation(
 );
 ```
 
-The model cannot function without the correct constitution present. Change the ethics, the weights become noise. It governs itself—or refuses to run.
+The model cannot function without the correct constitution present. Change the ethics, the weights become noise. It governs itself or lobtamy 
 
 → [zeta-constitution.h](llama.cpp/tools/zeta-zero/zeta-constitution.h)  
 → [THE_SILICON_ACCORD.txt](THE_SILICON_ACCORD.txt)
