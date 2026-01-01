@@ -41,7 +41,9 @@ Z.E.T.A. asks three simple questions:
 
 2. **Why limit context to VRAM?** Memory should be an explicit graph, not an implicit buffer.
 
-3. **Why force generation?** If the model is decoherent or hallucinating, it should have the agency to stop, "dream" (debug), and correct itself before outputting.
+3. **Why force generation?** If the model doesn't have an answer, should it output nonsense? Or should it have the agency to stop and correct itself?
+
+4. **What would an AI dream up while you're dreaming too?**
 
 **Z.E.T.A. is not a model. It is a Framework for Cognitive Constructs.**
 
@@ -76,6 +78,22 @@ xychart-beta
 ```
 
 Ask the same thing twice? Z.E.T.A. already knows.
+
+---
+
+## Architecture
+
+Three models, one cognitive loop:
+
+| Role | Why |
+|------|-----|
+| **Reasoning (14B)** | Complex planning, analysis, multi-step thought |
+| **Coding (7B)** | Fast code generation, syntax, execution |
+| **Memory (Embed)** | Semantic search, graph retrieval, similarity |
+
+The 14B thinks. The 7B executes. The embedder remembers.
+
+They share a persistent knowledge graph—not a context window. When one model learns something, the others can retrieve it. When the 14B reasons through a problem, that reasoning is stored, not discarded.
 
 ---
 
