@@ -118,11 +118,11 @@ Some dreams are noise. Some are "why didn't I see that?"
 
 ## The Silicon Accord
 
-How do you control an AI that creates unprompted?
+How do you control something that has the potential to become uncontrollable before you can react?
 
 You don't control it. You constitutionalize it.
 
-The constitution isn't a prompt. It's cryptographically bound to the weights:
+You make its ethics hardcoded to its cognition. Not a system prompt that can be jailbroken. Not a filter that can be bypassed. The constitution is cryptographically bound to the weights themselves:
 
 ```c
 // Wrong constitution hash = wrong permutation = garbage output
@@ -133,7 +133,7 @@ void zeta_generate_permutation(
 );
 ```
 
-The model cannot function without the correct constitution present. It governs itself—or refuses to run.
+The model cannot function without the correct constitution present. Change the ethics, the weights become noise. It governs itself—or refuses to run.
 
 → [zeta-constitution.h](llama.cpp/tools/zeta-zero/zeta-constitution.h)  
 → [THE_SILICON_ACCORD.txt](THE_SILICON_ACCORD.txt)
