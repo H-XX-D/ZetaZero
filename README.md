@@ -11,13 +11,18 @@
 ## Quickstart
 
 ```bash
+git clone https://github.com/H-XX-D/ZetaZero.git
+cd ZetaZero
 ./quickstart.sh
 ```
 
-Or with Docker:
+Or with Docker directly:
 
 ```bash
-docker compose up -d
+docker run -d -p 8080:8080 \
+  -v ~/models:/models \
+  -v ~/.zetazero:/storage \
+  ghcr.io/h-xx-d/zetazero:latest
 ```
 
 Want to tweak settings later? Run `./quickstart.sh --unlock` to disable password protection on config changes.
