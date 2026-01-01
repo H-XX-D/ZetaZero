@@ -53,7 +53,7 @@ Z.E.T.A. asks three simple questions:
 
 ### GPU Energy: Escalating Context
 
-![GPU Energy Chart](https://quickchart.io/chart?c=%7Btype%3A%27line%27%2Cdata%3A%7Blabels%3A%5B%27Turn%201%27%2C%27Turn%202%27%2C%27Turn%203%27%2C%27Turn%204%27%2C%27Turn%205%27%5D%2Cdatasets%3A%5B%7Blabel%3A%27Standard%20LLM%27%2Cdata%3A%5B150%2C320%2C510%2C720%2C950%5D%2CborderColor%3A%27%23ff4040%27%2CborderWidth%3A3%2Cfill%3Afalse%2CpointRadius%3A5%7D%2C%7Blabel%3A%27Z.E.T.A.%27%2Cdata%3A%5B150%2C180%2C210%2C245%2C280%5D%2CborderColor%3A%27%2300d26a%27%2CborderWidth%3A3%2Cfill%3Afalse%2CpointRadius%3A5%7D%5D%7D%2Coptions%3A%7Btitle%3A%7Bdisplay%3Atrue%2Ctext%3A%27Cumulative%20Energy%20(kJ)%20-%20Growing%20Context%27%7D%2Cscales%3A%7ByAxes%3A%5B%7Bticks%3A%7Bmin%3A0%2Cmax%3A1000%7D%7D%5D%7D%7D%7D&w=600&h=300&bkg=white)
+![GPU Energy Chart](https://quickchart.io/chart?c=%7Btype%3A%27line%27%2Cdata%3A%7Blabels%3A%5B%27Turn%201%27%2C%27Turn%202%27%2C%27Turn%203%27%2C%27Turn%204%27%2C%27Turn%205%27%5D%2Cdatasets%3A%5B%7Blabel%3A%27Standard%20LLM%27%2Cdata%3A%5B100%2C300%2C500%2C700%2C1000%5D%2CborderColor%3A%27%23ff4040%27%2CborderWidth%3A3%2Cfill%3Afalse%2CpointRadius%3A5%7D%2C%7Blabel%3A%27Z.E.T.A.%27%2Cdata%3A%5B100%2C200%2C200%2C300%2C300%5D%2CborderColor%3A%27%2300d26a%27%2CborderWidth%3A3%2Cfill%3Afalse%2CpointRadius%3A5%7D%5D%7D%2Coptions%3A%7Btitle%3A%7Bdisplay%3Atrue%2Ctext%3A%27Cumulative%20Energy%20(kJ)%20-%20Growing%20Context%27%7D%2Cscales%3A%7ByAxes%3A%5B%7Bticks%3A%7Bmin%3A0%2Cmax%3A1000%2CstepSize%3A100%7D%7D%5D%7D%7D%7D&w=600&h=300&bkg=white)
 
 Standard LLMs recompute everything as context grows. Z.E.T.A. computes deltas.
 
