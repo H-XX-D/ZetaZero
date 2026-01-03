@@ -198,3 +198,11 @@ archive/
 
 # Python type checking cache
 .mypy_cache/
+# Training data (ZetaOne signals - NEVER commit)
+data/training_signals/
+data/edge_events/
+data/decision_logs/
+data/sft/
+data/dpo/
+*.training.jsonl
+*_training_*.json
