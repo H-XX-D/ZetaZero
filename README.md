@@ -2,7 +2,7 @@
 
 > **Zero Entropy Temporal Assimilation (v0)**
 
-[![License](https://img.shields.io/badge/license-Dual%20(Open%20%2B%20Commercial)-blue)](LICENSE)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![C++](https://img.shields.io/badge/C%2B%2B-17-orange)](https://isocpp.org/)
 [![llama.cpp](https://img.shields.io/badge/llama.cpp-compatible-green)](https://github.com/ggerganov/llama.cpp)
 
@@ -169,10 +169,6 @@ The model cannot function without the correct constitution present. Change the e
 
 ## License
 
-Dual licensed: [Open Source](LICENSE) + [Commercial](COMMERCIAL_LICENSE.md)
-
-If your company uses Z.E.T.A. and earns over $2 million/year in revenue, contact for pricing.
-
-Otherwise? Use it to go make $2 million a year.
+[Apache License 2.0](LICENSE)
 
 **todd@hendrixxdesign.com**
