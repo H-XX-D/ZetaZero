@@ -61,15 +61,16 @@ typedef struct {
 } zeta_dream_config_t;
 
 // Default dream configuration
+// NOTE: idle_threshold_sec set to 5 for MAX DREAMING (was 3600)
 static zeta_dream_config_t g_dream_config = {
-    3600,              // idle_threshold_sec - Dream after 1 hour of idle time
+    5,                 // idle_threshold_sec - Dream after 5s idle (MAX DREAMING MODE)
     0.9f,              // dream_temp
     1.0f,              // dream_penalty_repeat
-    5,                 // max_dream_iterations
+    10,                // max_dream_iterations (was 5, doubled for corpus run)
     512,               // max_dream_tokens
-    0.7f,              // compression_confidence
+    0.6f,              // compression_confidence (lowered from 0.7 to save more dreams)
     "/storage/dreams", // dreams_dir
-    3                  // plateau_threshold - Jump to random graph node after 3 discards
+    2                  // plateau_threshold - Jump to random graph node after 2 discards (was 3)
 };
 
 // ============================================================================
@@ -390,22 +391,32 @@ public:
 
         for (const auto& theme : themes) {
             if (theme_history.find(theme) != theme_history.end()) {
-                int occurrences = theme_history[theme].count;
+                const auto& entry = theme_history[theme];
+                int occurrences = entry.count;
 
-                // Exponential penalty for repetition
+                // Apply time decay - themes seen long ago matter less
+                time_t now = time(nullptr);
+                double hours_ago = difftime(now, entry.last_seen) / 3600.0;
+                float decay = std::max(0.1f, 1.0f - (float)(hours_ago / theme_decay_hours));
+
+                // Calculate penalty with decay
+                float theme_penalty = 0.0f;
                 if (occurrences >= repetition_threshold) {
-                    total_penalty += 0.3f * (occurrences - repetition_threshold + 1);
+                    theme_penalty = 0.2f * (occurrences - repetition_threshold + 1);
                 } else {
-                    total_penalty += 0.1f * occurrences;
+                    theme_penalty = 0.05f * occurrences;
                 }
+                // Cap individual theme penalty and apply decay
+                total_penalty += std::min(0.4f, theme_penalty * decay);
                 theme_count++;
             }
         }
 
         if (theme_count == 0) return 1.0f;
 
-        float avg_penalty = total_penalty / theme_count;
-        float novelty = std::max(0.0f, 1.0f - avg_penalty);
+        // Cap avg_penalty so novelty is always at least 0.15
+        float avg_penalty = std::min(0.85f, total_penalty / theme_count);
+        float novelty = std::max(0.15f, 1.0f - avg_penalty);
 
         fprintf(stderr, "[DREAM-REP] Novelty score: %.2f (themes: %d, avg_penalty: %.2f)\n",
                 novelty, theme_count, avg_penalty);

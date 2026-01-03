@@ -29,6 +29,7 @@ typedef struct {
     float priority;         // salience * recency * momentum
     int tokens_consumed;    // Approx tokens this node uses
     bool served;            // Already used by 14B this turn
+    bool kv_injected;       // True if KV was injected from cache (for lazy capture tracking)
 } zeta_active_node_t;
 
 // Conversation turn for short-term memory

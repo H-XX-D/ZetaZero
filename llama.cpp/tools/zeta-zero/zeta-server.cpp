@@ -3905,6 +3905,17 @@ int main(int argc, char** argv) {
                     // Scratch Buffer: Finalize generation (via decode hook)
                     ZETA_SCRATCH_END_GENERATION();
 
+                    // LAZY KV CAPTURE: Capture KV for retrieved nodes that didn't have cached KV
+                    // This warms the cache based on actual usage patterns
+                    if (g_gkv_ctx && g_stream_state.num_active > 0) {
+                        int kv_captured = zeta_gkv_lazy_capture(
+                            g_dual, g_ctx_conscious, g_model_conscious, &g_stream_state, 3  // max 3 per request
+                        );
+                        if (kv_captured > 0) {
+                            fprintf(stderr, "[LAZY-KV] Captured KV for %d nodes this request\n", kv_captured);
+                        }
+                    }
+
                     // Epistemic Scoping: Skip fact extraction for creative/fiction content
                     // This prevents "Drakon Industries" (from robot stories) from overwriting reality
                     if (!is_creative_mode) {
@@ -4345,6 +4356,17 @@ int main(int argc, char** argv) {
             while (num_start < result.size() && !isdigit(result[num_start])) num_start++;
             if (num_start < result.size()) {
                 tokens_used = std::stoi(result.substr(num_start));
+            }
+        }
+
+        // LAZY KV CAPTURE: Capture KV for retrieved nodes that didn't have cached KV
+        // This warms the cache based on actual usage patterns
+        if (g_gkv_ctx && g_stream_state.num_active > 0) {
+            int kv_captured = zeta_gkv_lazy_capture(
+                g_dual, g_ctx_conscious, g_model_conscious, &g_stream_state, 3  // max 3 per request
+            );
+            if (kv_captured > 0) {
+                fprintf(stderr, "[LAZY-KV] Captured KV for %d nodes this request\n", kv_captured);
             }
         }
 

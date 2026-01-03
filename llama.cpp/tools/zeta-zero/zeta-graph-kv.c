@@ -576,6 +576,120 @@ int zeta_gkv_inject(
 }
 
 // ============================================================================
+// V2 Native API - Uses llama_state_seq_load/save_file
+// Bypasses format/tensor type issues by using llama.cpp's native format
+// ============================================================================
+
+int zeta_gkv_inject_v2(
+    zeta_gkv_ctx_t* gkv_ctx,
+    struct llama_context* llama_ctx,
+    int64_t node_id,
+    llama_seq_id seq_id,
+    int32_t target_pos
+) {
+    if (!gkv_ctx || !llama_ctx) return 0;
+    
+    // Build native state file path
+    char filepath[512];
+    snprintf(filepath, sizeof(filepath), "%s/%lld.lkv", 
+             gkv_ctx->storage_dir, (long long)node_id);
+    
+    // Check if native state file exists
+    struct stat st;
+    if (stat(filepath, &st) != 0) {
+        // No native cache for this node
+        fprintf(stderr, "[GKV-v2] No cache for node %lld\n", (long long)node_id);
+        return 0;
+    }
+    
+    // Load via native llama API
+    llama_token tokens_out[ZETA_GKV_MAX_TOKENS];
+    size_t n_token_count = 0;
+    
+    size_t result = llama_state_seq_load_file(
+        llama_ctx, 
+        filepath, 
+        seq_id,
+        tokens_out,
+        ZETA_GKV_MAX_TOKENS,
+        &n_token_count
+    );
+    
+    if (result == 0) {
+        fprintf(stderr, "[GKV-v2] Failed to load native state from %s\n", filepath);
+        return 0;
+    }
+    
+    // === REBASING: Shift loaded positions to target_pos ===
+    // The loaded KV cache has positions from when it was captured.
+    // We rebase to target_pos for continuous positioning with other injections.
+    llama_memory_t mem = llama_get_memory(llama_ctx);
+    if (mem) {
+        llama_pos min_pos = llama_memory_seq_pos_min(mem, seq_id);
+        llama_pos max_pos = llama_memory_seq_pos_max(mem, seq_id);
+        
+        if (min_pos != target_pos && max_pos >= min_pos) {
+            // Calculate delta to shift positions to target_pos
+            int32_t delta = target_pos - (int32_t)min_pos;
+            llama_memory_seq_add(mem, seq_id, min_pos, max_pos + 1, delta);
+            fprintf(stderr, "[GKV-v2] Rebased: positions %d-%d → %d-%d (delta=%d)\n",
+                    (int)min_pos, (int)max_pos, 
+                    (int)(min_pos + delta), (int)(max_pos + delta), delta);
+        }
+    }
+    
+    gkv_ctx->total_injections++;
+    int64_t saved_ms = (n_token_count * 50) / 100;  // ~50ms per 100 tokens
+    gkv_ctx->prefill_skipped_ms += saved_ms;
+    
+    fprintf(stderr, "[GKV-v2] Injected %zu tokens for node %lld at pos %d (saved ~%lld ms)\n",
+            n_token_count, (long long)node_id, target_pos, (long long)saved_ms);
+    
+    return (int)n_token_count;
+}
+
+int zeta_gkv_capture_v2(
+    zeta_gkv_ctx_t* gkv_ctx,
+    struct llama_context* llama_ctx,
+    llama_seq_id seq_id,
+    int64_t node_id,
+    const llama_token* tokens,
+    int n_tokens
+) {
+    if (!gkv_ctx || !llama_ctx || n_tokens <= 0) return 0;
+    if (n_tokens > ZETA_GKV_MAX_TOKENS) {
+        fprintf(stderr, "[GKV-v2] Token count %d exceeds max %d\n", n_tokens, ZETA_GKV_MAX_TOKENS);
+        return 0;
+    }
+    
+    // Build native state file path
+    char filepath[512];
+    snprintf(filepath, sizeof(filepath), "%s/%lld.lkv", 
+             gkv_ctx->storage_dir, (long long)node_id);
+    
+    // Save via native llama API
+    size_t result = llama_state_seq_save_file(
+        llama_ctx,
+        filepath,
+        seq_id,
+        tokens,
+        n_tokens
+    );
+    
+    if (result == 0) {
+        fprintf(stderr, "[GKV-v2] Failed to save native state to %s\n", filepath);
+        return 0;
+    }
+    
+    gkv_ctx->total_captures++;
+    
+    fprintf(stderr, "[GKV-v2] Captured %d tokens for node %lld (%zu bytes)\n",
+            n_tokens, (long long)node_id, result);
+    
+    return n_tokens;
+}
+
+// ============================================================================
 // Segment Lookup
 // ============================================================================
 

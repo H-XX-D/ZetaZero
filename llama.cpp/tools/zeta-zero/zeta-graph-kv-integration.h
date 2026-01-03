@@ -122,33 +122,40 @@ static inline int zeta_gkv_inject_for_stream(
     if (!g_gkv_ctx || !llama_ctx || !stream_state) return 0;
 
     int total_injected = 0;
-    int32_t current_pos = base_pos;
+    int32_t current_pos = base_pos;  // Track cumulative position for rebasing
 
     // Try to inject cached KV for each active node
     for (int i = 0; i < stream_state->num_active; i++) {
         int64_t node_id = stream_state->active[i].node_id;
+        stream_state->active[i].kv_injected = false;  // Default: no KV
 
-        // Look up cached segment
+        int injected = 0;
+
+        // 1. First try in-memory segment lookup (fast path - same session)
         zeta_gkv_segment_t* segment = zeta_gkv_find(g_gkv_ctx, node_id);
-        if (!segment) {
-            // Try loading from disk
-            segment = zeta_gkv_load(g_gkv_ctx, node_id);
-        }
-
         if (segment) {
-            int injected = zeta_gkv_inject(
-                g_gkv_ctx, llama_ctx, segment, seq_id, current_pos
-            );
-
+            injected = zeta_gkv_inject(g_gkv_ctx, llama_ctx, segment, seq_id, current_pos);
             if (injected > 0) {
-                // Mark node as having injected KV (skip text prefill)
-                stream_state->active[i].served = true;
-                total_injected += injected;
-                current_pos += injected;
-
-                fprintf(stderr, "[GKV] Injected %d cached tokens for node %lld\n",
-                        injected, (long long)node_id);
+                fprintf(stderr, "[GKV] Injected %d cached tokens for node %lld at pos %d (in-memory)\n",
+                        injected, (long long)node_id, current_pos);
             }
+        }
+        
+        // 2. Fall back to file-based v2 API if no in-memory segment
+        if (injected == 0) {
+            injected = zeta_gkv_inject_v2(g_gkv_ctx, llama_ctx, node_id, seq_id, current_pos);
+            if (injected > 0) {
+                fprintf(stderr, "[GKV-v2] Injected %d cached tokens for node %lld at pos %d (file)\n",
+                        injected, (long long)node_id, current_pos);
+            }
+        }
+        
+        if (injected > 0) {
+            // Mark node as having injected KV (skip text prefill)
+            stream_state->active[i].served = true;
+            stream_state->active[i].kv_injected = true;
+            total_injected += injected;
+            current_pos += injected;  // Advance position for next injection
         }
     }
 
@@ -248,6 +255,93 @@ static inline int zeta_gkv_cached_tokens(int64_t node_id) {
 static inline int zeta_gkv_force_flush() {
     if (!g_gkv_ctx) return 0;
     return zeta_gkv_flush(g_gkv_ctx);
+}
+
+// ============================================================================
+// LAZY KV CAPTURE: Capture KV for retrieved nodes that didn't have cached KV
+// Call after generation completes to warm cache for frequently accessed nodes
+// ============================================================================
+static inline int zeta_gkv_lazy_capture(
+    zeta_dual_ctx_t* dual_ctx,
+    struct llama_context* llama_ctx,
+    const struct llama_model* model,
+    zeta_stream_state_t* stream_state,
+    int max_captures  // Limit captures per request to avoid latency
+) {
+    if (!g_gkv_ctx || !dual_ctx || !llama_ctx || !stream_state || !model) return 0;
+    if (stream_state->num_active == 0) return 0;
+
+    int captured = 0;
+
+    // Find nodes that were retrieved but had no cached KV
+    for (int i = 0; i < stream_state->num_active && captured < max_captures; i++) {
+        if (stream_state->active[i].kv_injected) continue;  // Already had KV
+
+        int64_t node_id = stream_state->active[i].node_id;
+
+        // Skip if already has cached segment
+        if (zeta_gkv_find(g_gkv_ctx, node_id)) continue;
+
+        // Find the node in the graph
+        zeta_graph_node_t* node = NULL;
+        for (int j = 0; j < dual_ctx->num_nodes; j++) {
+            if (dual_ctx->nodes[j].node_id == node_id) {
+                node = &dual_ctx->nodes[j];
+                break;
+            }
+        }
+        if (!node || !node->value || strlen(node->value) < 10) continue;
+
+        // Tokenize node content
+        const llama_vocab* vocab = llama_model_get_vocab(model);
+        std::vector<llama_token> tokens(512);
+        int n_tokens = llama_tokenize(
+            vocab,
+            node->value,
+            strlen(node->value),
+            tokens.data(),
+            tokens.size(),
+            false,  // add_special
+            true    // parse_special
+        );
+
+        if (n_tokens <= 0 || n_tokens >= 512) continue;
+        tokens.resize(n_tokens);
+
+        // Clear KV and decode to fill it
+        llama_memory_t mem = llama_get_memory(llama_ctx);
+        llama_memory_clear(mem, false);
+
+        llama_batch batch = llama_batch_init(n_tokens, 0, 1);
+        for (int t = 0; t < n_tokens; t++) {
+            batch.token[t] = tokens[t];
+            batch.pos[t] = t;
+            batch.n_seq_id[t] = 1;
+            batch.seq_id[t][0] = 0;
+            batch.logits[t] = (t == n_tokens - 1);
+        }
+        batch.n_tokens = n_tokens;
+
+        if (llama_decode(llama_ctx, batch) == 0) {
+            // Capture KV using V2 native API (llama_state_seq_save_file)
+            int cap_result = zeta_gkv_capture_v2(
+                g_gkv_ctx, llama_ctx, 0, node_id, tokens.data(), n_tokens
+            );
+            if (cap_result > 0) {
+                captured++;
+                fprintf(stderr, "[LAZY-KV-v2] Captured %d tokens for node %lld (%s)\n",
+                        n_tokens, (long long)node_id, node->label);
+            }
+        }
+        llama_batch_free(batch);
+    }
+
+    // No flush needed for v2 - already saved to disk
+    if (captured > 0) {
+        fprintf(stderr, "[LAZY-KV-v2] Saved %d new native KV states to disk\n", captured);
+    }
+
+    return captured;
 }
 
 #endif // ZETA_GRAPH_KV_INTEGRATION_H

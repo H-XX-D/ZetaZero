@@ -109,6 +109,7 @@ typedef struct {
     // Statistics
     int64_t total_saves;        // Segments saved to disk
     int64_t total_loads;        // Segments loaded from disk
+    int64_t total_captures;     // V2 native captures performed
     int64_t total_injections;   // KV injections performed
     int64_t prefill_skipped_ms; // Estimated time saved
 } zeta_gkv_ctx_t;
@@ -158,6 +159,33 @@ int zeta_gkv_inject(
     zeta_gkv_segment_t* segment,
     llama_seq_id seq_id,
     int32_t injection_pos
+);
+
+// ============================================================================
+// V2 Native API (uses llama_state_seq_load/save_file)
+// ============================================================================
+
+// Inject KV state using native llama file API (bypasses format issues)
+// Loads from .lkv file in storage_dir, rebases to target_pos
+// Returns number of tokens injected, 0 on failure
+int zeta_gkv_inject_v2(
+    zeta_gkv_ctx_t* gkv_ctx,
+    struct llama_context* llama_ctx,
+    int64_t node_id,
+    llama_seq_id seq_id,
+    int32_t target_pos
+);
+
+// Capture KV state using native llama file API
+// Saves to .lkv file in storage_dir
+// Returns number of tokens captured, 0 on failure
+int zeta_gkv_capture_v2(
+    zeta_gkv_ctx_t* gkv_ctx,
+    struct llama_context* llama_ctx,
+    llama_seq_id seq_id,
+    int64_t node_id,
+    const llama_token* tokens,
+    int n_tokens
 );
 
 // ============================================================================

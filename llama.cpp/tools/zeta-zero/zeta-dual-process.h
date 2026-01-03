@@ -15,6 +15,7 @@
 #include <math.h>
 #include <algorithm>  // std::transform, std::min
 #include <string>     // std::string
+#include <unordered_map>  // For remember deduplication
 
 // Global vocab for tokenization (set by server)
 static const llama_vocab* g_zeta_vocab = NULL;
@@ -1123,6 +1124,134 @@ static inline void zeta_surface_context(
 // Semantic Fact Extraction (3B-powered)
 // ============================================================================
 
+// --- Helper functions for intelligent fact extraction ---
+
+static inline std::string zeta_trim_ws(const std::string& s) {
+    size_t a = 0, b = s.size();
+    while (a < b && isspace((unsigned char)s[a])) a++;
+    while (b > a && isspace((unsigned char)s[b-1])) b--;
+    return s.substr(a, b-a);
+}
+
+static inline std::string zeta_norm(const std::string& s) {
+    std::string out;
+    out.reserve(s.size());
+    bool in_ws = false;
+    for (char c : s) {
+        char lc = (char)tolower((unsigned char)c);
+        if (isspace((unsigned char)lc)) {
+            if (!in_ws) out.push_back(' ');
+            in_ws = true;
+        } else {
+            out.push_back(lc);
+            in_ws = false;
+        }
+    }
+    return zeta_trim_ws(out);
+}
+
+static inline uint64_t fnv1a64(const std::string& s) {
+    uint64_t h = 1469598103934665603ULL;
+    for (unsigned char c : s) { h ^= c; h *= 1099511628211ULL; }
+    return h;
+}
+
+static inline bool looks_like_code(const std::string& s) {
+    return (s.find("#include") != std::string::npos) ||
+           (s.find("def ") != std::string::npos) ||
+           (s.find("class ") != std::string::npos) ||
+           (s.find("::") != std::string::npos) ||
+           (s.find("{") != std::string::npos && s.find("}") != std::string::npos);
+}
+
+static inline bool looks_like_wiki_fact(const std::string& s) {
+    // definitional / encyclopedic patterns
+    if (s.size() < 25) return false;
+    if (s.find(" is a ") != std::string::npos) return true;
+    if (s.find(" is the ") != std::string::npos) return true;
+    if (s.find(" was a ") != std::string::npos) return true;
+    if (s.find(" refers to ") != std::string::npos) return true;
+    return false;
+}
+
+static inline void zeta_auto_classify(
+    const std::string& clean_norm,
+    bool from_user,
+    const char** out_label,
+    zeta_node_type_t* out_type,
+    float* out_salience,
+    zeta_source_t* out_source
+) {
+    *out_type = NODE_FACT;
+    *out_source = from_user ? SOURCE_USER : SOURCE_MODEL;
+    *out_salience = from_user ? 0.95f : 0.65f;
+
+    if (looks_like_code(clean_norm)) {
+        *out_label = "code_fact";
+        *out_salience = 0.75f;
+        return;
+    }
+    if (looks_like_wiki_fact(clean_norm) && !from_user) {
+        *out_label = "wiki_fact";
+        *out_salience = 0.55f; // keep wiki lower salience than user memory
+        return;
+    }
+
+    // crude "idea" detector
+    if (clean_norm.find("framework") != std::string::npos ||
+        clean_norm.find("build ") != std::string::npos ||
+        clean_norm.find("feature") != std::string::npos ||
+        clean_norm.find("proposal") != std::string::npos) {
+        *out_label = "idea";
+        *out_salience = 0.60f;
+        return;
+    }
+
+    *out_label = from_user ? "user_fact" : "fact";
+}
+
+// Dedup: touch existing or commit new
+// Uses static map to avoid C struct/C++ container issues
+static std::unordered_map<uint64_t, int64_t> g_remember_hash_index;
+
+static inline int64_t zeta_commit_dedup(
+    zeta_dual_ctx_t* ctx,
+    zeta_node_type_t type,
+    const char* label,
+    const std::string& clean_value_norm,
+    float salience,
+    zeta_source_t source
+) {
+    if (!ctx) return -1;
+
+    uint64_t h = fnv1a64(clean_value_norm);
+    auto it = g_remember_hash_index.find(h);
+    if (it != g_remember_hash_index.end()) {
+        int64_t id = it->second;
+        // locate node by id and verify value matches (guard against hash collision)
+        for (int i = 0; i < ctx->num_nodes; i++) {
+            if (ctx->nodes[i].node_id == id && ctx->nodes[i].is_active) {
+                std::string existing = zeta_norm(ctx->nodes[i].value);
+                if (existing == clean_value_norm) {
+                    ctx->nodes[i].access_count++;
+                    ctx->nodes[i].last_accessed = (int64_t)time(NULL);
+                    ctx->nodes[i].salience = fminf(1.0f, ctx->nodes[i].salience + 0.02f);
+                    fprintf(stderr, "[DEDUP] Touched existing node %lld (access=%d, sal=%.2f)\n",
+                            (long long)id, ctx->nodes[i].access_count, ctx->nodes[i].salience);
+                    return id;
+                }
+                break;
+            }
+        }
+    }
+
+    int64_t id_new = zeta_commit_fact(ctx, type, label, clean_value_norm.c_str(), salience, source);
+    if (id_new >= 0) {
+        g_remember_hash_index[h] = id_new;
+    }
+    return id_new;
+}
+
 // Extract facts using 3B semantic analysis
 // from_user: true if text is from user input (ontology-checked), false if from model
 static inline int zeta_subconscious_extract_facts(
@@ -1139,7 +1268,8 @@ static inline int zeta_subconscious_extract_facts(
             text, from_user ? "true" : "false");
 
     // ===== REMEMBER SHORT-CIRCUIT =====
-    // Find "Remember:" or "Remember this:" anywhere in text (case-insensitive)
+    // Find the LAST "Remember:" or "Remember this:" in text (case-insensitive)
+    // Must find LAST because earlier occurrences may be from conversation history
     const char* remember_ptr = NULL;
     const char* content = NULL;
 
@@ -1150,16 +1280,27 @@ static inline int zeta_subconscious_extract_facts(
     for (size_t i = 0; i < tlen; i++) lower_text[i] = tolower(text[i]);
     lower_text[tlen] = '\0';
 
-    // Search for "remember this:" first (more specific)
-    const char* match = strstr(lower_text, "remember this:");
+    // Helper lambda to find LAST occurrence
+    auto find_last = [](const char* haystack, const char* needle) -> const char* {
+        const char* last = NULL;
+        const char* p = haystack;
+        while ((p = strstr(p, needle)) != NULL) {
+            last = p;
+            p++;
+        }
+        return last;
+    };
+
+    // Search for LAST "remember this:" first (more specific)
+    const char* match = find_last(lower_text, "remember this:");
     if (match) {
         size_t offset = match - lower_text;
         remember_ptr = text + offset;
         content = remember_ptr + 14; // strlen("remember this:")
         while (*content == ' ') content++;
     } else {
-        // Search for just "remember:"
-        match = strstr(lower_text, "remember:");
+        // Search for LAST "remember:"
+        match = find_last(lower_text, "remember:");
         if (match) {
             size_t offset = match - lower_text;
             remember_ptr = text + offset;
@@ -1169,14 +1310,92 @@ static inline int zeta_subconscious_extract_facts(
     }
 
     if (content && strlen(content) > 5) {
-            // Store as raw_memory with high salience (routes through GitGraph if enabled)
-            // Use ontology-checked commit to block SYSTEM domain claims
-            int64_t result = zeta_commit_fact_checked(ctx, NODE_FACT, "raw_memory", content, 0.95f, SOURCE_USER, from_user);
+            // Parse optional domain/theme tags: [domain:X] [theme:Y,Z]
+            std::string explicit_domain = "";
+            std::string theme_tag = "";
+            const char* fact_content = content;
+
+            // Parse [domain:X] if provided
+            if (strncmp(content, "[domain:", 8) == 0) {
+                const char* end = strchr(content + 8, ']');
+                if (end && (end - content - 8) < 60) {
+                    explicit_domain = std::string(content + 8, end - content - 8);
+                    fact_content = end + 1;
+                    while (*fact_content == ' ') fact_content++;
+                }
+            }
+
+            // Parse [theme:X,Y] if provided
+            if (strncmp(fact_content, "[theme:", 7) == 0) {
+                const char* end = strchr(fact_content + 7, ']');
+                if (end && (end - fact_content - 7) < 120) {
+                    theme_tag = std::string(fact_content + 7, end - fact_content - 7);
+                    fact_content = end + 1;
+                    while (*fact_content == ' ') fact_content++;
+                }
+            }
+
+            // Normalize the content for dedup and classification
+            std::string raw_content = fact_content;
+
+            // Strip [recursive_memory] and other internal tags
+            size_t tag_start;
+            while ((tag_start = raw_content.find('[')) != std::string::npos) {
+                size_t tag_end = raw_content.find(']', tag_start);
+                if (tag_end != std::string::npos) {
+                    // Check if it looks like an internal tag (lowercase, no spaces)
+                    std::string tag = raw_content.substr(tag_start + 1, tag_end - tag_start - 1);
+                    bool is_internal = tag.find(' ') == std::string::npos &&
+                                       (tag.find("recursive") != std::string::npos ||
+                                        tag.find("memory") != std::string::npos ||
+                                        tag.find("context") != std::string::npos);
+                    if (is_internal) {
+                        raw_content.erase(tag_start, tag_end - tag_start + 1);
+                    } else {
+                        break; // Not an internal tag, stop stripping
+                    }
+                } else {
+                    break;
+                }
+            }
+
+            // Also strip "remember:" if it got duplicated
+            size_t rem_pos = raw_content.find("remember:");
+            if (rem_pos != std::string::npos && rem_pos > 0) {
+                raw_content = raw_content.substr(0, rem_pos);
+            }
+
+            std::string clean_norm = zeta_norm(raw_content);
+            if (clean_norm.size() < 10) {
+                fprintf(stderr, "[REMEMBER] Too short after normalization: %s\n", clean_norm.c_str());
+                return facts_created;
+            }
+
+            // Use new auto-classification
+            const char* auto_label = nullptr;
+            zeta_node_type_t node_type;
+            float salience;
+            zeta_source_t source;
+            zeta_auto_classify(clean_norm, from_user, &auto_label, &node_type, &salience, &source);
+
+            // Build final label: explicit_domain > auto_label, optionally with theme
+            std::string final_label;
+            if (!explicit_domain.empty()) {
+                final_label = explicit_domain;
+            } else {
+                final_label = auto_label;
+            }
+            if (!theme_tag.empty()) {
+                final_label += ":" + theme_tag;
+            }
+
+            // Use dedup commit - touches existing if duplicate, creates new otherwise
+            int64_t result = zeta_commit_dedup(ctx, node_type, final_label.c_str(), clean_norm, salience, source);
             if (result >= 0) {
                 facts_created++;
-                fprintf(stderr, "[REMEMBER] Direct storage: %.60s...\n", content);
+                fprintf(stderr, "[REMEMBER] [%s] (sal=%.2f) %.60s...\n", final_label.c_str(), salience, clean_norm.c_str());
             } else {
-                fprintf(stderr, "[REMEMBER] BLOCKED by ontology: %.60s...\n", content);
+                fprintf(stderr, "[REMEMBER] BLOCKED: %.60s...\n", clean_norm.c_str());
             }
 
             // Also extract causal relations from the content

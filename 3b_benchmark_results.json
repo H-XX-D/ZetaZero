@@ -1,0 +1,524 @@
+{
+  "benchmark": "3B vs 14B Quality Test",
+  "date": "2026-01-01T09:24:48.143233",
+  "model": "Qwen2.5-3B-Instruct + 3B-Coder (vs 14B+7B baseline)",
+  "stats": {
+    "total_turns": 51,
+    "successful": 51,
+    "avg_time_s": 3.38,
+    "min_time_s": 0.54,
+    "max_time_s": 5.25
+  },
+  "results": [
+    {
+      "turn": 1,
+      "type": "fact",
+      "prompt": "The Great Wall of China stretches approximately 13...",
+      "success": true,
+      "time_s": 5.17,
+      "response": "That's an interesting fact! The Great Wall of China is indeed one of the most impressive architectural feats in human history, with a length that can vary depending on how it\u2019s measured. Your figure o",
+      "tokens": 143,
+      "graph_nodes": 1
+    },
+    {
+      "turn": 2,
+      "type": "fact",
+      "prompt": "Marie Curie was the first person to win Nobel Priz...",
+      "success": true,
+      "time_s": 3.27,
+      "response": "That's correct! Marie Curie was a pioneering physicist and chemist who made groundbreaking contributions to the field of radioactivity. She is indeed notable for being the first person to receive Nobe",
+      "tokens": 94,
+      "graph_nodes": 1
+    },
+    {
+      "turn": 3,
+      "type": "fact",
+      "prompt": "The Amazon River is the largest river by volume in...",
+      "success": true,
+      "time_s": 2.81,
+      "response": "That's correct! The Amazon River is indeed the largest river by volume in the world. It flows through Peru, Colombia, and Brazil before emptying into the Atlantic Ocean. Its drainage basin covers abou",
+      "tokens": 77,
+      "graph_nodes": 1
+    },
+    {
+      "turn": 4,
+      "type": "fact",
+      "prompt": "The human brain contains approximately 86 billion ...",
+      "success": true,
+      "time_s": 4.05,
+      "response": "That's correct! The human brain is estimated to contain about 86 billion neurons, which are the primary cells responsible for transmitting signals in the nervous system. These neurons form complex net",
+      "tokens": 105,
+      "graph_nodes": 1
+    },
+    {
+      "turn": 5,
+      "type": "fact",
+      "prompt": "Mount Everest is 29,032 feet tall, the highest poi...",
+      "success": true,
+      "time_s": 3.11,
+      "response": "That's correct! Mount Everest, located in the Mahalangur Himal sub-range of the Himalayas, is indeed the highest peak on Earth with a height of 29,032 feet (or approximately 8,849 meters) above sea le",
+      "tokens": 91,
+      "graph_nodes": 3
+    },
+    {
+      "turn": 6,
+      "type": "fact",
+      "prompt": "The speed of light is approximately 299,792 kilome...",
+      "success": true,
+      "time_s": 2.2,
+      "response": "That's correct! The speed of light in a vacuum is approximately 299,792 kilometers per second. This fundamental constant plays a crucial role in many areas of physics and technology. If you have any s",
+      "tokens": 62,
+      "graph_nodes": 4
+    },
+    {
+      "turn": 7,
+      "type": "fact",
+      "prompt": "DNA was first identified by Friedrich Miescher in ...",
+      "success": true,
+      "time_s": 3.41,
+      "response": "That's correct! Friedrich Miescher, a Swiss biochemist, was the first to identify DNA in 1869. He isolated nucleic acids from white blood cells and called them \"nuclein,\" which we now know includes bo",
+      "tokens": 110,
+      "graph_nodes": 5
+    },
+    {
+      "turn": 8,
+      "type": "fact",
+      "prompt": "The Pacific Ocean covers more area than all landma...",
+      "success": true,
+      "time_s": 4.81,
+      "response": "That's correct! The Pacific Ocean is indeed the largest of Earth\u2019s oceanic divisions. It covers more than 30% of the Earth's surface, which amounts to about 64 million square miles or approximately 16",
+      "tokens": 150,
+      "graph_nodes": 6
+    },
+    {
+      "turn": 9,
+      "type": "fact",
+      "prompt": "Shakespeare wrote 37 plays during his lifetime.",
+      "success": true,
+      "time_s": 2.16,
+      "response": "I don't see a request or task that requires me to use my capabilities based on the information provided about Shakespeare's plays. If you have something specific in mind related to this fact, such as ",
+      "tokens": 65,
+      "graph_nodes": 6
+    },
+    {
+      "turn": 10,
+      "type": "question",
+      "prompt": "The Moon is about 238,855 miles from Earth on aver...",
+      "success": true,
+      "time_s": 2.13,
+      "response": "The distance you mentioned is correct. On average, the Moon is approximately 238,855 miles (or about 384,400 kilometers) from Earth. If you need any calculations or further information related to this",
+      "tokens": 58,
+      "graph_nodes": 7
+    },
+    {
+      "turn": 11,
+      "type": "fact",
+      "prompt": "How long is the Great Wall of China?",
+      "success": true,
+      "time_s": 1.87,
+      "response": "The length of the Great Wall of China is approximately 29,032 kilometers (18,045 miles) when measured along its entire course. This figure includes all of its major and minor sections, as well as natu",
+      "tokens": 66,
+      "graph_nodes": 7
+    },
+    {
+      "turn": 12,
+      "type": "fact",
+      "prompt": "Honey never spoils due to its low moisture content...",
+      "success": true,
+      "time_s": 4.73,
+      "response": "It seems like you have provided an interesting fact about honey, but it doesn't seem to be related directly to the numbers and names listed in your previous message. If you need any specific informati",
+      "tokens": 150,
+      "graph_nodes": 7
+    },
+    {
+      "turn": 13,
+      "type": "question",
+      "prompt": "The Eiffel Tower was completed in 1889 for the Wor...",
+      "success": true,
+      "time_s": 3.21,
+      "response": "Thank you for sharing that information. To clarify, the Eiffel Tower was indeed completed in 1889 specifically for the Paris Exposition (World's Fair) of the same year. If there is anything specific a",
+      "tokens": 65,
+      "graph_nodes": 7
+    },
+    {
+      "turn": 14,
+      "type": "fact",
+      "prompt": "Who was the first person to win Nobel Prizes in tw...",
+      "success": true,
+      "time_s": 2.86,
+      "response": "The first person to win Nobel Prizes in two different sciences is not listed among the facts you provided. However, I can tell you that this distinction belongs to Marie Curie. She won her first Nobel",
+      "tokens": 104,
+      "graph_nodes": 7
+    },
+    {
+      "turn": 15,
+      "type": "fact",
+      "prompt": "Octopuses have three hearts and blue blood.",
+      "success": true,
+      "time_s": 3.08,
+      "response": "That's correct! Octopuses have three hearts: two branchial hearts that pump blood through each of the gills, and one systemic heart that pumps oxygenated blood to the rest of the body. Their blood is ",
+      "tokens": 77,
+      "graph_nodes": 7
+    },
+    {
+      "turn": 16,
+      "type": "fact",
+      "prompt": "The Sahara Desert is roughly the size of the Unite...",
+      "success": true,
+      "time_s": 5.06,
+      "response": "While that's an interesting fact, it doesn't seem to match the numerical values and topics listed in your FACTS section. To provide more context or related information based on those entries:\n\n- 23885",
+      "tokens": 150,
+      "graph_nodes": 7
+    },
+    {
+      "turn": 17,
+      "type": "question",
+      "prompt": "Vincent van Gogh only sold one painting during his...",
+      "success": true,
+      "time_s": 4.5,
+      "response": "Vincent van Gogh sold only one painting during his lifetime, \"The Red Vineyard,\" which was completed in 1890. This fact is often used to highlight the posthumous success and recognition of Van Gogh's ",
+      "tokens": 120,
+      "graph_nodes": 7
+    },
+    {
+      "turn": 18,
+      "type": "fact",
+      "prompt": "What is the largest river by volume?",
+      "success": true,
+      "time_s": 3.98,
+      "response": "The information provided does not include details about rivers, so I cannot directly answer your question based on the given data. However, to find out which river has the largest volume of water flow",
+      "tokens": 148,
+      "graph_nodes": 7
+    },
+    {
+      "turn": 19,
+      "type": "fact",
+      "prompt": "The International Space Station orbits Earth every...",
+      "success": true,
+      "time_s": 3.35,
+      "response": "To clarify, you have provided a statement rather than requested an action or information. The International Space Station (ISS) indeed completes one orbit around the Earth approximately every 92 minut",
+      "tokens": 110,
+      "graph_nodes": 8
+    },
+    {
+      "turn": 20,
+      "type": "question",
+      "prompt": "Cleopatra lived closer in time to the Moon landing...",
+      "success": true,
+      "time_s": 5.07,
+      "response": "To verify the statement \"Cleopatra lived closer in time to the Moon landing than to the building of the pyramids,\" we need to look at the timelines involved:\n\n1. Cleopatra's era: She was a historical ",
+      "tokens": 150,
+      "graph_nodes": 9
+    },
+    {
+      "turn": 21,
+      "type": "fact",
+      "prompt": "How many neurons are in the human brain?",
+      "success": true,
+      "time_s": 1.31,
+      "response": "The number of neurons in the human brain is approximately 86 billion. However, this information wasn't part of your provided facts. If you need more details or sources about neuron count in humans, le",
+      "tokens": 45,
+      "graph_nodes": 9
+    },
+    {
+      "turn": 22,
+      "type": "fact",
+      "prompt": "A day on Venus is longer than a year on Venus.",
+      "success": true,
+      "time_s": 4.74,
+      "response": "That statement is not accurate. A day on Venus, which refers to the time it takes for Venus to rotate once on its axis, is actually shorter than a year on Venus, which is the length of time it takes f",
+      "tokens": 150,
+      "graph_nodes": 9
+    },
+    {
+      "turn": 23,
+      "type": "fact",
+      "prompt": "The shortest war in history lasted 38-45 minutes.",
+      "success": true,
+      "time_s": 2.3,
+      "response": "That's an interesting historical fact! However, it doesn't seem to relate directly to the information provided about pyramids, speed of light, or Mount Everest. If you have any specific questions rela",
+      "tokens": 66,
+      "graph_nodes": 10
+    },
+    {
+      "turn": 24,
+      "type": "question",
+      "prompt": "Bananas are berries, but strawberries are not.",
+      "success": true,
+      "time_s": 3.64,
+      "response": "That's correct! Botanically speaking, bananas are considered berries due to their flesh developing from the ovary without a pod and containing one or more seeds within. However, strawberries aren't tr",
+      "tokens": 96,
+      "graph_nodes": 10
+    },
+    {
+      "turn": 25,
+      "type": "fact",
+      "prompt": "What is the tallest mountain on Earth?",
+      "success": true,
+      "time_s": 2.44,
+      "response": "The tallest mountain on Earth is Mount Everest, with a height of 8,848 meters (29,029 feet) above sea level. However, you haven't asked for any action based on the facts provided or in relation to tho",
+      "tokens": 88,
+      "graph_nodes": 10
+    },
+    {
+      "turn": 26,
+      "type": "fact",
+      "prompt": "The inventor of the Pringles can is buried in one.",
+      "success": true,
+      "time_s": 3.38,
+      "response": "That's an interesting factoid, but it seems there might be some confusion. The story about the inventor of Pringles being buried in a Pringle can is actually an urban legend and not true. According to",
+      "tokens": 110,
+      "graph_nodes": 11
+    },
+    {
+      "turn": 27,
+      "type": "fact",
+      "prompt": "Polar bears have black skin under their white fur.",
+      "success": true,
+      "time_s": 3.05,
+      "response": "That's correct! Polar bears have black skin under their white fur. The black skin is an adaptation that helps them absorb heat from the sun, which is particularly important because they live in cold A",
+      "tokens": 82,
+      "graph_nodes": 12
+    },
+    {
+      "turn": 28,
+      "type": "question",
+      "prompt": "Oxford University is older than the Aztec Empire.",
+      "success": true,
+      "time_s": 3.98,
+      "response": "Indeed, Oxford University is older than the Aztec Empire. Here are some relevant facts:\n\n- **Oxford University**: Founded in 1096 (or even earlier), it's one of the oldest universities in the English-",
+      "tokens": 100,
+      "graph_nodes": 12
+    },
+    {
+      "turn": 29,
+      "type": "fact",
+      "prompt": "What is the speed of light?",
+      "success": true,
+      "time_s": 1.24,
+      "response": "The speed of light in a vacuum is approximately 299,792 kilometers per second (km/s) or about 186,282 miles per second (mi/s).",
+      "tokens": 42,
+      "graph_nodes": 12
+    },
+    {
+      "turn": 30,
+      "type": "fact",
+      "prompt": "Cows have best friends and get stressed when separ...",
+      "success": true,
+      "time_s": 3.37,
+      "response": "While that statement is interesting and relates more to animal behavior rather than the information provided about Pringles cans, pyramids, numbers or dates, I can still provide a relevant response ba",
+      "tokens": 97,
+      "graph_nodes": 12
+    },
+    {
+      "turn": 31,
+      "type": "question",
+      "prompt": "The first computer programmer was Ada Lovelace.",
+      "success": true,
+      "time_s": 4.41,
+      "response": "That's correct! Ada Lovelace is widely recognized as the first computer programmer for her work on Charles Babbage's early mechanical general-purpose computer, the Analytical Engine. She published the",
+      "tokens": 131,
+      "graph_nodes": 13
+    },
+    {
+      "turn": 32,
+      "type": "fact",
+      "prompt": "When was DNA first identified?",
+      "success": true,
+      "time_s": 4.03,
+      "response": "The structure and nature of DNA were first identified in the 1950s, but the discovery that genetic material is made up of deoxyribonucleic acid (DNA) dates back to the early 20th century. The term \"nu",
+      "tokens": 150,
+      "graph_nodes": 13
+    },
+    {
+      "turn": 33,
+      "type": "fact",
+      "prompt": "Honey bees can recognize human faces.",
+      "success": true,
+      "time_s": 4.9,
+      "response": "The statement \"Honey bees can recognize human faces\" is an interesting fact, but it's important to note that the capability of honeybees in recognizing human faces has been demonstrated through specif",
+      "tokens": 150,
+      "graph_nodes": 13
+    },
+    {
+      "turn": 34,
+      "type": "question",
+      "prompt": "The total weight of ants equals the total weight o...",
+      "success": true,
+      "time_s": 3.82,
+      "response": "It's an interesting fact that the total biomass of ants is roughly equal to or even surpasses the total biomass of humans and livestock combined. However, your statement specifically mentions weight r",
+      "tokens": 94,
+      "graph_nodes": 14
+    },
+    {
+      "turn": 35,
+      "type": "fact",
+      "prompt": "Which ocean is the largest?",
+      "success": true,
+      "time_s": 0.71,
+      "response": "The largest ocean is the Pacific Ocean. Would you like me to fetch more details or data about it?",
+      "tokens": 22,
+      "graph_nodes": 14
+    },
+    {
+      "turn": 36,
+      "type": "fact",
+      "prompt": "Dolphins sleep with one eye open.",
+      "success": true,
+      "time_s": 4.33,
+      "response": "That's an interesting fact! However, it's not entirely accurate to say that dolphins sleep with one eye open all the time. What actually happens is that they rest one half of their brain at a time whi",
+      "tokens": 126,
+      "graph_nodes": 14
+    },
+    {
+      "turn": 37,
+      "type": "question",
+      "prompt": "The Mona Lisa has no eyebrows.",
+      "success": true,
+      "time_s": 2.69,
+      "response": "That's an interesting fact, but it doesn't seem to relate directly to the information you provided about total weight of humans, Pringles can value lines or the pyramids. If you have any specific ques",
+      "tokens": 64,
+      "graph_nodes": 15
+    },
+    {
+      "turn": 38,
+      "type": "fact",
+      "prompt": "How many plays did Shakespeare write?",
+      "success": true,
+      "time_s": 1.01,
+      "response": "Shakespeare is believed to have written 39 plays, although some scholars debate the exact number due to variations in how collaborative works and lost plays are counted.",
+      "tokens": 33,
+      "graph_nodes": 15
+    },
+    {
+      "turn": 39,
+      "type": "fact",
+      "prompt": "A jiffy is an actual unit of time (1/100th of a se...",
+      "success": true,
+      "time_s": 4.19,
+      "response": "A jiffy is indeed sometimes defined as a unit of time equal to 1/100th of a second, though it's important to note that the term \"jiffy\" can also be used in other contexts. For example, in computing an",
+      "tokens": 109,
+      "graph_nodes": 15
+    },
+    {
+      "turn": 40,
+      "type": "question",
+      "prompt": "The Greenland shark can live for over 400 years.",
+      "success": true,
+      "time_s": 3.75,
+      "response": "The given sentence does not contain any numerical values or data points that match the criteria \"VALUE lines\" based on the provided examples. Therefore, there is no specific line of value to extract f",
+      "tokens": 81,
+      "graph_nodes": 15
+    },
+    {
+      "turn": 41,
+      "type": "fact",
+      "prompt": "How far is the Moon from Earth?",
+      "success": true,
+      "time_s": 0.71,
+      "response": "The average distance from the Earth to the Moon is approximately 384,400 kilometers.",
+      "tokens": 22,
+      "graph_nodes": 15
+    },
+    {
+      "turn": 42,
+      "type": "fact",
+      "prompt": "Elephants are the only animals that can't jump.",
+      "success": true,
+      "time_s": 5.0,
+      "response": "The statement \"Elephants are the only animals that can't jump\" is not accurate. While it's true that elephants rarely, if ever, jump in their natural environment due to their size and weight, there is",
+      "tokens": 142,
+      "graph_nodes": 15
+    },
+    {
+      "turn": 43,
+      "type": "fact",
+      "prompt": "Russia has more surface area than Pluto.",
+      "success": true,
+      "time_s": 5.25,
+      "response": "The statement \"Russia has more surface area than Pluto\" is not accurate. Russia, being a country on Earth, does not have its own independent surface area; rather, it occupies parts of the total landma",
+      "tokens": 150,
+      "graph_nodes": 15
+    },
+    {
+      "turn": 44,
+      "type": "question",
+      "prompt": "The first oranges weren't orange, they were green.",
+      "success": true,
+      "time_s": 4.69,
+      "response": "The statement \"The first oranges weren't orange, they were green\" is an interesting fact about the history and biology of oranges. However, based on your previous instructions, you'd like me to extrac",
+      "tokens": 150,
+      "graph_nodes": 15
+    },
+    {
+      "turn": 45,
+      "type": "fact",
+      "prompt": "Why doesn't honey spoil?",
+      "success": true,
+      "time_s": 3.0,
+      "response": "Honey's unique composition is the reason it doesn't spoil. It has a low moisture content (typically less than 18%) and high sugar concentration, which creates an inhospitable environment for bacteria ",
+      "tokens": 110,
+      "graph_nodes": 15
+    },
+    {
+      "turn": 46,
+      "type": "fact",
+      "prompt": "Your nose can remember 50,000 different scents.",
+      "success": true,
+      "time_s": 5.08,
+      "response": "That's an interesting fact about the human nose! However, it seems like you're asking for information or a task related to specific values from certain sentences. Based on your previous instruction an",
+      "tokens": 150,
+      "graph_nodes": 15
+    },
+    {
+      "turn": 47,
+      "type": "question",
+      "prompt": "There are more possible chess games than atoms in ...",
+      "success": true,
+      "time_s": 4.8,
+      "response": "The statement \"There are more possible chess games than atoms in the observable universe\" is an interesting comparison that highlights just how complex and extensive the game of chess can be. However,",
+      "tokens": 150,
+      "graph_nodes": 16
+    },
+    {
+      "turn": 48,
+      "type": "fact",
+      "prompt": "When was the Eiffel Tower completed?",
+      "success": true,
+      "time_s": 0.54,
+      "response": "The Eiffel Tower was completed in 1889.",
+      "tokens": 15,
+      "graph_nodes": 16
+    },
+    {
+      "turn": 49,
+      "type": "fact",
+      "prompt": "Sea otters hold hands while sleeping so they don't...",
+      "success": true,
+      "time_s": 3.61,
+      "response": "That's an interesting fact about sea otters! However, it seems the request is not related to processing or filtering specific lines based on rules provided in a previous context. If you would like me ",
+      "tokens": 100,
+      "graph_nodes": 16
+    },
+    {
+      "turn": 50,
+      "type": "question",
+      "prompt": "The longest hiccuping spree lasted 68 years.",
+      "success": true,
+      "time_s": 2.07,
+      "response": "That's an interesting fact! However, it seems you've shared a statement without asking for any specific action or information related to the data provided about Pringles can dimensions and values. If ",
+      "tokens": 61,
+      "graph_nodes": 17
+    },
+    {
+      "turn": 51,
+      "type": "fact",
+      "prompt": "When did Cleopatra live relative to the Moon landi...",
+      "success": true,
+      "time_s": 3.29,
+      "response": "Cleopatra lived approximately between 69 BC and 30 BC. The Moon landing occurred on July 20, 1969 AD. As for the pyramids of Egypt (specifically the Great Pyramid of Giza), they were constructed aroun",
+      "tokens": 121,
+      "graph_nodes": 17
+    }
+  ]
+}

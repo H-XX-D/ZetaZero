@@ -148,6 +148,45 @@ Facts evolve over time with full version history:
 - **Mechanism**: Allows the model to "think silently" (hidden tokens) before generating the final response.
 - **Integration**: Acts as the timeline where the Conductor assembles the final output.
 
+### 2.6 Deliberation Engine (Z.E.T.A. One Preview)
+
+> **See**: [DELIBERATION_WEIGHTS_SPEC.md](DELIBERATION_WEIGHTS_SPEC.md) for full specification.
+
+The Deliberation Engine implements the "Think Before You Think" protocol:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    DELIBERATION LOOP                            │
+├─────────────────────────────────────────────────────────────────┤
+│   Query                                                         │
+│     │                                                           │
+│     ▼                                                           │
+│   ┌─────────────┐   ┌─────────────┐   ┌─────────────┐          │
+│   │   NAVIGATE  │──►│   VERIFY    │──►│    GATE     │          │
+│   │  (2.5B)     │   │  (2.0B)     │   │   (1.5B)    │          │
+│   │ Graph Query │   │ Consistency │   │ Confidence  │          │
+│   └─────────────┘   └─────────────┘   └─────────────┘          │
+│                                              │                   │
+│                                              ▼                   │
+│   ┌─────────────┐   ┌─────────────┐   ┌─────────────┐          │
+│   │  SYNTHESIZE │◄──│   REFLECT   │◄──│    VETO     │          │
+│   │   (2.0B)    │   │  (loop)     │   │   (2.0B)    │          │
+│   │   Output    │   │Self-Correct │   │Constitutional│         │
+│   └─────────────┘   └─────────────┘   └─────────────┘          │
+│         │                                                       │
+│         ▼                                                       │
+│   Verified Output (or Uncertainty Statement)                    │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Key Principle**: The model doesn't predict tokens—it navigates structure. If the graph doesn't contain verifiable evidence, the output explicitly states uncertainty.
+
+**Veto Network** (Safety-through-Architecture):
+- Constitutional violations → blocked
+- Factual conflicts → blocked  
+- Insufficient evidence → uncertainty statement
+- Confidence < 0.80 → hedged response
+
 ---
 
 ## 3. Mathematical Foundations
