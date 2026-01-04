@@ -128,6 +128,13 @@ struct ResearchConfig {
     
     bool preserve_tensions = true;          // keep contradictions explicit
     bool require_compression = true;        // branches must compress to survive
+    
+    // Semantic similarity config
+    int k_semantic = 5;                     // max semantic neighbors per branch
+    int semantic_update_period = 2;         // update every N iterations
+    int semantic_add_threshold = 12;        // Hamming distance to add edge
+    int semantic_drop_threshold = 16;       // Hamming distance to drop (hysteresis)
+    int max_semantic_checks_per_iter = 50;  // budget cap
 };
 
 // =============================================================================
@@ -274,11 +281,432 @@ struct BranchGraph {
     }
 };
 
+// =============================================================================
+// SEMANTIC SIMILARITY LAYER
+// SimHash + LSH bucketing for O(1) candidate generation
+// Top-k neighbors with hysteresis to prevent edge thrash
+// =============================================================================
+
+enum class EdgeType { LINEAGE, SEMANTIC };
+
+struct SemanticLayer {
+    // SimHash signatures: branch_id -> 64-bit hash
+    std::unordered_map<std::string, uint64_t> signatures;
+    
+    // LSH buckets: 16-bit chunk -> set of branch_ids
+    // 4 buckets (chunks 0-3 of 64-bit hash)
+    std::array<std::unordered_map<uint16_t, std::unordered_set<std::string>>, 4> buckets;
+    
+    // Semantic edges: branch_id -> set of semantic neighbors
+    std::unordered_map<std::string, std::unordered_set<std::string>> semantic_adj;
+    
+    // Edge type tracking for debugging/tuning
+    std::unordered_map<std::string, EdgeType> edge_types;  // canonical_pair -> type
+    
+    // Cache: canonical_pair -> (contradiction_result, signature_hash_when_checked)
+    std::unordered_map<std::string, std::pair<bool, uint64_t>> contradiction_cache;
+    
+    // Metrics
+    int semantic_edges_added = 0;
+    int semantic_edges_dropped = 0;
+    int cache_hits = 0;
+    
+    // === SIMHASH COMPUTATION ===
+    
+    // Simple string tokenizer (lowercase, split on whitespace/punct)
+    static std::vector<std::string> tokenize(const std::string& text) {
+        std::vector<std::string> tokens;
+        std::string current;
+        for (char c : text) {
+            if (std::isalnum(c)) {
+                current += std::tolower(c);
+            } else if (!current.empty()) {
+                if (current.length() > 2) {  // Skip very short tokens
+                    tokens.push_back(current);
+                }
+                current.clear();
+            }
+        }
+        if (!current.empty() && current.length() > 2) {
+            tokens.push_back(current);
+        }
+        return tokens;
+    }
+    
+    // FNV-1a hash for shingles
+    static uint64_t fnv1a(const std::string& s) {
+        uint64_t hash = 14695981039346656037ULL;
+        for (char c : s) {
+            hash ^= static_cast<uint64_t>(c);
+            hash *= 1099511628211ULL;
+        }
+        return hash;
+    }
+    
+    // Compute SimHash from text
+    static uint64_t compute_simhash(const std::string& text) {
+        auto tokens = tokenize(text);
+        if (tokens.size() < 2) return 0;
+        
+        // Accumulator for 64 bits
+        std::array<int, 64> bits{};
+        
+        // Generate 2-word shingles and hash them
+        for (size_t i = 0; i + 1 < tokens.size(); ++i) {
+            std::string shingle = tokens[i] + " " + tokens[i + 1];
+            uint64_t h = fnv1a(shingle);
+            
+            for (int b = 0; b < 64; ++b) {
+                if ((h >> b) & 1) {
+                    bits[b]++;
+                } else {
+                    bits[b]--;
+                }
+            }
+        }
+        
+        // Convert to signature
+        uint64_t sig = 0;
+        for (int b = 0; b < 64; ++b) {
+            if (bits[b] > 0) {
+                sig |= (1ULL << b);
+            }
+        }
+        return sig;
+    }
+    
+    // Hamming distance between signatures
+    static int hamming_distance(uint64_t a, uint64_t b) {
+        uint64_t x = a ^ b;
+        int count = 0;
+        while (x) {
+            count += x & 1;
+            x >>= 1;
+        }
+        return count;
+    }
+    
+    // === LSH BUCKET MANAGEMENT ===
+    
+    void add_to_buckets(const std::string& id, uint64_t sig) {
+        for (int i = 0; i < 4; ++i) {
+            uint16_t chunk = static_cast<uint16_t>((sig >> (i * 16)) & 0xFFFF);
+            buckets[i][chunk].insert(id);
+        }
+    }
+    
+    void remove_from_buckets(const std::string& id) {
+        auto it = signatures.find(id);
+        if (it == signatures.end()) return;
+        
+        uint64_t sig = it->second;
+        for (int i = 0; i < 4; ++i) {
+            uint16_t chunk = static_cast<uint16_t>((sig >> (i * 16)) & 0xFFFF);
+            if (buckets[i].count(chunk)) {
+                buckets[i][chunk].erase(id);
+            }
+        }
+    }
+    
+    // Get candidate neighbors via LSH (union of bucket matches)
+    std::unordered_set<std::string> get_candidates(const std::string& id) const {
+        std::unordered_set<std::string> candidates;
+        
+        auto it = signatures.find(id);
+        if (it == signatures.end()) return candidates;
+        
+        uint64_t sig = it->second;
+        for (int i = 0; i < 4; ++i) {
+            uint16_t chunk = static_cast<uint16_t>((sig >> (i * 16)) & 0xFFFF);
+            auto bucket_it = buckets[i].find(chunk);
+            if (bucket_it != buckets[i].end()) {
+                for (const auto& cand : bucket_it->second) {
+                    if (cand != id) {
+                        candidates.insert(cand);
+                    }
+                }
+            }
+        }
+        return candidates;
+    }
+    
+    // === SIGNATURE MANAGEMENT ===
+    
+    void update_signature(const std::string& id, const std::string& text) {
+        // Remove from old buckets
+        remove_from_buckets(id);
+        
+        // Compute new signature
+        uint64_t sig = compute_simhash(text);
+        signatures[id] = sig;
+        
+        // Add to new buckets
+        add_to_buckets(id, sig);
+    }
+    
+    void remove_branch(const std::string& id) {
+        remove_from_buckets(id);
+        signatures.erase(id);
+        
+        // Remove semantic edges
+        if (semantic_adj.count(id)) {
+            for (const auto& neighbor : semantic_adj[id]) {
+                if (semantic_adj.count(neighbor)) {
+                    semantic_adj[neighbor].erase(id);
+                }
+                // Clean up edge type
+                std::string pair_key = id < neighbor ? id + "_" + neighbor : neighbor + "_" + id;
+                edge_types.erase(pair_key);
+            }
+            semantic_adj.erase(id);
+        }
+    }
+    
+    // === SEMANTIC EDGE MANAGEMENT WITH HYSTERESIS ===
+    
+    void link_semantic(const std::string& a, const std::string& b) {
+        if (a == b) return;
+        semantic_adj[a].insert(b);
+        semantic_adj[b].insert(a);
+        
+        std::string pair_key = a < b ? a + "_" + b : b + "_" + a;
+        edge_types[pair_key] = EdgeType::SEMANTIC;
+        semantic_edges_added++;
+    }
+    
+    void unlink_semantic(const std::string& a, const std::string& b) {
+        if (semantic_adj.count(a)) semantic_adj[a].erase(b);
+        if (semantic_adj.count(b)) semantic_adj[b].erase(a);
+        
+        std::string pair_key = a < b ? a + "_" + b : b + "_" + a;
+        edge_types.erase(pair_key);
+        semantic_edges_dropped++;
+    }
+    
+    bool has_semantic_edge(const std::string& a, const std::string& b) const {
+        if (a == b) return false;
+        auto it = semantic_adj.find(a);
+        return it != semantic_adj.end() && it->second.count(b) > 0;
+    }
+    
+    const std::unordered_set<std::string>& semantic_neighbors(const std::string& id) const {
+        static const std::unordered_set<std::string> empty;
+        auto it = semantic_adj.find(id);
+        return it != semantic_adj.end() ? it->second : empty;
+    }
+    
+    size_t semantic_degree(const std::string& id) const {
+        auto it = semantic_adj.find(id);
+        return it != semantic_adj.end() ? it->second.size() : 0;
+    }
+    
+    // === CACHE MANAGEMENT ===
+    
+    std::string canonical_pair(const std::string& a, const std::string& b) const {
+        return a < b ? a + "_" + b : b + "_" + a;
+    }
+    
+    // Check if cached result is still valid (signatures unchanged)
+    bool is_cache_valid(const std::string& a, const std::string& b) const {
+        std::string key = canonical_pair(a, b);
+        auto it = contradiction_cache.find(key);
+        if (it == contradiction_cache.end()) return false;
+        
+        auto sig_a = signatures.find(a);
+        auto sig_b = signatures.find(b);
+        if (sig_a == signatures.end() || sig_b == signatures.end()) return false;
+        
+        // Cache stores XOR of both signatures when checked
+        return it->second.second == (sig_a->second ^ sig_b->second);
+    }
+    
+    void cache_contradiction(const std::string& a, const std::string& b, bool result) {
+        std::string key = canonical_pair(a, b);
+        auto sig_a = signatures.find(a);
+        auto sig_b = signatures.find(b);
+        if (sig_a != signatures.end() && sig_b != signatures.end()) {
+            contradiction_cache[key] = {result, sig_a->second ^ sig_b->second};
+        }
+    }
+    
+    bool get_cached_contradiction(const std::string& a, const std::string& b, bool& result) {
+        if (!is_cache_valid(a, b)) return false;
+        
+        std::string key = canonical_pair(a, b);
+        result = contradiction_cache[key].first;
+        cache_hits++;
+        return true;
+    }
+};
+
+// =============================================================================
+// EXTENDED BRANCH GRAPH WITH SEMANTIC LAYER
+// =============================================================================
+
+struct BranchGraphExtended : public BranchGraph {
+    SemanticLayer semantic;
+    int current_iteration = 0;
+    
+    // Get all neighbors (lineage + semantic)
+    std::unordered_set<std::string> all_neighbors(const std::string& id) const {
+        std::unordered_set<std::string> result;
+        
+        // Lineage neighbors
+        const auto& lineage = neighbors(id);
+        result.insert(lineage.begin(), lineage.end());
+        
+        // Semantic neighbors
+        const auto& sem = semantic.semantic_neighbors(id);
+        result.insert(sem.begin(), sem.end());
+        
+        return result;
+    }
+    
+    // Update semantic links for all active branches
+    void rebuild_semantic_links(
+        const std::vector<Branch>& branches,
+        const ResearchBuffer& buffer,
+        const ResearchConfig& config
+    ) {
+        current_iteration++;
+        
+        // Only update on schedule
+        if (current_iteration % config.semantic_update_period != 0) return;
+        
+        fprintf(stderr, "[SEMANTIC] Rebuilding semantic links (iter %d)\n", current_iteration);
+        
+        // Step 1: Update signatures from current summaries/concepts
+        for (const auto& branch : branches) {
+            std::string semantic_text;
+            
+            // Prefer validated summary if available
+            for (const auto& summary : buffer.summaries) {
+                for (const auto& src_id : summary.source_branch_ids) {
+                    if (src_id == branch.id && summary.is_valid()) {
+                        semantic_text = summary.text;
+                        break;
+                    }
+                }
+                if (!semantic_text.empty()) break;
+            }
+            
+            // Fallback: join last 3 concepts
+            if (semantic_text.empty() && !branch.concepts.empty()) {
+                size_t start = branch.concepts.size() > 3 ? branch.concepts.size() - 3 : 0;
+                for (size_t i = start; i < branch.concepts.size(); ++i) {
+                    semantic_text += branch.concepts[i].content.substr(0, 200) + " ";
+                }
+            }
+            
+            if (!semantic_text.empty()) {
+                semantic.update_signature(branch.id, semantic_text);
+            }
+        }
+        
+        // Step 2: For each branch, find top-k semantic neighbors with hysteresis
+        int checks_budget = config.max_semantic_checks_per_iter;
+        
+        for (const auto& branch : branches) {
+            if (checks_budget <= 0) break;
+            
+            auto candidates = semantic.get_candidates(branch.id);
+            auto sig_it = semantic.signatures.find(branch.id);
+            if (sig_it == semantic.signatures.end()) continue;
+            
+            uint64_t my_sig = sig_it->second;
+            
+            // Score candidates by Hamming distance
+            std::vector<std::pair<int, std::string>> scored;  // (distance, id)
+            
+            for (const auto& cand_id : candidates) {
+                if (!is_active(cand_id)) continue;
+                if (cand_id == branch.id) continue;
+                
+                auto cand_sig = semantic.signatures.find(cand_id);
+                if (cand_sig == semantic.signatures.end()) continue;
+                
+                int dist = SemanticLayer::hamming_distance(my_sig, cand_sig->second);
+                scored.push_back({dist, cand_id});
+                checks_budget--;
+            }
+            
+            // Sort by distance (ascending)
+            std::sort(scored.begin(), scored.end());
+            
+            // Current semantic neighbors
+            auto current_sem = semantic.semantic_neighbors(branch.id);
+            std::unordered_set<std::string> new_neighbors;
+            
+            // Keep top-k under add threshold
+            for (size_t i = 0; i < scored.size() && (int)new_neighbors.size() < config.k_semantic; ++i) {
+                if (scored[i].first <= config.semantic_add_threshold) {
+                    new_neighbors.insert(scored[i].second);
+                }
+            }
+            
+            // Hysteresis: keep existing edges if under drop threshold
+            for (const auto& existing : current_sem) {
+                if (new_neighbors.count(existing)) continue;  // Already in new set
+                
+                auto ex_sig = semantic.signatures.find(existing);
+                if (ex_sig == semantic.signatures.end()) continue;
+                
+                int dist = SemanticLayer::hamming_distance(my_sig, ex_sig->second);
+                if (dist <= config.semantic_drop_threshold && 
+                    (int)new_neighbors.size() < config.k_semantic) {
+                    new_neighbors.insert(existing);  // Keep due to hysteresis
+                }
+            }
+            
+            // Apply changes
+            for (const auto& existing : current_sem) {
+                if (!new_neighbors.count(existing)) {
+                    semantic.unlink_semantic(branch.id, existing);
+                }
+            }
+            for (const auto& n : new_neighbors) {
+                if (!current_sem.count(n)) {
+                    semantic.link_semantic(branch.id, n);
+                }
+            }
+        }
+        
+        fprintf(stderr, "[SEMANTIC] Added %d, dropped %d edges (budget remaining: %d)\n",
+                semantic.semantic_edges_added, semantic.semantic_edges_dropped, checks_budget);
+    }
+    
+    // Override remove_branch to also clean semantic layer
+    void remove_branch(const std::string& id) {
+        semantic.remove_branch(id);
+        BranchGraph::remove_branch(id);
+    }
+    
+    // Get edge type for debugging
+    EdgeType get_edge_type(const std::string& a, const std::string& b) const {
+        // Check lineage first
+        if (are_adjacent(a, b)) return EdgeType::LINEAGE;
+        
+        std::string key = semantic.canonical_pair(a, b);
+        auto it = semantic.edge_types.find(key);
+        if (it != semantic.edge_types.end()) return it->second;
+        
+        return EdgeType::LINEAGE;  // Default
+    }
+    
+    size_t total_semantic_edges() const {
+        size_t sum = 0;
+        for (const auto& [_, neighbors] : semantic.semantic_adj) {
+            sum += neighbors.size();
+        }
+        return sum / 2;
+    }
+};
+
 struct ResearchState {
     std::vector<Branch> active_branches;
     std::vector<Tension> tensions;
     std::unordered_set<std::string> tension_ids;  // deduplication
-    BranchGraph graph;  // O(1) adjacency lookups
+    BranchGraphExtended graph;  // O(1) adjacency + semantic similarity
     ResearchBuffer buffer;
     
     float global_entropy = 1.0f;
@@ -797,8 +1225,10 @@ inline Tension record_tension(const Branch& a, const Branch& b,
 }
 
 inline void detect_and_record_tensions(ResearchState& state) {
-    fprintf(stderr, "[RESEARCH] Phase 3a: Tension Detection (O(n) graph-based, %zu edges)\n", 
-            state.graph.total_edges());
+    size_t lineage_edges = state.graph.total_edges();
+    size_t semantic_edges = state.graph.total_semantic_edges();
+    fprintf(stderr, "[RESEARCH] Phase 3a: Tension Detection (lineage: %zu, semantic: %zu edges)\n", 
+            lineage_edges, semantic_edges);
     
     // Build branch lookup for O(1) access
     std::unordered_map<std::string, size_t> branch_idx;
@@ -806,15 +1236,18 @@ inline void detect_and_record_tensions(ResearchState& state) {
         branch_idx[state.active_branches[i].id] = i;
     }
     
-    // O(E) - iterate edges via adjacency, check only active neighbors
+    // O(E) - iterate ALL neighbors (lineage + semantic)
     std::unordered_set<std::string> checked_pairs;
     int checks_performed = 0;
+    int cache_hits = 0;
     
     for (size_t i = 0; i < state.active_branches.size(); ++i) {
         const Branch& branch = state.active_branches[i];
-        const auto& neighbors = state.graph.neighbors(branch.id);
         
-        for (const std::string& neighbor_id : neighbors) {
+        // Get ALL neighbors (lineage + semantic)
+        auto all_neighs = state.graph.all_neighbors(branch.id);
+        
+        for (const std::string& neighbor_id : all_neighs) {
             // Skip if neighbor not active (dead reference)
             if (!state.graph.is_active(neighbor_id)) continue;
             
@@ -838,18 +1271,38 @@ inline void detect_and_record_tensions(ResearchState& state) {
                 continue;
             }
             
-            checks_performed++;
             const Branch& neighbor = state.active_branches[it->second];
             
-            if (creates_contradiction(branch, neighbor, state.generate_fn)) {
+            // Check cache first
+            bool cached_result;
+            bool is_contradiction;
+            if (state.graph.semantic.get_cached_contradiction(branch.id, neighbor_id, cached_result)) {
+                is_contradiction = cached_result;
+                cache_hits++;
+            } else {
+                checks_performed++;
+                is_contradiction = creates_contradiction(branch, neighbor, state.generate_fn);
+                // Cache the result
+                state.graph.semantic.cache_contradiction(branch.id, neighbor_id, is_contradiction);
+            }
+            
+            if (is_contradiction) {
                 Tension t = record_tension(branch, neighbor, state.generate_fn);
                 t.id = canonical_id;  // Use canonical ID
                 state.tensions.push_back(t);
                 state.tension_ids.insert(t.id);
-                fprintf(stderr, "[RESEARCH] Tension recorded: %s (severity=%.2f)\n", t.id.c_str(), t.severity);
+                
+                EdgeType edge_type = state.graph.get_edge_type(branch.id, neighbor_id);
+                const char* type_str = edge_type == EdgeType::SEMANTIC ? "semantic" : "lineage";
+                fprintf(stderr, "[RESEARCH] Tension recorded: %s (severity=%.2f, via %s)\n", 
+                        t.id.c_str(), t.severity, type_str);
             }
         }
     }
+    
+    state.tension_checks_skipped += cache_hits;
+    fprintf(stderr, "[RESEARCH] Checked %d pairs, cache hits: %d\n", checks_performed, cache_hits);
+}
     
     state.tension_checks_skipped += (state.graph.total_edges() - checks_performed);
     fprintf(stderr, "[RESEARCH] Checked %d pairs (of %zu edges)\n", 
@@ -1140,6 +1593,9 @@ inline std::string run_research_mode(const std::string& topic,
         // Phase 2: Local Compression
         compress_branches(state);
         
+        // Rebuild semantic links after compression (uses updated summaries)
+        state.graph.rebuild_semantic_links(state.active_branches, state.buffer, state.config);
+        
         // Phase 3: Tension Detection & Merging
         detect_and_record_tensions(state);
         merge_branches(state);
@@ -1162,6 +1618,12 @@ inline std::string run_research_mode(const std::string& topic,
     fprintf(stderr, "[RESEARCH] Research Mode Complete\n");
     fprintf(stderr, "[RESEARCH] Concepts explored: %d\n", state.total_concepts_explored);
     fprintf(stderr, "[RESEARCH] Branches spawned: %d | pruned: %d\n", state.branches_spawned, state.branches_pruned);
+    fprintf(stderr, "[RESEARCH] Graph: %zu lineage edges, %zu semantic edges\n", 
+            state.graph.total_edges(), state.graph.total_semantic_edges());
+    fprintf(stderr, "[RESEARCH] Semantic: added %d, dropped %d, cache hits %d\n",
+            state.graph.semantic.semantic_edges_added, 
+            state.graph.semantic.semantic_edges_dropped,
+            state.graph.semantic.cache_hits);
     fprintf(stderr, "[RESEARCH] Tensions recorded: %zu (unresolved: %zu)\n", 
             state.tensions.size(), 
             std::count_if(state.tensions.begin(), state.tensions.end(), [](const Tension& t) { return !t.resolved; }));
