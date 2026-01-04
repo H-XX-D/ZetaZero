@@ -616,6 +616,20 @@ public:
         apply_overrides();
     }
     
+    // Convenience overload for single-field override from JSON API
+    void set_budget_override(const std::string& field, int value) {
+        if (field == "max_branches") set_budget_override(value, -1, -1);
+        else if (field == "max_depth") set_budget_override(-1, value, -1);
+        else if (field == "max_iterations") set_budget_override(-1, -1, value);
+    }
+    
+    // Simple set_mode alias for initialization
+    void set_mode(Mode mode) {
+        switch_mode(mode, "");
+    }
+    
+    const ModePolicy& current_policy() const { return current_policy_; }
+    
     void clear_overrides() {
         overrides_ = RuntimeOverrides();
         current_policy_ = get_policy(current_mode_);
