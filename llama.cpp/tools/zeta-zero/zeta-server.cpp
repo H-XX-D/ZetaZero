@@ -5089,13 +5089,22 @@ int main(int argc, char** argv) {
     svr.Post("/mode", [](const httplib::Request& req, httplib::Response& res) {
         res.set_header("Access-Control-Allow-Origin", "*");
         
+        // Manual JSON parsing (matches existing server style)
         std::string mode_str;
-        try {
-            auto body = nlohmann::json::parse(req.body);
-            mode_str = body.value("mode", "");
-        } catch (...) {
+        size_t mode_pos = req.body.find("\"mode\":");
+        if (mode_pos != std::string::npos) {
+            size_t ms = req.body.find('"', mode_pos + 7);
+            if (ms != std::string::npos) {
+                size_t me = req.body.find('"', ms + 1);
+                if (me != std::string::npos) {
+                    mode_str = req.body.substr(ms + 1, me - ms - 1);
+                }
+            }
+        }
+        
+        if (mode_str.empty()) {
             res.status = 400;
-            res.set_content("{\"error\": \"Invalid JSON\"}", "application/json");
+            res.set_content("{\"error\": \"Missing 'mode' field\"}", "application/json");
             return;
         }
         
@@ -5168,44 +5177,58 @@ int main(int argc, char** argv) {
     svr.Post("/branching", [](const httplib::Request& req, httplib::Response& res) {
         res.set_header("Access-Control-Allow-Origin", "*");
         
-        try {
-            auto body = nlohmann::json::parse(req.body);
-            
-            // Apply overrides
-            if (body.contains("level")) {
-                std::string level = body["level"];
-                std::transform(level.begin(), level.end(), level.begin(), ::toupper);
-                if (level == "NONE") g_mode_ctrl.set_branching_level_override(zeta_branching::BranchingLevel::NONE);
-                else if (level == "LIGHT") g_mode_ctrl.set_branching_level_override(zeta_branching::BranchingLevel::LIGHT);
-                else if (level == "FULL") g_mode_ctrl.set_branching_level_override(zeta_branching::BranchingLevel::FULL);
+        // Manual JSON parsing for branching overrides
+        // Parse "level" field
+        size_t level_pos = req.body.find("\"level\":");
+        if (level_pos != std::string::npos) {
+            size_t ls = req.body.find('"', level_pos + 8);
+            if (ls != std::string::npos) {
+                size_t le = req.body.find('"', ls + 1);
+                if (le != std::string::npos) {
+                    std::string level = req.body.substr(ls + 1, le - ls - 1);
+                    std::transform(level.begin(), level.end(), level.begin(), ::toupper);
+                    if (level == "NONE") g_mode_ctrl.set_branching_level_override(zeta_branching::BranchingLevel::NONE);
+                    else if (level == "LIGHT") g_mode_ctrl.set_branching_level_override(zeta_branching::BranchingLevel::LIGHT);
+                    else if (level == "FULL") g_mode_ctrl.set_branching_level_override(zeta_branching::BranchingLevel::FULL);
+                }
             }
-            
-            if (body.contains("max_branches")) {
-                int val = body["max_branches"];
+        }
+        
+        // Parse "max_branches" field
+        size_t mb_pos = req.body.find("\"max_branches\":");
+        if (mb_pos != std::string::npos) {
+            size_t num_start = mb_pos + 15;
+            while (num_start < req.body.size() && !isdigit(req.body[num_start])) num_start++;
+            if (num_start < req.body.size()) {
+                int val = std::stoi(req.body.substr(num_start));
                 g_mode_ctrl.set_budget_override("max_branches", val);
             }
-            if (body.contains("max_depth")) {
-                int val = body["max_depth"];
+        }
+        
+        // Parse "max_depth" field
+        size_t md_pos = req.body.find("\"max_depth\":");
+        if (md_pos != std::string::npos) {
+            size_t num_start = md_pos + 12;
+            while (num_start < req.body.size() && !isdigit(req.body[num_start])) num_start++;
+            if (num_start < req.body.size()) {
+                int val = std::stoi(req.body.substr(num_start));
                 g_mode_ctrl.set_budget_override("max_depth", val);
             }
-            
-            fprintf(stderr, "[BRANCHING] Runtime override applied\n");
-            
-            auto policy = g_mode_ctrl.current_policy();
-            std::ostringstream json;
-            json << "{"
-                 << "\"status\": \"ok\","
-                 << "\"effective_level\": \"" 
-                 << (policy.branching_level == zeta_branching::BranchingLevel::NONE ? "NONE" :
-                     policy.branching_level == zeta_branching::BranchingLevel::LIGHT ? "LIGHT" : "FULL") << "\","
-                 << "\"effective_max_branches\": " << policy.branch_budget.max_branches
-                 << "}";
-            
-            res.set_content(json.str(), "application/json");
-        } catch (...) {
-            res.status = 400;
-            res.set_content("{\"error\": \"Invalid JSON\"}", "application/json");
         }
+        
+        fprintf(stderr, "[BRANCHING] Runtime override applied\n");
+        
+        auto policy = g_mode_ctrl.current_policy();
+        std::ostringstream json;
+        json << "{"
+             << "\"status\": \"ok\","
+             << "\"effective_level\": \"" 
+             << (policy.branching_level == zeta_branching::BranchingLevel::NONE ? "NONE" :
+                 policy.branching_level == zeta_branching::BranchingLevel::LIGHT ? "LIGHT" : "FULL") << "\","
+             << "\"effective_max_branches\": " << policy.branch_budget.max_branches
+             << "}";
+        
+        res.set_content(json.str(), "application/json");
     });
 
     // Unload 3B to free VRAM

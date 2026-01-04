@@ -1004,9 +1004,9 @@ private:
             if (!graph_.is_active(b.id)) continue;
             
             if (condition == 1) {
-                result += "If exploring " + branch_kind_name(b.kind) + ":\n";
+                result += std::string("If exploring ") + branch_kind_name(b.kind) + ":\n";
             } else {
-                result += "Alternatively, if " + branch_kind_name(b.kind) + ":\n";
+                result += std::string("Alternatively, if ") + branch_kind_name(b.kind) + ":\n";
             }
             
             if (!b.summary.empty()) {
