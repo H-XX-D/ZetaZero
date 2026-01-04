@@ -106,6 +106,10 @@ extern "C" {
 #include "zeta-dream.h"         // Dream State: idle consolidation cycle
 #include "zeta-cloud.h"         // Cloud routing: optional escalation to OpenAI/Anthropic
 
+// Mode Controller + Branching Engine: Multi-hypothesis exploration across all modes
+#include "zeta-branching-engine.h"
+#include "zeta-mode-controller.h"
+
 // ============================================================================
 // SPEED RECEIPT: High-resolution timing for the "Zero-Latency" lifecycle
 // Captures: CPU embed, Momentum tunneling, GKV injection, First token
@@ -163,6 +167,8 @@ static ZetaTaskEvaluator g_task_eval;
 // Swarm Manager (Distributed Intelligence)
 static ZetaSwarmManager g_swarm;
 
+// Mode Controller (Multi-hypothesis branching across all modes)
+static zeta_modes::ModeController g_mode_ctrl;
 
 // Conscious model (14B reasoning)
 static llama_model* g_model_conscious = nullptr;
@@ -3335,6 +3341,10 @@ int main(int argc, char** argv) {
         fprintf(stderr, "[OUTPUT] WARNING: Failed to initialize output buffer\n");
     }
 
+    // Initialize Mode Controller (multi-hypothesis branching)
+    g_mode_ctrl.set_mode(zeta_modes::Mode::CHAT);  // Default to CHAT
+    fprintf(stderr, "[MODE] Mode controller initialized (default: CHAT)\n");
+
     httplib::Server svr;
     g_server = &svr;
 
@@ -5043,6 +5053,159 @@ int main(int argc, char** argv) {
             "{\"status\": \"ok\", \"old_nodes\": %d, \"old_edges\": %d, \"action\": \"graph_reset\"}",
             old_nodes, old_edges);
         res.set_content(resp, "application/json");
+    });
+
+    // =========================================================================
+    // MODE CONTROLLER ENDPOINTS
+    // =========================================================================
+
+    // GET /mode - Return current mode and policy info
+    svr.Get("/mode", [](const httplib::Request&, httplib::Response& res) {
+        res.set_header("Access-Control-Allow-Origin", "*");
+        
+        auto mode = g_mode_ctrl.current_mode();
+        auto policy = g_mode_ctrl.current_policy();
+        
+        std::ostringstream json;
+        json << "{"
+             << "\"mode\": \"" << zeta_modes::mode_name(mode) << "\","
+             << "\"branching_level\": \"" 
+             << (policy.branching_level == zeta_branching::BranchingLevel::NONE ? "NONE" :
+                 policy.branching_level == zeta_branching::BranchingLevel::LIGHT ? "LIGHT" : "FULL") << "\","
+             << "\"max_branches\": " << policy.branch_budget.max_branches << ","
+             << "\"max_depth\": " << policy.branch_budget.max_depth << ","
+             << "\"temperature\": " << policy.temperature << ","
+             << "\"commit_policy\": \"" 
+             << (policy.commit_policy == zeta_modes::CommitPolicy::NEVER ? "NEVER" :
+                 policy.commit_policy == zeta_modes::CommitPolicy::FACTS_VALIDATED ? "FACTS_VALIDATED" :
+                 policy.commit_policy == zeta_modes::CommitPolicy::SUMMARIES_VALIDATED ? "SUMMARIES_VALIDATED" :
+                 policy.commit_policy == zeta_modes::CommitPolicy::SELECTED_SOLUTION ? "SELECTED_SOLUTION" : "LUCID_GATED") << "\""
+             << "}";
+        
+        res.set_content(json.str(), "application/json");
+    });
+
+    // POST /mode - Switch mode: {"mode": "CHAT|CREATIVE|RESEARCH|CODE|DREAM"}
+    svr.Post("/mode", [](const httplib::Request& req, httplib::Response& res) {
+        res.set_header("Access-Control-Allow-Origin", "*");
+        
+        std::string mode_str;
+        try {
+            auto body = nlohmann::json::parse(req.body);
+            mode_str = body.value("mode", "");
+        } catch (...) {
+            res.status = 400;
+            res.set_content("{\"error\": \"Invalid JSON\"}", "application/json");
+            return;
+        }
+        
+        // Normalize to uppercase
+        std::transform(mode_str.begin(), mode_str.end(), mode_str.begin(), ::toupper);
+        
+        zeta_modes::Mode new_mode;
+        if (mode_str == "CHAT") new_mode = zeta_modes::Mode::CHAT;
+        else if (mode_str == "CREATIVE") new_mode = zeta_modes::Mode::CREATIVE;
+        else if (mode_str == "RESEARCH") new_mode = zeta_modes::Mode::RESEARCH;
+        else if (mode_str == "CODE") new_mode = zeta_modes::Mode::CODE;
+        else if (mode_str == "DREAM") new_mode = zeta_modes::Mode::DREAM;
+        else {
+            res.status = 400;
+            res.set_content("{\"error\": \"Unknown mode. Use: CHAT, CREATIVE, RESEARCH, CODE, DREAM\"}", "application/json");
+            return;
+        }
+        
+        auto old_mode = g_mode_ctrl.current_mode();
+        g_mode_ctrl.set_mode(new_mode);
+        
+        fprintf(stderr, "[MODE] Switched: %s -> %s\n", 
+                zeta_modes::mode_name(old_mode), zeta_modes::mode_name(new_mode));
+        
+        auto policy = g_mode_ctrl.current_policy();
+        std::ostringstream json;
+        json << "{"
+             << "\"status\": \"ok\","
+             << "\"old_mode\": \"" << zeta_modes::mode_name(old_mode) << "\","
+             << "\"new_mode\": \"" << zeta_modes::mode_name(new_mode) << "\","
+             << "\"branching_level\": \"" 
+             << (policy.branching_level == zeta_branching::BranchingLevel::NONE ? "NONE" :
+                 policy.branching_level == zeta_branching::BranchingLevel::LIGHT ? "LIGHT" : "FULL") << "\""
+             << "}";
+        
+        res.set_content(json.str(), "application/json");
+    });
+
+    // GET /branching - Return current branching configuration
+    svr.Get("/branching", [](const httplib::Request&, httplib::Response& res) {
+        res.set_header("Access-Control-Allow-Origin", "*");
+        
+        auto policy = g_mode_ctrl.current_policy();
+        auto& budget = policy.branch_budget;
+        auto& triggers = policy.branch_triggers;
+        
+        std::ostringstream json;
+        json << "{"
+             << "\"level\": \"" 
+             << (policy.branching_level == zeta_branching::BranchingLevel::NONE ? "NONE" :
+                 policy.branching_level == zeta_branching::BranchingLevel::LIGHT ? "LIGHT" : "FULL") << "\","
+             << "\"budget\": {"
+             << "\"max_branches\": " << budget.max_branches << ","
+             << "\"max_depth\": " << budget.max_depth << ","
+             << "\"max_tension_checks\": " << budget.max_tension_checks << ","
+             << "\"max_iterations\": " << budget.max_iterations
+             << "},"
+             << "\"triggers\": {"
+             << "\"on_ambiguity\": " << (triggers.on_ambiguity ? "true" : "false") << ","
+             << "\"on_uncertainty\": " << (triggers.on_uncertainty ? "true" : "false") << ","
+             << "\"on_contradiction\": " << (triggers.on_contradiction ? "true" : "false") << ","
+             << "\"entropy_threshold\": " << triggers.entropy_threshold
+             << "}"
+             << "}";
+        
+        res.set_content(json.str(), "application/json");
+    });
+
+    // POST /branching - Override branching settings (runtime tuning)
+    svr.Post("/branching", [](const httplib::Request& req, httplib::Response& res) {
+        res.set_header("Access-Control-Allow-Origin", "*");
+        
+        try {
+            auto body = nlohmann::json::parse(req.body);
+            
+            // Apply overrides
+            if (body.contains("level")) {
+                std::string level = body["level"];
+                std::transform(level.begin(), level.end(), level.begin(), ::toupper);
+                if (level == "NONE") g_mode_ctrl.set_branching_level_override(zeta_branching::BranchingLevel::NONE);
+                else if (level == "LIGHT") g_mode_ctrl.set_branching_level_override(zeta_branching::BranchingLevel::LIGHT);
+                else if (level == "FULL") g_mode_ctrl.set_branching_level_override(zeta_branching::BranchingLevel::FULL);
+            }
+            
+            if (body.contains("max_branches")) {
+                int val = body["max_branches"];
+                g_mode_ctrl.set_budget_override("max_branches", val);
+            }
+            if (body.contains("max_depth")) {
+                int val = body["max_depth"];
+                g_mode_ctrl.set_budget_override("max_depth", val);
+            }
+            
+            fprintf(stderr, "[BRANCHING] Runtime override applied\n");
+            
+            auto policy = g_mode_ctrl.current_policy();
+            std::ostringstream json;
+            json << "{"
+                 << "\"status\": \"ok\","
+                 << "\"effective_level\": \"" 
+                 << (policy.branching_level == zeta_branching::BranchingLevel::NONE ? "NONE" :
+                     policy.branching_level == zeta_branching::BranchingLevel::LIGHT ? "LIGHT" : "FULL") << "\","
+                 << "\"effective_max_branches\": " << policy.branch_budget.max_branches
+                 << "}";
+            
+            res.set_content(json.str(), "application/json");
+        } catch (...) {
+            res.status = 400;
+            res.set_content("{\"error\": \"Invalid JSON\"}", "application/json");
+        }
     });
 
     // Unload 3B to free VRAM
