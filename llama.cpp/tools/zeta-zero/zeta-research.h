@@ -132,43 +132,123 @@ struct ResearchConfig {
 
 // =============================================================================
 // BRANCH GRAPH - O(1) adjacency for tension detection
+// Invariants:
+//   1. Symmetric adjacency (undirected): if b in adj[a], then a in adj[b]
+//   2. No self-edges: a never in adj[a]
+//   3. Centralized mutations: only link/unlink modify adjacency
 // =============================================================================
 
 struct BranchGraph {
-    // adjacency: branch_id -> set of adjacent branch_ids (share origin or were forked from same parent)
+    // adjacency: branch_id -> set of adjacent branch_ids
     std::unordered_map<std::string, std::unordered_set<std::string>> adjacency;
     // parent tracking: child_id -> parent_id
     std::unordered_map<std::string, std::string> parent_of;
+    // active branch IDs for fast lookup
+    std::unordered_set<std::string> active_ids;
+    
+    // === CENTRALIZED EDGE MUTATIONS (enforce symmetry) ===
+    
+    void link(const std::string& a, const std::string& b) {
+        if (a == b) return;  // No self-edges
+        adjacency[a].insert(b);
+        adjacency[b].insert(a);
+    }
+    
+    void unlink(const std::string& a, const std::string& b) {
+        if (adjacency.count(a)) adjacency[a].erase(b);
+        if (adjacency.count(b)) adjacency[b].erase(a);
+    }
+    
+    // === BRANCH LIFECYCLE ===
     
     void add_branch(const std::string& id, const std::string& parent_id = "") {
+        if (id.empty()) return;
+        
+        active_ids.insert(id);
         if (adjacency.find(id) == adjacency.end()) {
             adjacency[id] = {};
         }
-        if (!parent_id.empty()) {
+        
+        if (!parent_id.empty() && parent_id != id) {
             parent_of[id] = parent_id;
-            // Sibling relationship: all children of same parent are adjacent
+            
+            // Link to parent
+            link(id, parent_id);
+            
+            // Link to siblings (other children of same parent)
             for (const auto& [child, parent] : parent_of) {
                 if (parent == parent_id && child != id) {
-                    adjacency[id].insert(child);
-                    adjacency[child].insert(id);
+                    link(id, child);
                 }
             }
-            // Also adjacent to parent
-            adjacency[id].insert(parent_id);
-            adjacency[parent_id].insert(id);
         }
     }
     
     void remove_branch(const std::string& id) {
-        // Remove from all adjacency lists
-        for (auto& [_, neighbors] : adjacency) {
-            neighbors.erase(id);
+        if (id.empty()) return;
+        
+        // Unlink from all neighbors (maintains symmetry)
+        if (adjacency.count(id)) {
+            // Copy neighbor set to avoid iterator invalidation
+            auto neighbors_copy = adjacency[id];
+            for (const auto& neighbor : neighbors_copy) {
+                unlink(id, neighbor);
+            }
         }
+        
         adjacency.erase(id);
         parent_of.erase(id);
+        active_ids.erase(id);
+    }
+    
+    // Merge: new node inherits neighbors from both sources
+    // adj[m] = (adj[a] ∪ adj[b]) \ {a, b, m}
+    void merge_branches(const std::string& merged_id, 
+                        const std::string& a_id, 
+                        const std::string& b_id) {
+        if (merged_id.empty() || a_id.empty() || b_id.empty()) return;
+        
+        // Collect all neighbors to inherit
+        std::unordered_set<std::string> inherited_neighbors;
+        
+        if (adjacency.count(a_id)) {
+            for (const auto& n : adjacency[a_id]) {
+                if (n != a_id && n != b_id && n != merged_id) {
+                    inherited_neighbors.insert(n);
+                }
+            }
+        }
+        if (adjacency.count(b_id)) {
+            for (const auto& n : adjacency[b_id]) {
+                if (n != a_id && n != b_id && n != merged_id) {
+                    inherited_neighbors.insert(n);
+                }
+            }
+        }
+        
+        // Remove old branches first
+        remove_branch(a_id);
+        remove_branch(b_id);
+        
+        // Add merged branch
+        add_branch(merged_id);
+        
+        // Link to all inherited neighbors
+        for (const auto& n : inherited_neighbors) {
+            if (active_ids.count(n)) {  // Only link to still-active branches
+                link(merged_id, n);
+            }
+        }
+    }
+    
+    // === QUERIES ===
+    
+    bool is_active(const std::string& id) const {
+        return active_ids.count(id) > 0;
     }
     
     bool are_adjacent(const std::string& a, const std::string& b) const {
+        if (a == b) return false;
         auto it = adjacency.find(a);
         if (it == adjacency.end()) return false;
         return it->second.count(b) > 0;
@@ -178,6 +258,19 @@ struct BranchGraph {
         static const std::unordered_set<std::string> empty;
         auto it = adjacency.find(id);
         return it != adjacency.end() ? it->second : empty;
+    }
+    
+    size_t degree(const std::string& id) const {
+        auto it = adjacency.find(id);
+        return it != adjacency.end() ? it->second.size() : 0;
+    }
+    
+    size_t total_edges() const {
+        size_t sum = 0;
+        for (const auto& [_, neighbors] : adjacency) {
+            sum += neighbors.size();
+        }
+        return sum / 2;  // Undirected: each edge counted twice
     }
 };
 
@@ -217,13 +310,34 @@ struct ResearchState {
             b.entropy = b.compute_entropy();
             total += b.entropy;
         }
-        // Include unresolved tension mass
+        
+        // Prune dead tensions before counting
+        prune_dead_tensions();
+        
+        // Include unresolved tension mass (only from live tensions)
         int unresolved = 0;
         for (const auto& t : tensions) {
             if (!t.resolved) unresolved++;
         }
-        float tension_entropy = unresolved * 0.1f;  // each unresolved tension adds uncertainty
+        float tension_entropy = unresolved * 0.1f;
         global_entropy = (total / active_branches.size()) + tension_entropy;
+    }
+    
+    // Remove tensions referencing branches that no longer exist
+    void prune_dead_tensions() {
+        auto it = tensions.begin();
+        while (it != tensions.end()) {
+            bool a_dead = !graph.is_active(it->branch_a);
+            bool b_dead = !graph.is_active(it->branch_b);
+            
+            if (a_dead || b_dead) {
+                // Mark as resolved/obsolete and remove from ID set
+                tension_ids.erase(it->id);
+                it = tensions.erase(it);
+            } else {
+                ++it;
+            }
+        }
     }
 };
 
@@ -683,7 +797,8 @@ inline Tension record_tension(const Branch& a, const Branch& b,
 }
 
 inline void detect_and_record_tensions(ResearchState& state) {
-    fprintf(stderr, "[RESEARCH] Phase 3a: Tension Detection (O(n) graph-based)\n");
+    fprintf(stderr, "[RESEARCH] Phase 3a: Tension Detection (O(n) graph-based, %zu edges)\n", 
+            state.graph.total_edges());
     
     // Build branch lookup for O(1) access
     std::unordered_map<std::string, size_t> branch_idx;
@@ -691,39 +806,44 @@ inline void detect_and_record_tensions(ResearchState& state) {
         branch_idx[state.active_branches[i].id] = i;
     }
     
-    // O(n) - iterate branches, check only graph-adjacent neighbors
+    // O(E) - iterate edges via adjacency, check only active neighbors
     std::unordered_set<std::string> checked_pairs;
+    int checks_performed = 0;
     
     for (size_t i = 0; i < state.active_branches.size(); ++i) {
         const Branch& branch = state.active_branches[i];
         const auto& neighbors = state.graph.neighbors(branch.id);
         
         for (const std::string& neighbor_id : neighbors) {
-            // Skip if neighbor not in active branches
+            // Skip if neighbor not active (dead reference)
+            if (!state.graph.is_active(neighbor_id)) continue;
+            
+            // Skip if neighbor not in current branch vector
             auto it = branch_idx.find(neighbor_id);
             if (it == branch_idx.end()) continue;
             
-            // Canonical pair ID to avoid checking both (a,b) and (b,a)
+            // Canonical pair key: (min_id, max_id) for dedup
             std::string pair_key = branch.id < neighbor_id 
                 ? branch.id + "_" + neighbor_id 
                 : neighbor_id + "_" + branch.id;
             
             if (checked_pairs.count(pair_key) > 0) {
-                state.tension_checks_skipped++;
-                continue;
+                continue;  // Already checked this iteration
             }
             checked_pairs.insert(pair_key);
             
-            // Generate canonical tension ID for deduplication
+            // Skip if tension already recorded (persistent dedup)
             std::string canonical_id = "tension_" + pair_key;
             if (state.tension_ids.count(canonical_id) > 0) {
                 continue;
             }
             
+            checks_performed++;
             const Branch& neighbor = state.active_branches[it->second];
             
             if (creates_contradiction(branch, neighbor, state.generate_fn)) {
                 Tension t = record_tension(branch, neighbor, state.generate_fn);
+                t.id = canonical_id;  // Use canonical ID
                 state.tensions.push_back(t);
                 state.tension_ids.insert(t.id);
                 fprintf(stderr, "[RESEARCH] Tension recorded: %s (severity=%.2f)\n", t.id.c_str(), t.severity);
@@ -731,8 +851,9 @@ inline void detect_and_record_tensions(ResearchState& state) {
         }
     }
     
-    fprintf(stderr, "[RESEARCH] Checked %zu pairs (skipped %d via graph)\n", 
-            checked_pairs.size(), state.tension_checks_skipped);
+    state.tension_checks_skipped += (state.graph.total_edges() - checks_performed);
+    fprintf(stderr, "[RESEARCH] Checked %d pairs (of %zu edges)\n", 
+            checks_performed, state.graph.total_edges());
 }
 
 inline bool ready_to_merge(const Tension& t, const ResearchState& state) {
@@ -791,21 +912,10 @@ inline void merge_pair(ResearchState& state, Tension& tension) {
         merged.compressible = true;
         state.buffer.add_summary(s);
         
-        // Update graph: merged inherits all neighbors of a and b
-        for (const auto& n : state.graph.neighbors(a_id)) {
-            if (n != b_id) state.graph.adjacency[merged.id].insert(n);
-        }
-        for (const auto& n : state.graph.neighbors(b_id)) {
-            if (n != a_id) state.graph.adjacency[merged.id].insert(n);
-        }
-        // Add reverse edges
-        for (const auto& n : state.graph.adjacency[merged.id]) {
-            state.graph.adjacency[n].insert(merged.id);
-        }
-        state.graph.remove_branch(a_id);
-        state.graph.remove_branch(b_id);
+        // Update graph using centralized merge helper
+        state.graph.merge_branches(merged.id, a_id, b_id);
         
-        // Remove original branches, add merged (use copied IDs, not pointers)
+        // Remove original branches from vector, add merged
         state.active_branches.erase(
             std::remove_if(state.active_branches.begin(), state.active_branches.end(),
                            [&](const Branch& br) { return br.id == a_id || br.id == b_id; }),
@@ -814,7 +924,8 @@ inline void merge_pair(ResearchState& state, Tension& tension) {
         
         tension.resolved = true;
         tension.resolution_method = "compression";
-        fprintf(stderr, "[RESEARCH] Merged %s + %s -> %s (graph updated)\n", a_id.c_str(), b_id.c_str(), merged.id.c_str());
+        fprintf(stderr, "[RESEARCH] Merged %s + %s -> %s (graph: %zu edges)\n", 
+                a_id.c_str(), b_id.c_str(), merged.id.c_str(), state.graph.total_edges());
     } else {
         // THE ONE RULE: If merge feels forced, entropy has not been paid
         state.merges_rejected++;
