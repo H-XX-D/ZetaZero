@@ -39,9 +39,11 @@ if ! ls ~/models/*.gguf 1>/dev/null 2>&1; then
     echo "Downloading default model (Qwen2.5-7B)..."
     echo "This may take a few minutes..."
     echo ""
-    
+
     if command -v huggingface-cli &>/dev/null; then
         huggingface-cli download Qwen/Qwen2.5-7B-Instruct-GGUF qwen2.5-7b-instruct-q4_k_m.gguf --local-dir ~/models
+    elif command -v hf &>/dev/null; then
+        hf download Qwen/Qwen2.5-7B-Instruct-GGUF --include "*Q4_K_M*.gguf" --local-dir ~/models
     elif command -v wget &>/dev/null; then
         wget -P ~/models "https://huggingface.co/Qwen/Qwen2.5-7B-Instruct-GGUF/resolve/main/qwen2.5-7b-instruct-q4_k_m.gguf"
     elif command -v curl &>/dev/null; then
