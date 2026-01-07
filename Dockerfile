@@ -49,7 +49,7 @@ RUN mkdir -p /models /storage /storage/dreams/pending /storage/dreams/archive /s
 # Environment variables (defaults - 14B + 7B production config)
 ENV ZETA_HOST="0.0.0.0"
 ENV ZETA_PORT="8080"
-ENV MODEL_MAIN="/models/qwen2.5-14b-instruct-q4_k_m.gguf"
+ENV MODEL_MAIN="/models/qwen2.5-14b-instruct-q4_k_m-00001-of-00003.gguf"
 ENV MODEL_CODER="/models/qwen2.5-coder-7b-instruct-q4_k_m.gguf"
 ENV MODEL_EMBED="/models/nomic-embed-text-v1.5.f16.gguf"
 ENV ZETA_STORAGE="/storage"

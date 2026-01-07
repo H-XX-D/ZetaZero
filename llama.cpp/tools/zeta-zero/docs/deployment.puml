@@ -1,0 +1,24 @@
+@startuml
+node "Host Machine" {
+    node "Docker Container" {
+        component "Zeta Server Binary" as Bin
+        component "llama.cpp Shared Lib" as Lib
+    }
+
+    node "Storage" {
+        database "KV-Cache (NVMe)" as Disk
+        file "Model Weights (GGUF)" as GGUF
+        file "Constitution" as Acc
+    }
+
+    node "GPU (NVIDIA/Metal)" {
+        storage "VRAM (Active KV)" as VRAM
+    }
+}
+
+Bin ..> Lib : link
+Bin ..> Disk : mount
+Bin ..> GGUF : load
+Bin ..> Acc : verify
+Lib --> VRAM : compute
+@enduml

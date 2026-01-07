@@ -14,7 +14,7 @@
 // ============================================================================
 
 // DEFAULT MODEL PATHS - Docker uses /models, override with CLI flags or zeta.conf
-#define Z6_MODEL_14B    "/models/qwen2.5-14b-instruct-q4_k_m.gguf"
+#define Z6_MODEL_14B    "/models/qwen2.5-14b-instruct-q4_k_m-00001-of-00003.gguf"
 #define Z6_MODEL_7B     "/models/qwen2.5-coder-7b-instruct-q4_k_m.gguf"
 #define Z6_MODEL_EMBED  "/models/nomic-embed-text-v1.5.f16.gguf"
 #define Z6_DEFAULT_PORT 8080

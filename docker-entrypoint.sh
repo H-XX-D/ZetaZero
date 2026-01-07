@@ -52,7 +52,7 @@ else
     exec /app/zeta-server \
         --host "${ZETA_HOST:-0.0.0.0}" \
         --port "${ZETA_PORT:-8080}" \
-        -m "${MODEL_MAIN:-/models/qwen2.5-14b-instruct-q4_k_m.gguf}" \
+        -m "${MODEL_MAIN:-/models/qwen2.5-14b-instruct-q4_k_m-00001-of-00003.gguf}" \
         --model-7b-coder "${MODEL_CODER:-/models/qwen2.5-coder-7b-instruct-q4_k_m.gguf}" \
         --embed-model "${MODEL_EMBED:-/models/nomic-embed-text-v1.5.f16.gguf}" \
         -ngl "${GPU_LAYERS_MAIN:-49}" \
