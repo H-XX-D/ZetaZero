@@ -1,0 +1,34 @@
+@startuml
+class "zeta_constitution_t" as Const {
+    +hash[32]
+    +seed : uint64
+    +verified : bool
+    +zeta_constitution_init()
+    +zeta_permute_weights()
+    +zeta_constitution_verify()
+}
+
+class "zeta_gkv_segment_t" as GKV {
+    +node_id : int64
+    +n_tokens : uint32
+    +k_blocks : q8_block*
+    +v_blocks : q8_block*
+    +last_used : timestamp
+}
+
+class "zeta_memory_t" as Mem {
+    +segments : GKV[]
+    +zeta_memory_inject_kv()
+    +zeta_memory_evict_lru()
+}
+
+class "zeta_dream_state_t" as Dream {
+    +threshold : duration
+    +zeta_dream_start()
+    +zeta_dream_consolidate()
+}
+
+Mem "1" *-- "many" GKV
+Const ..> Mem : Decrypts weights for
+Dream ..> Mem : Optimizes
+@enduml

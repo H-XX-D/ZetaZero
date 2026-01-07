@@ -41,13 +41,13 @@ if ! ls ~/models/*.gguf 1>/dev/null 2>&1; then
     echo ""
 
     if command -v huggingface-cli &>/dev/null; then
-        huggingface-cli download Qwen/Qwen2.5-7B-Instruct-GGUF qwen2.5-7b-instruct-q4_k_m.gguf --local-dir ~/models
+        huggingface-cli download Qwen/Qwen2.5-14b-Instruct-GGUF qwen2.5-7b-instruct-q4_k_m.gguf --local-dir ~/models
     elif command -v hf &>/dev/null; then
-        hf download Qwen/Qwen2.5-7B-Instruct-GGUF --include "*Q4_K_M*.gguf" --local-dir ~/models
+        hf download Qwen/Qwen2.5-14b-Instruct-GGUF --include "*q4_k_m*.gguf" --local-dir ~/models
     elif command -v wget &>/dev/null; then
         wget -P ~/models "https://huggingface.co/Qwen/Qwen2.5-7B-Instruct-GGUF/resolve/main/qwen2.5-7b-instruct-q4_k_m.gguf"
     elif command -v curl &>/dev/null; then
-        curl -L -o ~/models/qwen2.5-7b-instruct-q4_k_m.gguf "https://huggingface.co/Qwen/Qwen2.5-7B-Instruct-GGUF/resolve/main/qwen2.5-7b-instruct-q4_k_m.gguf"
+        curl -L -o ~/models/qwen2.5-14b-instruct-q4_k_m.gguf "https://huggingface.co/Qwen/Qwen2.5-7B-Instruct-GGUF/resolve/main/qwen2.5-7b-instruct-q4_k_m.gguf"
     else
         echo "ERROR: No download tool found (huggingface-cli, wget, or curl)"
         exit 1

@@ -1,0 +1,23 @@
+@startuml
+actor User
+participant "Zeta Server" as S
+participant "Silicon Accord" as A
+participant "Graph-KV" as M
+participant "llama.cpp" as L
+
+User -> S: POST /v1/chat/completions
+S -> A: Verify Constitution Hash
+alt Hash Mismatch
+    A -> S: Error (Weights Scrambled)
+    S -> User: 403 Forbidden
+else Verified
+    S -> M: Retrieve Relevant Context
+    M -> S: Return KV Blocks
+    S -> L: Inject KV Blocks into Context
+    S -> L: Execute Inference (Reasoning)
+    L -> S: Return Tokens
+    S -> M: Store New Thought Node
+    S -> User: JSON Response
+    Note over S, L: System enters Dream State after 5s idle
+end
+@enduml
