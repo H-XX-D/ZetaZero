@@ -20,6 +20,9 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <mutex>
+#include <fstream>
+#include <sys/stat.h>
 
 namespace zeta_branching {
 
@@ -274,11 +277,251 @@ private:
     std::string persist_path_;
     bool dirty_ = false;
 
+    mutable std::mutex mu_;
+
+    static inline std::string json_escape(const std::string& s) {
+        std::string out;
+        out.reserve(s.size() + 8);
+        for (char c : s) {
+            switch (c) {
+                case '\\': out += "\\\\"; break;
+                case '"': out += "\\\""; break;
+                case '\n': out += "\\n"; break;
+                case '\r': out += "\\r"; break;
+                case '\t': out += "\\t"; break;
+                default:
+                    if ((unsigned char)c < 0x20) {
+                        // Control char: drop (shouldn't occur for our IDs)
+                    } else {
+                        out += c;
+                    }
+            }
+        }
+        return out;
+    }
+
+    static inline void trim_ws(std::string& s) {
+        size_t b = 0;
+        while (b < s.size() && std::isspace((unsigned char)s[b])) b++;
+        size_t e = s.size();
+        while (e > b && std::isspace((unsigned char)s[e - 1])) e--;
+        if (b == 0 && e == s.size()) return;
+        s = s.substr(b, e - b);
+    }
+
+    static inline bool parse_json_string_at(const std::string& json, size_t& i, std::string& out) {
+        // Expect opening quote
+        if (i >= json.size() || json[i] != '"') return false;
+        i++;
+        std::string s;
+        while (i < json.size()) {
+            char c = json[i++];
+            if (c == '"') {
+                out = s;
+                return true;
+            }
+            if (c == '\\' && i < json.size()) {
+                char esc = json[i++];
+                switch (esc) {
+                    case '"': s += '"'; break;
+                    case '\\': s += '\\'; break;
+                    case 'n': s += '\n'; break;
+                    case 'r': s += '\r'; break;
+                    case 't': s += '\t'; break;
+                    default: s += esc; break;
+                }
+            } else {
+                s += c;
+            }
+        }
+        return false;
+    }
+
+    static inline bool find_json_key(const std::string& json, const std::string& key, size_t& pos) {
+        std::string needle = "\"" + key + "\"";
+        pos = json.find(needle);
+        return pos != std::string::npos;
+    }
+
+    static inline bool parse_json_value_string(const std::string& json, const std::string& key, std::string& out) {
+        size_t pos = 0;
+        if (!find_json_key(json, key, pos)) return false;
+        pos = json.find(':', pos);
+        if (pos == std::string::npos) return false;
+        pos++;
+        while (pos < json.size() && std::isspace((unsigned char)json[pos])) pos++;
+        size_t i = pos;
+        return parse_json_string_at(json, i, out);
+    }
+
+    static inline bool parse_json_value_int64(const std::string& json, const std::string& key, int64_t& out) {
+        size_t pos = 0;
+        if (!find_json_key(json, key, pos)) return false;
+        pos = json.find(':', pos);
+        if (pos == std::string::npos) return false;
+        pos++;
+        while (pos < json.size() && std::isspace((unsigned char)json[pos])) pos++;
+        size_t end = pos;
+        while (end < json.size() && (std::isdigit((unsigned char)json[end]) || json[end] == '-' || json[end] == '+')) end++;
+        if (end == pos) return false;
+        try {
+            out = std::stoll(json.substr(pos, end - pos));
+            return true;
+        } catch (...) {
+            return false;
+        }
+    }
+
+    static inline bool parse_json_value_double(const std::string& json, const std::string& key, double& out) {
+        size_t pos = 0;
+        if (!find_json_key(json, key, pos)) return false;
+        pos = json.find(':', pos);
+        if (pos == std::string::npos) return false;
+        pos++;
+        while (pos < json.size() && std::isspace((unsigned char)json[pos])) pos++;
+        size_t end = pos;
+        while (end < json.size() && (std::isdigit((unsigned char)json[end]) || json[end] == '-' || json[end] == '+' || json[end] == '.' || json[end] == 'e' || json[end] == 'E')) end++;
+        if (end == pos) return false;
+        try {
+            out = std::stod(json.substr(pos, end - pos));
+            return true;
+        } catch (...) {
+            return false;
+        }
+    }
+
+    static inline bool parse_json_value_bool(const std::string& json, const std::string& key, bool& out) {
+        size_t pos = 0;
+        if (!find_json_key(json, key, pos)) return false;
+        pos = json.find(':', pos);
+        if (pos == std::string::npos) return false;
+        pos++;
+        while (pos < json.size() && std::isspace((unsigned char)json[pos])) pos++;
+        if (json.compare(pos, 4, "true") == 0) { out = true; return true; }
+        if (json.compare(pos, 5, "false") == 0) { out = false; return true; }
+        return false;
+    }
+
+    static inline bool parse_json_array_strings(const std::string& json, const std::string& key, std::vector<std::string>& out) {
+        out.clear();
+        size_t pos = 0;
+        if (!find_json_key(json, key, pos)) return false;
+        pos = json.find('[', pos);
+        if (pos == std::string::npos) return false;
+        pos++;
+        while (pos < json.size()) {
+            while (pos < json.size() && std::isspace((unsigned char)json[pos])) pos++;
+            if (pos < json.size() && json[pos] == ']') {
+                return true;
+            }
+            if (pos >= json.size()) return false;
+            if (json[pos] != '"') {
+                // Skip unexpected tokens
+                pos++;
+                continue;
+            }
+            size_t i = pos;
+            std::string s;
+            if (!parse_json_string_at(json, i, s)) return false;
+            out.push_back(s);
+            pos = i;
+            while (pos < json.size() && json[pos] != ',' && json[pos] != ']') pos++;
+            if (pos < json.size() && json[pos] == ',') pos++;
+        }
+        return false;
+    }
+
+    static inline bool extract_edges_array(const std::string& json, std::string& out_edges_array_text) {
+        // Find "edges": [ ... ] and return the bracketed substring including [..]
+        size_t pos = 0;
+        if (!find_json_key(json, "edges", pos)) return false;
+        pos = json.find('[', pos);
+        if (pos == std::string::npos) return false;
+        size_t start = pos;
+        int depth = 0;
+        for (size_t i = pos; i < json.size(); i++) {
+            char c = json[i];
+            if (c == '[') depth++;
+            else if (c == ']') {
+                depth--;
+                if (depth == 0) {
+                    out_edges_array_text = json.substr(start, (i - start) + 1);
+                    return true;
+                }
+            } else if (c == '"') {
+                // Skip strings to avoid bracket confusion
+                i++;
+                while (i < json.size()) {
+                    if (json[i] == '\\' && i + 1 < json.size()) { i += 2; continue; }
+                    if (json[i] == '"') break;
+                    i++;
+                }
+            }
+        }
+        return false;
+    }
+
+    static inline void parse_edge_objects(const std::string& edges_array_text, std::vector<EdgeMeta>& out) {
+        out.clear();
+        // Very small, format-coupled parser: scan for { ... } objects.
+        size_t i = 0;
+        while (i < edges_array_text.size()) {
+            if (edges_array_text[i] == '{') {
+                size_t start = i;
+                int depth = 0;
+                for (; i < edges_array_text.size(); i++) {
+                    char c = edges_array_text[i];
+                    if (c == '{') depth++;
+                    else if (c == '}') {
+                        depth--;
+                        if (depth == 0) {
+                            size_t end = i;
+                            std::string obj = edges_array_text.substr(start, (end - start) + 1);
+                            EdgeMeta m;
+                            std::string from, to, type, mode;
+                            double weight = 1.0;
+                            int64_t created_at = 0;
+                            bool persisted = false;
+                            if (parse_json_value_string(obj, "from", from) &&
+                                parse_json_value_string(obj, "to", to)) {
+                                (void)parse_json_value_string(obj, "type", type);
+                                (void)parse_json_value_string(obj, "mode", mode);
+                                (void)parse_json_value_double(obj, "weight", weight);
+                                (void)parse_json_value_int64(obj, "created_at", created_at);
+                                (void)parse_json_value_bool(obj, "persisted", persisted);
+
+                                m.from_id = from;
+                                m.to_id = to;
+                                m.edge_type = type.empty() ? "lineage" : type;
+                                m.source_mode = mode.empty() ? "CHAT" : mode;
+                                m.weight = (float)weight;
+                                m.created_at = created_at;
+                                m.persisted = persisted;
+                                out.push_back(m);
+                            }
+                            break;
+                        }
+                    } else if (c == '"') {
+                        // Skip strings
+                        i++;
+                        while (i < edges_array_text.size()) {
+                            if (edges_array_text[i] == '\\' && i + 1 < edges_array_text.size()) { i += 2; continue; }
+                            if (edges_array_text[i] == '"') break;
+                            i++;
+                        }
+                    }
+                }
+            }
+            i++;
+        }
+    }
+
 public:
     // === Session initialization (ties to GitGraph) ===
     void init_session(const std::string& session_id, 
                       const std::string& mode = "CHAT",
                       const std::string& persist_dir = "") {
+    std::lock_guard<std::mutex> lock(mu_);
         session_id_ = session_id;
         current_mode_ = mode;
         gitgraph_prefix_ = mode + "_" + session_id + "_";
@@ -297,6 +540,7 @@ public:
     }
     
     void set_mode(const std::string& mode) {
+        std::lock_guard<std::mutex> lock(mu_);
         current_mode_ = mode;
         gitgraph_prefix_ = mode + "_" + session_id_ + "_";
     }
@@ -316,6 +560,7 @@ public:
 
     // === Original API (enhanced with metadata) ===
     void add_branch(const std::string& id) {
+        std::lock_guard<std::mutex> lock(mu_);
         if (id.empty()) return;
         active_ids_.insert(id);
         if (adjacency_.find(id) == adjacency_.end()) {
@@ -325,6 +570,7 @@ public:
     }
     
     void remove_branch(const std::string& id) {
+        std::lock_guard<std::mutex> lock(mu_);
         active_ids_.erase(id);
         dirty_ = true;
         // Don't remove from adjacency_ - keep for tension tracking
@@ -332,6 +578,7 @@ public:
     
     void link(const std::string& a, const std::string& b, 
               const std::string& edge_type = "lineage", float weight = 1.0f) {
+        std::lock_guard<std::mutex> lock(mu_);
         if (a.empty() || b.empty() || a == b) return;
         adjacency_[a].insert(b);
         adjacency_[b].insert(a);  // Symmetric
@@ -343,7 +590,7 @@ public:
         meta.edge_type = edge_type;
         meta.source_mode = current_mode_;
         meta.weight = weight;
-        meta.created_at = current_iteration_;
+        meta.created_at = (int64_t)time(NULL);
         meta.persisted = false;
         edge_metadata_[meta.canonical_key()] = meta;
         
@@ -351,6 +598,7 @@ public:
     }
     
     void unlink(const std::string& a, const std::string& b) {
+        std::lock_guard<std::mutex> lock(mu_);
         adjacency_[a].erase(b);
         adjacency_[b].erase(a);
         
@@ -387,15 +635,39 @@ public:
     
     // Add branch with optional parent (for lineage tracking)
     void add_branch(const std::string& id, const std::string& parent_id) {
-        add_branch(id);  // Call base version
+        add_branch(id);  // Locks internally
         if (!parent_id.empty() && parent_id != id) {
+            std::lock_guard<std::mutex> lock(mu_);
             parent_of_[id] = parent_id;
-            link(id, parent_id, "lineage", 1.0f);
+            // link() locks; but we already hold mu_. Do the minimal equivalent.
+            adjacency_[id].insert(parent_id);
+            adjacency_[parent_id].insert(id);
+            EdgeMeta meta;
+            meta.from_id = id < parent_id ? id : parent_id;
+            meta.to_id = id < parent_id ? parent_id : id;
+            meta.edge_type = "lineage";
+            meta.source_mode = current_mode_;
+            meta.weight = 1.0f;
+            meta.created_at = (int64_t)time(NULL);
+            meta.persisted = false;
+            edge_metadata_[meta.canonical_key()] = meta;
+            dirty_ = true;
             
             // Link to siblings (other children of same parent)
             for (const auto& [child, parent] : parent_of_) {
                 if (parent == parent_id && child != id) {
-                    link(id, child, "sibling", 0.5f);
+                    adjacency_[id].insert(child);
+                    adjacency_[child].insert(id);
+                    EdgeMeta sm;
+                    sm.from_id = id < child ? id : child;
+                    sm.to_id = id < child ? child : id;
+                    sm.edge_type = "sibling";
+                    sm.source_mode = current_mode_;
+                    sm.weight = 0.5f;
+                    sm.created_at = (int64_t)time(NULL);
+                    sm.persisted = false;
+                    edge_metadata_[sm.canonical_key()] = sm;
+                    dirty_ = true;
                 }
             }
         }
@@ -428,6 +700,7 @@ public:
     void merge_branches(const std::string& merged_id,
                         const std::string& a_id,
                         const std::string& b_id) {
+        std::lock_guard<std::mutex> lock(mu_);
         if (merged_id.empty() || a_id.empty() || b_id.empty()) return;
         
         // Collect all neighbors to inherit
@@ -449,18 +722,32 @@ public:
         }
         
         // Remove old branches
-        remove_branch(a_id);
-        remove_branch(b_id);
+        active_ids_.erase(a_id);
+        active_ids_.erase(b_id);
         
         // Add merged branch
-        add_branch(merged_id);
+        active_ids_.insert(merged_id);
+        if (adjacency_.find(merged_id) == adjacency_.end()) {
+            adjacency_[merged_id] = {};
+        }
         
         // Link to all inherited neighbors
         for (const auto& n : inherited_neighbors) {
             if (active_ids_.count(n)) {
-                link(merged_id, n, "merge", 0.75f);
+                adjacency_[merged_id].insert(n);
+                adjacency_[n].insert(merged_id);
+                EdgeMeta meta;
+                meta.from_id = merged_id < n ? merged_id : n;
+                meta.to_id = merged_id < n ? n : merged_id;
+                meta.edge_type = "merge";
+                meta.source_mode = current_mode_;
+                meta.weight = 0.75f;
+                meta.created_at = (int64_t)time(NULL);
+                meta.persisted = false;
+                edge_metadata_[meta.canonical_key()] = meta;
             }
         }
+        dirty_ = true;
     }
     
     // Parent tracking map (public for research compatibility)
@@ -490,6 +777,7 @@ public:
     }
     
     void mark_edges_persisted(const std::vector<std::string>& keys) {
+        std::lock_guard<std::mutex> lock(mu_);
         for (const auto& key : keys) {
             if (edge_metadata_.count(key)) {
                 edge_metadata_[key].persisted = true;
@@ -503,10 +791,11 @@ public:
     
     // === ENHANCED: Persistence ===
     std::string serialize() const {
+        std::lock_guard<std::mutex> lock(mu_);
         std::string json = "{\n";
-        json += "  \"session_id\": \"" + session_id_ + "\",\n";
-        json += "  \"mode\": \"" + current_mode_ + "\",\n";
-        json += "  \"gitgraph_prefix\": \"" + gitgraph_prefix_ + "\",\n";
+        json += "  \"session_id\": \"" + json_escape(session_id_) + "\",\n";
+        json += "  \"mode\": \"" + json_escape(current_mode_) + "\",\n";
+        json += "  \"gitgraph_prefix\": \"" + json_escape(gitgraph_prefix_) + "\",\n";
         json += "  \"next_local_id\": " + std::to_string(next_local_id_) + ",\n";
         json += "  \"current_iteration\": " + std::to_string(current_iteration_) + ",\n";
         
@@ -515,7 +804,7 @@ public:
         bool first = true;
         for (const auto& id : active_ids_) {
             if (!first) json += ", ";
-            json += "\"" + id + "\"";
+            json += "\"" + json_escape(id) + "\"";
             first = false;
         }
         json += "],\n";
@@ -525,10 +814,10 @@ public:
         first = true;
         for (const auto& [key, meta] : edge_metadata_) {
             if (!first) json += ",\n";
-            json += "    {\"from\": \"" + meta.from_id;
-            json += "\", \"to\": \"" + meta.to_id;
-            json += "\", \"type\": \"" + meta.edge_type;
-            json += "\", \"mode\": \"" + meta.source_mode;
+            json += "    {\"from\": \"" + json_escape(meta.from_id);
+            json += "\", \"to\": \"" + json_escape(meta.to_id);
+            json += "\", \"type\": \"" + json_escape(meta.edge_type);
+            json += "\", \"mode\": \"" + json_escape(meta.source_mode);
             json += "\", \"weight\": " + std::to_string(meta.weight);
             json += ", \"created_at\": " + std::to_string(meta.created_at);
             json += ", \"persisted\": " + std::string(meta.persisted ? "true" : "false") + "}";
@@ -539,6 +828,7 @@ public:
     }
     
     bool save() {
+        std::lock_guard<std::mutex> lock(mu_);
         if (persist_path_.empty() || !dirty_) return persist_path_.empty() ? false : true;
         
         FILE* f = fopen(persist_path_.c_str(), "w");
@@ -555,24 +845,77 @@ public:
     }
     
     bool load(const std::string& path) {
+        std::lock_guard<std::mutex> lock(mu_);
         FILE* f = fopen(path.c_str(), "r");
         if (!f) return false;
-        
+
         fseek(f, 0, SEEK_END);
         long size = ftell(f);
         fseek(f, 0, SEEK_SET);
-        
-        std::string json(size, '\0');
-        fread(&json[0], 1, size, f);
+        if (size <= 0 || size > (1024 * 1024 * 16)) {
+            fclose(f);
+            return false;
+        }
+
+        std::string json((size_t)size, '\0');
+        size_t r = fread(&json[0], 1, (size_t)size, f);
         fclose(f);
-        
+        if (r != (size_t)size) return false;
+
+        std::string session_id, mode, prefix;
+        int64_t next_local = 1;
+        int64_t iter = 0;
+        (void)parse_json_value_string(json, "session_id", session_id);
+        (void)parse_json_value_string(json, "mode", mode);
+        (void)parse_json_value_string(json, "gitgraph_prefix", prefix);
+        (void)parse_json_value_int64(json, "next_local_id", next_local);
+        (void)parse_json_value_int64(json, "current_iteration", iter);
+
+        std::vector<std::string> active;
+        (void)parse_json_array_strings(json, "active_ids", active);
+
+        std::string edges_array;
+        std::vector<EdgeMeta> edges;
+        if (extract_edges_array(json, edges_array)) {
+            parse_edge_objects(edges_array, edges);
+        }
+
+        // Reset + apply
         persist_path_ = path;
+        session_id_ = session_id;
+        current_mode_ = mode.empty() ? "CHAT" : mode;
+        gitgraph_prefix_ = !prefix.empty() ? prefix : (current_mode_ + "_" + session_id_ + "_");
+        next_local_id_ = (next_local > 0) ? next_local : 1;
+        current_iteration_ = (iter >= 0) ? iter : 0;
+
+        adjacency_.clear();
+        active_ids_.clear();
+        tension_ids_.clear();
+        edge_metadata_.clear();
+        parent_of_.clear();
+
+        for (const auto& id : active) {
+            if (id.empty()) continue;
+            active_ids_.insert(id);
+            if (adjacency_.find(id) == adjacency_.end()) adjacency_[id] = {};
+        }
+
+        // Rebuild edges + adjacency from metadata
+        for (const auto& e : edges) {
+            if (e.from_id.empty() || e.to_id.empty() || e.from_id == e.to_id) continue;
+            adjacency_[e.from_id].insert(e.to_id);
+            adjacency_[e.to_id].insert(e.from_id);
+            edge_metadata_[e.canonical_key()] = e;
+        }
+
         dirty_ = false;
-        fprintf(stderr, "[BRANCH-GRAPH] Loaded %ld bytes from %s\n", size, path.c_str());
+        fprintf(stderr, "[BRANCH-GRAPH] Loaded %ld bytes from %s (%zu active, %zu edges, mode=%s)\n",
+                size, path.c_str(), active_ids_.size(), edge_metadata_.size(), current_mode_.c_str());
         return true;
     }
     
     void checkpoint(int save_interval = 5) {
+        std::lock_guard<std::mutex> lock(mu_);
         if (persist_path_.empty() || !dirty_) return;
         if (current_iteration_ % save_interval == 0) save();
     }
@@ -1319,6 +1662,293 @@ private:
         
         return result;
     }
+};
+
+// ============================================================================
+// BRANCH GRAPH MANAGER: Dataset + Mode Isolation with File-Based Dream Output
+// ============================================================================
+//
+// Architecture:
+//   User Session
+//   ├── Dataset: "project-a" (isolated)
+//   │   ├── CHAT graph    → GitGraph commits
+//   │   ├── CODE graph    → GitGraph commits  
+//   │   ├── RESEARCH graph → GitGraph commits
+//   │   ├── CREATIVE graph → File output only (fiction)
+//   │   └── DREAM graph   → File output only (pending review)
+//   ├── Dataset: "project-b" (isolated)
+//   │   └── ... (same structure)
+//   └── INCEPTION (cross-dataset synthesis)
+//       └── Reads all datasets, outputs cross-link dreams to files
+//
+// Dream files go to: data/dreams/pending/dream_{timestamp}_{type}.txt
+// User reviews, then accepts/rejects → training data pipeline
+// ============================================================================
+
+enum class IsolatedMode {
+    CHAT,       // Conversational - commits to GitGraph
+    CODE,       // Code generation - commits to GitGraph
+    RESEARCH,   // Epistemic search - commits to GitGraph
+    CREATIVE,   // Fiction/creative - file output only
+    DREAM,      // Dream state - file output for review
+    INCEPTION   // Cross-dataset synthesis - file output
+};
+
+inline const char* isolated_mode_name(IsolatedMode m) {
+    switch (m) {
+        case IsolatedMode::CHAT: return "CHAT";
+        case IsolatedMode::CODE: return "CODE";
+        case IsolatedMode::RESEARCH: return "RESEARCH";
+        case IsolatedMode::CREATIVE: return "CREATIVE";
+        case IsolatedMode::DREAM: return "DREAM";
+        case IsolatedMode::INCEPTION: return "INCEPTION";
+    }
+    return "UNKNOWN";
+}
+
+inline IsolatedMode parse_isolated_mode(const std::string& s) {
+    if (s == "CHAT") return IsolatedMode::CHAT;
+    if (s == "CODE") return IsolatedMode::CODE;
+    if (s == "RESEARCH") return IsolatedMode::RESEARCH;
+    if (s == "CREATIVE") return IsolatedMode::CREATIVE;
+    if (s == "DREAM") return IsolatedMode::DREAM;
+    if (s == "INCEPTION") return IsolatedMode::INCEPTION;
+    return IsolatedMode::CHAT;
+}
+
+inline bool mode_commits_to_graph(IsolatedMode m) {
+    return m == IsolatedMode::CHAT || m == IsolatedMode::CODE || m == IsolatedMode::RESEARCH;
+}
+
+struct CrossDatasetEdge {
+    std::string id;
+    std::string from_dataset;
+    std::string from_node;
+    std::string to_dataset;
+    std::string to_node;
+    std::string edge_type;
+    std::string insight;
+    float strength;
+    int64_t created_at;
+    CrossDatasetEdge() : strength(1.0f), created_at(0) {}
+};
+
+struct DreamOutput {
+    std::string id;
+    std::string dataset_id;
+    std::string dataset_anchor;
+    IsolatedMode mode;
+    std::string dream_type;
+    std::string content;
+    std::vector<std::string> source_nodes;
+    std::vector<CrossDatasetEdge> cross_links;
+    int64_t created_at;
+    
+    DreamOutput() : mode(IsolatedMode::DREAM), created_at(0) {}
+    
+    std::string to_file_content() const {
+        std::string result;
+        result += "# Dream: " + id + "\n";
+        result += "# Type: " + dream_type + "\n";
+        result += "# Mode: " + std::string(isolated_mode_name(mode)) + "\n";
+        result += "# Dataset: " + dataset_id + "\n";
+        result += "# Anchor: " + dataset_anchor + "\n";
+        result += "# Created: " + std::to_string(created_at) + "\n";
+        result += "#\n# --- DREAM CONTENT ---\n\n";
+        result += content;
+        result += "\n\n# --- END DREAM ---\n";
+        return result;
+    }
+};
+
+struct DatasetGraphs {
+    std::string dataset_id;
+    std::string dataset_path;
+    std::string dataset_anchor;
+    std::string persist_dir;
+    int64_t ingested_at;
+    std::unordered_map<IsolatedMode, BranchGraph> mode_graphs;
+    
+    DatasetGraphs() : ingested_at(0) {}
+    
+    void init(const std::string& id, const std::string& path, 
+              const std::string& anchor, const std::string& persist) {
+        dataset_id = id;
+        dataset_path = path;
+        dataset_anchor = anchor;
+        persist_dir = persist;
+        ingested_at = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+        
+        for (auto m : {IsolatedMode::CHAT, IsolatedMode::CODE, IsolatedMode::RESEARCH,
+                       IsolatedMode::CREATIVE, IsolatedMode::DREAM}) {
+            mode_graphs[m].init_session(dataset_id + "_" + isolated_mode_name(m),
+                                        isolated_mode_name(m),
+                                        persist + "/" + isolated_mode_name(m));
+        }
+    }
+    
+    BranchGraph* get_mode(IsolatedMode m) {
+        auto it = mode_graphs.find(m);
+        return it != mode_graphs.end() ? &it->second : nullptr;
+    }
+    
+    void save_all() { for (auto& [m, g] : mode_graphs) g.save(); }
+};
+
+class BranchGraphManager {
+public:
+    BranchGraphManager() : cross_edge_counter_(0), dream_counter_(0), auto_switch_(true) {
+        dream_dir_ = "data/dreams";
+    }
+    
+    bool ingest_dataset(const std::string& id, const std::string& path,
+                        const std::string& anchor_hash, const std::string& persist_dir) {
+        if (datasets_.count(id)) return false;
+        DatasetGraphs dg;
+        dg.init(id, path, "dataset_doc:" + anchor_hash, persist_dir);
+        datasets_[id] = std::move(dg);
+        if (auto_switch_ && active_mode_ == IsolatedMode::DREAM) active_dataset_ = id;
+        return true;
+    }
+    
+    bool remove_dataset(const std::string& id) { return datasets_.erase(id) > 0; }
+    
+    std::vector<std::string> list_datasets() const {
+        std::vector<std::string> r;
+        for (const auto& [id, _] : datasets_) r.push_back(id);
+        return r;
+    }
+    
+    DatasetGraphs* get_dataset(const std::string& id) {
+        auto it = datasets_.find(id);
+        return it != datasets_.end() ? &it->second : nullptr;
+    }
+    
+    BranchGraph* get_graph(const std::string& dataset_id, IsolatedMode mode) {
+        if (mode == IsolatedMode::INCEPTION) return &inception_graph_;
+        auto* ds = get_dataset(dataset_id);
+        return ds ? ds->get_mode(mode) : nullptr;
+    }
+    
+    void set_context(const std::string& dataset_id, IsolatedMode mode) {
+        active_dataset_ = dataset_id;
+        active_mode_ = mode;
+    }
+    
+    BranchGraph* active_graph() { return get_graph(active_dataset_, active_mode_); }
+    
+    std::string save_dream(const DreamOutput& dream) {
+        auto now = std::chrono::system_clock::now();
+        auto tt = std::chrono::system_clock::to_time_t(now);
+        char ts[32];
+        std::strftime(ts, sizeof(ts), "%Y%m%d_%H%M%S", std::localtime(&tt));
+        std::string filepath = dream_dir_ + "/pending/dream_" + ts + "_" + dream.dream_type + ".txt";
+        mkdir((dream_dir_ + "/pending").c_str(), 0755);
+        std::ofstream out(filepath);
+        if (out) { out << dream.to_file_content(); out.close(); }
+        return filepath;
+    }
+    
+    DreamOutput create_dream(const std::string& type, const std::string& content,
+                             const std::vector<std::string>& sources = {}) {
+        DreamOutput d;
+        d.id = "dream_" + std::to_string(++dream_counter_);
+        d.dataset_id = active_dataset_;
+        d.mode = active_mode_;
+        d.dream_type = type;
+        d.content = content;
+        d.source_nodes = sources;
+        d.created_at = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+        auto* ds = get_dataset(active_dataset_);
+        if (ds) d.dataset_anchor = ds->dataset_anchor;
+        return d;
+    }
+    
+    std::string create_cross_link(const std::string& from_ds, const std::string& from_node,
+                                   const std::string& to_ds, const std::string& to_node,
+                                   const std::string& edge_type, const std::string& insight,
+                                   float strength = 1.0f) {
+        if (!datasets_.count(from_ds) || !datasets_.count(to_ds)) return "";
+        CrossDatasetEdge e;
+        e.id = "xlink_" + std::to_string(++cross_edge_counter_);
+        e.from_dataset = from_ds; e.from_node = from_node;
+        e.to_dataset = to_ds; e.to_node = to_node;
+        e.edge_type = edge_type; e.insight = insight; e.strength = strength;
+        e.created_at = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+        cross_edges_.push_back(e);
+        inception_graph_.link(from_ds + "::" + from_node, to_ds + "::" + to_node, edge_type, strength);
+        return e.id;
+    }
+    
+    DreamOutput create_inception_dream(const std::string& content,
+                                        const std::vector<std::string>& datasets,
+                                        const std::vector<CrossDatasetEdge>& links) {
+        DreamOutput d;
+        d.id = "inception_" + std::to_string(++dream_counter_);
+        d.dataset_id = "INCEPTION";
+        d.mode = IsolatedMode::INCEPTION;
+        d.dream_type = "inception";
+        d.content = content;
+        d.cross_links = links;
+        d.created_at = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+        return d;
+    }
+    
+    std::vector<CrossDatasetEdge> find_cross_patterns(const std::string& type = "") const {
+        std::vector<CrossDatasetEdge> r;
+        for (const auto& e : cross_edges_)
+            if (type.empty() || e.edge_type == type) r.push_back(e);
+        return r;
+    }
+    
+    struct SynthesisContext {
+        std::string query;
+        std::vector<std::pair<std::string, std::string>> source_nodes;
+        std::vector<CrossDatasetEdge> relevant_links;
+    };
+    
+    SynthesisContext prepare_synthesis(const std::vector<std::string>& ds_ids, const std::string& query) {
+        SynthesisContext ctx;
+        ctx.query = query;
+        for (const auto& id : ds_ids) {
+            auto* ds = get_dataset(id);
+            if (!ds) continue;
+            for (const auto& [m, g] : ds->mode_graphs)
+                for (const auto& node : g.active_ids())
+                    ctx.source_nodes.emplace_back(id, node);
+        }
+        for (const auto& e : cross_edges_) {
+            bool f = std::find(ds_ids.begin(), ds_ids.end(), e.from_dataset) != ds_ids.end();
+            bool t = std::find(ds_ids.begin(), ds_ids.end(), e.to_dataset) != ds_ids.end();
+            if (f && t) ctx.relevant_links.push_back(e);
+        }
+        return ctx;
+    }
+    
+    void set_dream_output_dir(const std::string& d) { dream_dir_ = d; }
+    void set_auto_switch_on_ingest(bool v) { auto_switch_ = v; }
+    void save_all() { for (auto& [_, ds] : datasets_) ds.save_all(); inception_graph_.save(); }
+    
+    const std::string& active_dataset_id() const { return active_dataset_; }
+    IsolatedMode active_mode() const { return active_mode_; }
+    size_t dataset_count() const { return datasets_.size(); }
+    size_t cross_edge_count() const { return cross_edges_.size(); }
+    BranchGraph& inception_graph() { return inception_graph_; }
+
+private:
+    std::unordered_map<std::string, DatasetGraphs> datasets_;
+    std::string active_dataset_;
+    IsolatedMode active_mode_ = IsolatedMode::CHAT;
+    BranchGraph inception_graph_;
+    std::vector<CrossDatasetEdge> cross_edges_;
+    int cross_edge_counter_;
+    int dream_counter_;
+    std::string dream_dir_;
+    bool auto_switch_;
 };
 
 } // namespace zeta_branching
