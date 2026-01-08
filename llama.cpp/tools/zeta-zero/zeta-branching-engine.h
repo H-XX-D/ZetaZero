@@ -232,35 +232,131 @@ struct Tension {
 // BRANCH GRAPH: O(1) adjacency tracking
 // ============================================================================
 
+// ============================================================================
+// EDGE METADATA: Mode-labeled edges for cross-mode traceability
+// ============================================================================
+
+struct EdgeMeta {
+    std::string from_id;
+    std::string to_id;
+    std::string edge_type;      // "lineage", "sibling", "semantic", "tension", "merge"
+    std::string source_mode;    // "CHAT", "CODE", "RESEARCH", "CREATIVE", "DREAM"
+    float weight = 1.0f;
+    int64_t created_at = 0;
+    bool persisted = false;     // True if synced to GitGraph
+    
+    std::string canonical_key() const {
+        return from_id < to_id ? from_id + "|" + to_id : to_id + "|" + from_id;
+    }
+};
+
+// ============================================================================
+// BRANCH GRAPH: O(1) adjacency with mode labeling and persistence
+// ============================================================================
+
 class BranchGraph {
 private:
     std::unordered_map<std::string, std::unordered_set<std::string>> adjacency_;
     std::unordered_set<std::string> active_ids_;
     std::unordered_set<std::string> tension_ids_;
+    
+    // === ENHANCED: Edge metadata for GitGraph integration ===
+    std::unordered_map<std::string, EdgeMeta> edge_metadata_;
+    
+    // === ENHANCED: Session/Mode tracking ===
+    std::string session_id_;
+    std::string current_mode_ = "CHAT";
+    std::string gitgraph_prefix_;
+    int64_t next_local_id_ = 1;
+    int64_t current_iteration_ = 0;
+    
+    // === ENHANCED: Persistence ===
+    std::string persist_path_;
+    bool dirty_ = false;
 
 public:
+    // === Session initialization (ties to GitGraph) ===
+    void init_session(const std::string& session_id, 
+                      const std::string& mode = "CHAT",
+                      const std::string& persist_dir = "") {
+        session_id_ = session_id;
+        current_mode_ = mode;
+        gitgraph_prefix_ = mode + "_" + session_id + "_";
+        next_local_id_ = 1;
+        current_iteration_ = 0;
+        
+        if (!persist_dir.empty()) {
+            persist_path_ = persist_dir + "/branch_graph_" + mode + "_" + session_id + ".json";
+        }
+        
+        adjacency_.clear();
+        active_ids_.clear();
+        tension_ids_.clear();
+        edge_metadata_.clear();
+        dirty_ = false;
+    }
+    
+    void set_mode(const std::string& mode) {
+        current_mode_ = mode;
+        gitgraph_prefix_ = mode + "_" + session_id_ + "_";
+    }
+    
+    // === ID generation (unified with GitGraph) ===
+    std::string generate_branch_id(const std::string& prefix = "branch") {
+        char buf[64];
+        snprintf(buf, sizeof(buf), "%s%s%03lld",
+                 gitgraph_prefix_.c_str(), prefix.c_str(), (long long)next_local_id_++);
+        return buf;
+    }
+    
+    std::string to_gitgraph_id(const std::string& local_id) const {
+        if (local_id.find(gitgraph_prefix_) == 0) return local_id;
+        return gitgraph_prefix_ + local_id;
+    }
+
+    // === Original API (enhanced with metadata) ===
     void add_branch(const std::string& id) {
         if (id.empty()) return;
         active_ids_.insert(id);
         if (adjacency_.find(id) == adjacency_.end()) {
             adjacency_[id] = {};
         }
+        dirty_ = true;
     }
     
     void remove_branch(const std::string& id) {
         active_ids_.erase(id);
+        dirty_ = true;
         // Don't remove from adjacency_ - keep for tension tracking
     }
     
-    void link(const std::string& a, const std::string& b) {
+    void link(const std::string& a, const std::string& b, 
+              const std::string& edge_type = "lineage", float weight = 1.0f) {
         if (a.empty() || b.empty() || a == b) return;
         adjacency_[a].insert(b);
         adjacency_[b].insert(a);  // Symmetric
+        
+        // Track edge metadata
+        EdgeMeta meta;
+        meta.from_id = a < b ? a : b;
+        meta.to_id = a < b ? b : a;
+        meta.edge_type = edge_type;
+        meta.source_mode = current_mode_;
+        meta.weight = weight;
+        meta.created_at = current_iteration_;
+        meta.persisted = false;
+        edge_metadata_[meta.canonical_key()] = meta;
+        
+        dirty_ = true;
     }
     
     void unlink(const std::string& a, const std::string& b) {
         adjacency_[a].erase(b);
         adjacency_[b].erase(a);
+        
+        std::string key = a < b ? a + "|" + b : b + "|" + a;
+        edge_metadata_.erase(key);
+        dirty_ = true;
     }
     
     const std::unordered_set<std::string>& neighbors(const std::string& id) const {
@@ -285,6 +381,207 @@ public:
     std::string canonical_pair_key(const std::string& a, const std::string& b) const {
         return a < b ? (a + ":" + b) : (b + ":" + a);
     }
+
+    // === RESEARCH-COMPATIBLE API ===
+    // These methods provide API compatibility with research mode
+    
+    // Add branch with optional parent (for lineage tracking)
+    void add_branch(const std::string& id, const std::string& parent_id) {
+        add_branch(id);  // Call base version
+        if (!parent_id.empty() && parent_id != id) {
+            parent_of_[id] = parent_id;
+            link(id, parent_id, "lineage", 1.0f);
+            
+            // Link to siblings (other children of same parent)
+            for (const auto& [child, parent] : parent_of_) {
+                if (parent == parent_id && child != id) {
+                    link(id, child, "sibling", 0.5f);
+                }
+            }
+        }
+    }
+    
+    // Check if two branches are adjacent
+    bool are_adjacent(const std::string& a, const std::string& b) const {
+        if (a == b) return false;
+        auto it = adjacency_.find(a);
+        if (it == adjacency_.end()) return false;
+        return it->second.count(b) > 0;
+    }
+    
+    // Get total number of edges (each edge counted once)
+    size_t total_edges() const {
+        size_t sum = 0;
+        for (const auto& [_, neighbors] : adjacency_) {
+            sum += neighbors.size();
+        }
+        return sum / 2;  // Undirected: each edge counted twice
+    }
+    
+    // Get degree of a node
+    size_t degree(const std::string& id) const {
+        auto it = adjacency_.find(id);
+        return it != adjacency_.end() ? it->second.size() : 0;
+    }
+    
+    // Merge two branches into one (inherits neighbors from both)
+    void merge_branches(const std::string& merged_id,
+                        const std::string& a_id,
+                        const std::string& b_id) {
+        if (merged_id.empty() || a_id.empty() || b_id.empty()) return;
+        
+        // Collect all neighbors to inherit
+        std::unordered_set<std::string> inherited_neighbors;
+        
+        if (adjacency_.count(a_id)) {
+            for (const auto& n : adjacency_[a_id]) {
+                if (n != a_id && n != b_id && n != merged_id) {
+                    inherited_neighbors.insert(n);
+                }
+            }
+        }
+        if (adjacency_.count(b_id)) {
+            for (const auto& n : adjacency_[b_id]) {
+                if (n != a_id && n != b_id && n != merged_id) {
+                    inherited_neighbors.insert(n);
+                }
+            }
+        }
+        
+        // Remove old branches
+        remove_branch(a_id);
+        remove_branch(b_id);
+        
+        // Add merged branch
+        add_branch(merged_id);
+        
+        // Link to all inherited neighbors
+        for (const auto& n : inherited_neighbors) {
+            if (active_ids_.count(n)) {
+                link(merged_id, n, "merge", 0.75f);
+            }
+        }
+    }
+    
+    // Parent tracking map (public for research compatibility)
+    std::unordered_map<std::string, std::string> parent_of_;
+
+    // === ENHANCED: Edge metadata queries ===
+    const EdgeMeta* get_edge_meta(const std::string& a, const std::string& b) const {
+        std::string key = a < b ? a + "|" + b : b + "|" + a;
+        auto it = edge_metadata_.find(key);
+        return it != edge_metadata_.end() ? &it->second : nullptr;
+    }
+    
+    std::vector<EdgeMeta> get_edges_by_mode(const std::string& mode) const {
+        std::vector<EdgeMeta> result;
+        for (const auto& [_, meta] : edge_metadata_) {
+            if (meta.source_mode == mode) result.push_back(meta);
+        }
+        return result;
+    }
+    
+    std::vector<EdgeMeta> get_unpersisted_edges() const {
+        std::vector<EdgeMeta> result;
+        for (const auto& [_, meta] : edge_metadata_) {
+            if (!meta.persisted) result.push_back(meta);
+        }
+        return result;
+    }
+    
+    void mark_edges_persisted(const std::vector<std::string>& keys) {
+        for (const auto& key : keys) {
+            if (edge_metadata_.count(key)) {
+                edge_metadata_[key].persisted = true;
+            }
+        }
+    }
+    
+    // === ENHANCED: Iteration tracking ===
+    void advance_iteration() { current_iteration_++; }
+    int64_t iteration() const { return current_iteration_; }
+    
+    // === ENHANCED: Persistence ===
+    std::string serialize() const {
+        std::string json = "{\n";
+        json += "  \"session_id\": \"" + session_id_ + "\",\n";
+        json += "  \"mode\": \"" + current_mode_ + "\",\n";
+        json += "  \"gitgraph_prefix\": \"" + gitgraph_prefix_ + "\",\n";
+        json += "  \"next_local_id\": " + std::to_string(next_local_id_) + ",\n";
+        json += "  \"current_iteration\": " + std::to_string(current_iteration_) + ",\n";
+        
+        // Active IDs
+        json += "  \"active_ids\": [";
+        bool first = true;
+        for (const auto& id : active_ids_) {
+            if (!first) json += ", ";
+            json += "\"" + id + "\"";
+            first = false;
+        }
+        json += "],\n";
+        
+        // Edges with metadata
+        json += "  \"edges\": [\n";
+        first = true;
+        for (const auto& [key, meta] : edge_metadata_) {
+            if (!first) json += ",\n";
+            json += "    {\"from\": \"" + meta.from_id;
+            json += "\", \"to\": \"" + meta.to_id;
+            json += "\", \"type\": \"" + meta.edge_type;
+            json += "\", \"mode\": \"" + meta.source_mode;
+            json += "\", \"weight\": " + std::to_string(meta.weight);
+            json += ", \"created_at\": " + std::to_string(meta.created_at);
+            json += ", \"persisted\": " + std::string(meta.persisted ? "true" : "false") + "}";
+            first = false;
+        }
+        json += "\n  ]\n}\n";
+        return json;
+    }
+    
+    bool save() {
+        if (persist_path_.empty() || !dirty_) return persist_path_.empty() ? false : true;
+        
+        FILE* f = fopen(persist_path_.c_str(), "w");
+        if (!f) return false;
+        
+        std::string json = serialize();
+        fwrite(json.c_str(), 1, json.size(), f);
+        fclose(f);
+        
+        dirty_ = false;
+        fprintf(stderr, "[BRANCH-GRAPH] Saved to %s (%zu nodes, %zu edges, mode=%s)\n",
+                persist_path_.c_str(), active_ids_.size(), edge_metadata_.size(), current_mode_.c_str());
+        return true;
+    }
+    
+    bool load(const std::string& path) {
+        FILE* f = fopen(path.c_str(), "r");
+        if (!f) return false;
+        
+        fseek(f, 0, SEEK_END);
+        long size = ftell(f);
+        fseek(f, 0, SEEK_SET);
+        
+        std::string json(size, '\0');
+        fread(&json[0], 1, size, f);
+        fclose(f);
+        
+        persist_path_ = path;
+        dirty_ = false;
+        fprintf(stderr, "[BRANCH-GRAPH] Loaded %ld bytes from %s\n", size, path.c_str());
+        return true;
+    }
+    
+    void checkpoint(int save_interval = 5) {
+        if (persist_path_.empty() || !dirty_) return;
+        if (current_iteration_ % save_interval == 0) save();
+    }
+    
+    // === Stats ===
+    const std::string& session_id() const { return session_id_; }
+    const std::string& current_mode() const { return current_mode_; }
+    size_t edge_count() const { return edge_metadata_.size(); }
+    bool is_dirty() const { return dirty_; }
 };
 
 // ============================================================================

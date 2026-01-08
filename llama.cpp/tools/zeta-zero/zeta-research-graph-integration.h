@@ -77,21 +77,21 @@ inline ResearchNode branch_to_node(
     node.node_id = "research_" + session_id + "_" + branch.id;
     node.branch_id = branch.id;
     
-    // Build content block
+    // Build content block from Concept objects
     std::string content;
     for (const auto& c : branch.concepts) {
-        content += c + "\n---\n";
+        content += c.content + "\n---\n";  // Use content field
     }
     
     // Hash for content-addressed storage
     // (Simplified - real implementation would use proper hash)
     size_t h = 0;
-    for (char c : content) h = h * 31 + c;
+    for (char ch : content) h = h * 31 + ch;
     char hash_buf[32];
     snprintf(hash_buf, sizeof(hash_buf), "%016zx", h);
     node.block_hash = hash_buf;
     
-    node.topic = branch.concepts.empty() ? "" : branch.concepts[0].substr(0, 100);
+    node.topic = branch.concepts.empty() ? "" : branch.concepts[0].content.substr(0, 100);
     node.entropy = branch.entropy;
     node.concept_count = branch.concepts.size();
     node.is_summary = branch.compressible;
@@ -113,6 +113,8 @@ struct ResearchEdge {
     std::string metadata_json;     // Additional context
 };
 
+// Forward declaration
+static std::string escape_json(const std::string& s);
 // Map research tension to GitGraph edge
 inline ResearchEdge tension_to_edge(
     const zeta_research::Tension& tension,
@@ -131,26 +133,17 @@ inline ResearchEdge tension_to_edge(
     // Build metadata JSON
     edge.metadata_json = "{";
     edge.metadata_json += "\"description\": \"" + escape_json(tension.description.substr(0, 500)) + "\", ";
-    edge.metadata_json += "\"type\": \"" + tension_type_name(tension.type) + "\", ";
-    edge.metadata_json += "\"resolved\": " + std::string(tension.resolved ? "true" : "false") + ", ";
-    if (tension.resolved) {
-        edge.metadata_json += "\"resolution\": \"" + escape_json(tension.resolution.substr(0, 200)) + "\"";
+    edge.metadata_json += "\"severity\": " + std::to_string(tension.severity) + ", ";
+    edge.metadata_json += "\"resolved\": " + std::string(tension.resolved ? "true" : "false");
+    if (tension.resolved && !tension.resolution_method.empty()) {
+        edge.metadata_json += ", \"resolution_method\": \"" + escape_json(tension.resolution_method.substr(0, 200)) + "\"";
     }
     edge.metadata_json += "}";
     
     return edge;
 }
 
-static const char* tension_type_name(zeta_research::TensionType t) {
-    switch (t) {
-        case zeta_research::TensionType::CONTRADICTION: return "contradiction";
-        case zeta_research::TensionType::UNCERTAINTY: return "uncertainty";
-        case zeta_research::TensionType::GAP: return "gap";
-        case zeta_research::TensionType::DEPENDENCY: return "dependency";
-        case zeta_research::TensionType::REFINEMENT: return "refinement";
-    }
-    return "unknown";
-}
+
 
 static std::string escape_json(const std::string& s) {
     std::string result;
