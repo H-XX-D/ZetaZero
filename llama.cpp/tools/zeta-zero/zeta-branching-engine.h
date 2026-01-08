@@ -1158,6 +1158,7 @@ public:
             b.kind = kind;
             b.eligibility = default_eligibility_;
             b.concepts.push_back(initial_content);
+            enforce_concept_budget(b);
             b.entropy = 0.5f;
             b.confidence = 0.5f;
             b.created_at = current_time_ms();
@@ -1172,6 +1173,7 @@ public:
         root.kind = kind;
         root.eligibility = default_eligibility_;
         root.concepts.push_back(initial_content);
+        enforce_concept_budget(root);
         root.entropy = compute_initial_entropy(initial_content);
         root.confidence = 0.5f;
         root.depth = 0;
@@ -1494,11 +1496,20 @@ private:
     }
 
     void fork_branch(const std::string& parent_id, int num_forks, BranchKind kind) {
-        Branch* parent = nullptr;
+        Branch* parent_ptr = nullptr;
         for (auto& b : branches_) {
-            if (b.id == parent_id) { parent = &b; break; }
+            if (b.id == parent_id) { parent_ptr = &b; break; }
         }
-        if (!parent) return;
+        if (!parent_ptr) return;
+
+        // IMPORTANT: do not keep pointers/references into branches_ across
+        // branches_.push_back() calls (reallocation would invalidate them).
+        const Branch parent = *parent_ptr;
+
+        if (num_forks <= 0) return;
+        branches_.reserve(branches_.size() + (size_t)num_forks);
+        std::vector<std::string> new_child_ids;
+        new_child_ids.reserve((size_t)num_forks);
 
         fprintf(stderr, "[BRANCH-ENGINE] Forking %s into %d branches (kind=%s)\n",
                 parent_id.c_str(), num_forks, branch_kind_name(kind));
@@ -1509,31 +1520,50 @@ private:
             child.kind = kind;
             child.eligibility = default_eligibility_;
             child.parent_id = parent_id;
-            child.depth = parent->depth + 1;
-            child.entropy = parent->entropy * 0.9f;  // Slightly reduce entropy
-            child.confidence = parent->confidence;
+            child.depth = parent.depth + 1;
+            child.entropy = parent.entropy * 0.9f;  // Slightly reduce entropy
+            child.confidence = parent.confidence;
             child.created_at = current_time_ms();
 
             // Copy parent concepts
-            child.concepts = parent->concepts;
+            child.concepts = parent.concepts;
 
             // Generate divergent content if we have generate_fn
             if (generate_fn_) {
-                std::string prompt = build_fork_prompt(*parent, kind, i);
+                std::string prompt = build_fork_prompt(parent, kind, i);
                 std::string expansion = generate_fn_(prompt, 0.7f, 512);
                 if (!expansion.empty()) {
                     child.concepts.push_back(expansion);
                 }
             }
 
+            enforce_concept_budget(child);
+
             branches_.push_back(child);
             graph_.add_branch(child.id);
             graph_.link(parent_id, child.id);
-            parent->child_ids.push_back(child.id);
+            new_child_ids.push_back(child.id);
+        }
+
+        // Update parent's child_ids by id after all push_backs.
+        for (auto& b : branches_) {
+            if (b.id == parent_id) {
+                b.child_ids.insert(b.child_ids.end(), new_child_ids.begin(), new_child_ids.end());
+                break;
+            }
         }
 
         // Deactivate parent after forking
         graph_.remove_branch(parent_id);
+    }
+
+    void enforce_concept_budget(Branch& b) const {
+        const int cap = budget_.max_concepts_per_branch;
+        if (cap <= 0) return;
+        if ((int)b.concepts.size() <= cap) return;
+
+        // Keep the most recent concepts.
+        b.concepts.erase(b.concepts.begin(), b.concepts.end() - cap);
     }
 
     std::string build_fork_prompt(const Branch& parent, BranchKind kind, int variant) const {
@@ -2604,6 +2634,293 @@ private:
         int hits = 0;
         for (const auto& x : words) if (lc.find(x) != std::string::npos) hits++;
         return words.empty() ? 0.0f : (float)hits / (float)words.size();
+    }
+};
+
+
+// =============================================================================
+// ZETA: Frictionless User Interface
+// =============================================================================
+//
+// Zero configuration. Just talk. System handles everything.
+//
+// User says: "analyze this codebase" → auto-ingest
+// User says: "give me ideas for X"  → IDEAS mode
+// User says: "what do you think?"   → retrieval from all knowledge
+// User goes idle                    → DREAMS mode auto-starts
+//
+
+class Zeta {
+public:
+    Zeta() {
+        mgr_.set_idle_dream_enabled(true);
+        mgr_.set_idle_dream_threshold(300000);  // 5 min default
+        mgr_.set_dream_output_dir("data/dreams");
+    }
+    
+    // =========================================================================
+    // SINGLE ENTRY POINT: Just talk naturally
+    // =========================================================================
+    
+    struct Response {
+        std::string content;
+        std::string mode;           // "chat", "ideas", "dream", "code", "research"
+        std::vector<std::string> sources;
+        bool has_ideas = false;
+        std::vector<Idea> ideas;
+        bool is_dreaming = false;
+    };
+    
+    Response process(const std::string& input) {
+        mgr_.record_activity();
+        Response r;
+        
+        // Detect intent from natural language
+        auto intent = detect_intent_(input);
+        
+        switch (intent) {
+            case Intent::INGEST:
+                r = handle_ingest_(input);
+                break;
+            case Intent::IDEAS:
+                r = handle_ideas_(input);
+                break;
+            case Intent::QUESTION:
+                r = handle_question_(input);
+                break;
+            case Intent::CODE:
+                r = handle_code_(input);
+                break;
+            case Intent::RESEARCH:
+                r = handle_research_(input);
+                break;
+            default:
+                r = handle_chat_(input);
+        }
+        
+        return r;
+    }
+    
+    // =========================================================================
+    // AUTO-INGEST: Point at a directory, we handle the rest
+    // =========================================================================
+    
+    bool open(const std::string& path, const std::string& name = "") {
+        mgr_.record_activity();
+        std::string id = name.empty() ? extract_name_(path) : name;
+        return mgr_.ingest_dataset(id, path, compute_anchor_(path), "data/graphs/" + id);
+    }
+    
+    // =========================================================================
+    // BACKGROUND: Call periodically (e.g., every 30s)
+    // =========================================================================
+    
+    void tick() {
+        if (mgr_.check_idle_dream_trigger()) {
+            // Dream started automatically - output will be saved
+            // Could emit event/callback here for UI notification
+            on_dream_started_();
+        }
+    }
+    
+    // =========================================================================
+    // SIMPLE GETTERS
+    // =========================================================================
+    
+    bool is_dreaming() const { return mgr_.is_dreaming(); }
+    bool is_ideating() const { return mgr_.is_ideating(); }
+    std::vector<std::string> datasets() const { return mgr_.list_datasets(); }
+    
+    // =========================================================================
+    // CONFIGURATION (optional - sensible defaults)
+    // =========================================================================
+    
+    void set_idle_timeout(int seconds) { mgr_.set_idle_dream_threshold(seconds * 1000); }
+    void set_dream_enabled(bool v) { mgr_.set_idle_dream_enabled(v); }
+    void set_output_dir(const std::string& d) { mgr_.set_dream_output_dir(d); }
+    
+    // Access underlying manager if needed
+    BranchGraphManager& manager() { return mgr_; }
+
+private:
+    BranchGraphManager mgr_;
+    
+    enum class Intent { CHAT, INGEST, IDEAS, QUESTION, CODE, RESEARCH };
+    
+    Intent detect_intent_(const std::string& input) {
+        std::string lower;
+        for (char c : input) lower += std::tolower(c);
+        
+        // Ingest patterns
+        if (lower.find("analyze") != std::string::npos && 
+            (lower.find("codebase") != std::string::npos || 
+             lower.find("project") != std::string::npos ||
+             lower.find("repo") != std::string::npos)) {
+            return Intent::INGEST;
+        }
+        
+        // Ideas patterns
+        if (lower.find("idea") != std::string::npos ||
+            lower.find("suggest") != std::string::npos ||
+            lower.find("brainstorm") != std::string::npos ||
+            lower.find("come up with") != std::string::npos ||
+            lower.find("give me") != std::string::npos) {
+            return Intent::IDEAS;
+        }
+        
+        // Research patterns
+        if (lower.find("research") != std::string::npos ||
+            lower.find("investigate") != std::string::npos ||
+            lower.find("explore") != std::string::npos ||
+            lower.find("what if") != std::string::npos) {
+            return Intent::RESEARCH;
+        }
+        
+        // Code patterns
+        if (lower.find("implement") != std::string::npos ||
+            lower.find("write code") != std::string::npos ||
+            lower.find("create function") != std::string::npos ||
+            lower.find("fix bug") != std::string::npos ||
+            lower.find("refactor") != std::string::npos) {
+            return Intent::CODE;
+        }
+        
+        // Question patterns (retrieval)
+        if (lower.find("?") != std::string::npos ||
+            lower.find("how") != std::string::npos ||
+            lower.find("what") != std::string::npos ||
+            lower.find("why") != std::string::npos ||
+            lower.find("explain") != std::string::npos) {
+            return Intent::QUESTION;
+        }
+        
+        return Intent::CHAT;
+    }
+    
+    Response handle_ingest_(const std::string& input) {
+        Response r;
+        r.mode = "ingest";
+        // Extract path from input - simplified
+        // In practice, would parse "analyze /path/to/project"
+        r.content = "Ready to analyze. Use zeta.open(\"/path/to/project\") to ingest.";
+        return r;
+    }
+    
+    Response handle_ideas_(const std::string& input) {
+        Response r;
+        r.mode = "ideas";
+        r.has_ideas = true;
+        
+        // Extract count if specified ("give me 5 ideas")
+        int count = 5;
+        for (int i = 1; i <= 10; i++) {
+            if (input.find(std::to_string(i)) != std::string::npos) {
+                count = i;
+                break;
+            }
+        }
+        
+        // Start ideas session across all datasets
+        auto ds = mgr_.list_datasets();
+        if (ds.empty()) {
+            r.content = "No datasets ingested yet. Use zeta.open() first.";
+            return r;
+        }
+        
+        if (ds.size() == 1) {
+            mgr_.request_ideas(ds[0], input, count);
+        } else {
+            mgr_.request_inception_ideas(ds, input, count);
+        }
+        
+        // Context is now in current_creative().context
+        r.content = "Generating " + std::to_string(count) + " ideas based on " + 
+                    std::to_string(mgr_.current_creative().context.size()) + " relevant sources...";
+        
+        // Caller will use context to generate actual ideas
+        for (const auto& ctx : mgr_.current_creative().context) {
+            r.sources.push_back(ctx.dataset_id + "::" + ctx.node_id);
+        }
+        
+        return r;
+    }
+    
+    Response handle_question_(const std::string& input) {
+        Response r;
+        r.mode = "chat";
+        
+        // Query all datasets for relevant context
+        auto results = mgr_.query_all_datasets(input, 10, 0.2f);
+        
+        if (results.empty()) {
+            r.content = "I don't have relevant context for that question yet.";
+        } else {
+            r.content = "Found " + std::to_string(results.size()) + " relevant sources.";
+            for (const auto& res : results) {
+                r.sources.push_back(res.dataset_id + "::" + res.node_id);
+            }
+        }
+        
+        return r;
+    }
+    
+    Response handle_code_(const std::string& input) {
+        Response r;
+        r.mode = "code";
+        
+        // Get code-related context
+        auto results = mgr_.query_all_datasets(input, 10, 0.2f);
+        for (const auto& res : results) {
+            r.sources.push_back(res.dataset_id + "::" + res.node_id);
+        }
+        
+        r.content = "Code mode. " + std::to_string(r.sources.size()) + " relevant sources available.";
+        return r;
+    }
+    
+    Response handle_research_(const std::string& input) {
+        Response r;
+        r.mode = "research";
+        
+        auto results = mgr_.query_all_datasets(input, 15, 0.15f);
+        for (const auto& res : results) {
+            r.sources.push_back(res.dataset_id + "::" + res.node_id);
+        }
+        
+        r.content = "Research mode. Exploring " + std::to_string(r.sources.size()) + " sources.";
+        return r;
+    }
+    
+    Response handle_chat_(const std::string& input) {
+        Response r;
+        r.mode = "chat";
+        
+        // Light retrieval for general chat
+        auto results = mgr_.query_all_datasets(input, 5, 0.3f);
+        for (const auto& res : results) {
+            r.sources.push_back(res.dataset_id + "::" + res.node_id);
+        }
+        
+        return r;
+    }
+    
+    void on_dream_started_() {
+        // Hook for UI notification
+        // Could emit event, write to log, etc.
+    }
+    
+    std::string extract_name_(const std::string& path) {
+        size_t pos = path.rfind('/');
+        if (pos != std::string::npos && pos < path.size() - 1) {
+            return path.substr(pos + 1);
+        }
+        return path;
+    }
+    
+    std::string compute_anchor_(const std::string& path) {
+        // Simple hash of path for anchor
+        size_t h = std::hash<std::string>{}(path);
+        return "anchor_" + std::to_string(h);
     }
 };
 
