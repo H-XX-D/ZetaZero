@@ -89,7 +89,7 @@ struct ValidatorProfile {
     bool require_test_check = false;           // CODE: passes tests
     bool require_style_check = false;          // CREATIVE: meets style constraints
     bool require_lucid_gate = false;           // DREAM: passes lucid review
-    
+
     // Minimum confidence threshold
     float min_confidence = 0.7f;
 };
@@ -104,7 +104,7 @@ struct BranchBudget {
     int max_tension_checks = 10;    // Max contradiction checks per iteration
     int max_iterations = 20;        // Max exploration iterations
     int max_concepts_per_branch = 50; // Prevent runaway accumulation
-    
+
     // Time limits (ms)
     int64_t max_branch_time_ms = 5000;   // Max time for a single branch expansion
     int64_t max_total_time_ms = 30000;   // Max total branching time
@@ -120,21 +120,21 @@ struct BranchTrigger {
     bool on_uncertainty = false;     // Low confidence, hedge words
     bool on_contradiction = false;   // Detected conflict
     bool on_alternative_frame = false; // Different conceptual approach
-    
+
     // Code-specific triggers
     bool on_design_tradeoff = false; // Perf vs readability, etc.
     bool on_implementation_choice = false; // Multiple valid approaches
     bool on_api_constraint = false;  // External interface requirements
-    
+
     // Creative triggers
     bool on_stylistic_choice = false; // Tone, voice, narrative style
     bool on_plot_branch = false;     // Story direction options
     bool on_character_motivation = false; // Character psychology
-    
+
     // Dream triggers
     bool on_novelty = false;         // Unexpected associations
     bool on_motif_recombination = false; // Pattern mixing
-    
+
     // Uncertainty thresholds
     float entropy_threshold = 0.5f;  // Fork if branch entropy exceeds this
     float confidence_threshold = 0.6f; // Fork if confidence below this
@@ -153,19 +153,19 @@ enum class MergeStrategy {
 
 struct MergePolicy {
     MergeStrategy strategy = MergeStrategy::SYNTHESIS;
-    
+
     // When to merge
     bool merge_on_convergence = true;    // Branches agree
     bool merge_on_resolution = true;     // Tension resolved
     bool merge_on_budget_hit = true;     // Budget exhausted
     bool merge_on_confidence = true;     // High confidence reached
-    
+
     // Validation requirements
     ValidatorProfile validators;
-    
+
     // Minimum branches before merge allowed
     int min_branches_for_merge = 2;
-    
+
     // Confidence threshold for auto-merge
     float auto_merge_confidence = 0.85f;
 };
@@ -178,26 +178,26 @@ struct Branch {
     std::string id;
     BranchKind kind = BranchKind::UNCERTAINTY;
     CommitEligibility eligibility = CommitEligibility::NEVER;
-    
+
     // Content
     std::vector<std::string> concepts;
     std::string summary;
-    
+
     // Metadata
     float entropy = 1.0f;
     float confidence = 0.5f;
     int depth = 0;
     std::string parent_id;
     std::vector<std::string> child_ids;
-    
+
     // Timestamps
     int64_t created_at = 0;
     int64_t last_updated = 0;
-    
+
     // Validation state
     bool validated = false;
     std::string validation_notes;
-    
+
     bool is_active() const { return !concepts.empty() && entropy > 0.01f; }
     bool can_fork() const { return depth < 10 && concepts.size() < 100; }
 };
@@ -221,12 +221,12 @@ struct Tension {
     TensionType type = TensionType::UNCERTAINTY;
     float severity = 0.5f;
     std::string description;
-    
+
     // Resolution
     bool resolved = false;
     std::string resolution;
     std::string resolution_branch;
-    
+
     // For trade-offs: preserve as explicit choice, not contradiction
     bool is_trade_off() const { return type == TensionType::TRADE_OFF; }
 };
@@ -247,7 +247,7 @@ struct EdgeMeta {
     float weight = 1.0f;
     int64_t created_at = 0;
     bool persisted = false;     // True if synced to GitGraph
-    
+
     std::string canonical_key() const {
         return from_id < to_id ? from_id + "|" + to_id : to_id + "|" + from_id;
     }
@@ -262,17 +262,17 @@ private:
     std::unordered_map<std::string, std::unordered_set<std::string>> adjacency_;
     std::unordered_set<std::string> active_ids_;
     std::unordered_set<std::string> tension_ids_;
-    
+
     // === ENHANCED: Edge metadata for GitGraph integration ===
     std::unordered_map<std::string, EdgeMeta> edge_metadata_;
-    
+
     // === ENHANCED: Session/Mode tracking ===
     std::string session_id_;
     std::string current_mode_ = "CHAT";
     std::string gitgraph_prefix_;
     int64_t next_local_id_ = 1;
     int64_t current_iteration_ = 0;
-    
+
     // === ENHANCED: Persistence ===
     std::string persist_path_;
     bool dirty_ = false;
@@ -516,9 +516,62 @@ private:
         }
     }
 
+    std::string serialize_unlocked() const {
+        std::string json = "{\n";
+        json += "  \"session_id\": \"" + json_escape(session_id_) + "\",\n";
+        json += "  \"mode\": \"" + json_escape(current_mode_) + "\",\n";
+        json += "  \"gitgraph_prefix\": \"" + json_escape(gitgraph_prefix_) + "\",\n";
+        json += "  \"next_local_id\": " + std::to_string(next_local_id_) + ",\n";
+        json += "  \"current_iteration\": " + std::to_string(current_iteration_) + ",\n";
+
+        // Active IDs
+        json += "  \"active_ids\": [";
+        bool first = true;
+        for (const auto& id : active_ids_) {
+            if (!first) json += ", ";
+            json += "\"" + json_escape(id) + "\"";
+            first = false;
+        }
+        json += "],\n";
+
+        // Edges with metadata
+        json += "  \"edges\": [\n";
+        first = true;
+        for (const auto& [key, meta] : edge_metadata_) {
+            (void)key;
+            if (!first) json += ",\n";
+            json += "    {\"from\": \"" + json_escape(meta.from_id);
+            json += "\", \"to\": \"" + json_escape(meta.to_id);
+            json += "\", \"type\": \"" + json_escape(meta.edge_type);
+            json += "\", \"mode\": \"" + json_escape(meta.source_mode);
+            json += "\", \"weight\": " + std::to_string(meta.weight);
+            json += ", \"created_at\": " + std::to_string(meta.created_at);
+            json += ", \"persisted\": " + std::string(meta.persisted ? "true" : "false") + "}";
+            first = false;
+        }
+        json += "\n  ]\n}\n";
+        return json;
+    }
+
+    bool save_unlocked() {
+        if (persist_path_.empty() || !dirty_) return persist_path_.empty() ? false : true;
+
+        FILE* f = fopen(persist_path_.c_str(), "w");
+        if (!f) return false;
+
+        std::string json = serialize_unlocked();
+        fwrite(json.c_str(), 1, json.size(), f);
+        fclose(f);
+
+        dirty_ = false;
+        fprintf(stderr, "[BRANCH-GRAPH] Saved to %s (%zu nodes, %zu edges, mode=%s)\n",
+                persist_path_.c_str(), active_ids_.size(), edge_metadata_.size(), current_mode_.c_str());
+        return true;
+    }
+
 public:
     // === Session initialization (ties to GitGraph) ===
-    void init_session(const std::string& session_id, 
+    void init_session(const std::string& session_id,
                       const std::string& mode = "CHAT",
                       const std::string& persist_dir = "") {
     std::lock_guard<std::mutex> lock(mu_);
@@ -527,24 +580,24 @@ public:
         gitgraph_prefix_ = mode + "_" + session_id + "_";
         next_local_id_ = 1;
         current_iteration_ = 0;
-        
+
         if (!persist_dir.empty()) {
             persist_path_ = persist_dir + "/branch_graph_" + mode + "_" + session_id + ".json";
         }
-        
+
         adjacency_.clear();
         active_ids_.clear();
         tension_ids_.clear();
         edge_metadata_.clear();
         dirty_ = false;
     }
-    
+
     void set_mode(const std::string& mode) {
         std::lock_guard<std::mutex> lock(mu_);
         current_mode_ = mode;
         gitgraph_prefix_ = mode + "_" + session_id_ + "_";
     }
-    
+
     // === ID generation (unified with GitGraph) ===
     std::string generate_branch_id(const std::string& prefix = "branch") {
         char buf[64];
@@ -552,7 +605,7 @@ public:
                  gitgraph_prefix_.c_str(), prefix.c_str(), (long long)next_local_id_++);
         return buf;
     }
-    
+
     std::string to_gitgraph_id(const std::string& local_id) const {
         if (local_id.find(gitgraph_prefix_) == 0) return local_id;
         return gitgraph_prefix_ + local_id;
@@ -568,21 +621,21 @@ public:
         }
         dirty_ = true;
     }
-    
+
     void remove_branch(const std::string& id) {
         std::lock_guard<std::mutex> lock(mu_);
         active_ids_.erase(id);
         dirty_ = true;
         // Don't remove from adjacency_ - keep for tension tracking
     }
-    
-    void link(const std::string& a, const std::string& b, 
+
+    void link(const std::string& a, const std::string& b,
               const std::string& edge_type = "lineage", float weight = 1.0f) {
         std::lock_guard<std::mutex> lock(mu_);
         if (a.empty() || b.empty() || a == b) return;
         adjacency_[a].insert(b);
         adjacency_[b].insert(a);  // Symmetric
-        
+
         // Track edge metadata
         EdgeMeta meta;
         meta.from_id = a < b ? a : b;
@@ -593,46 +646,55 @@ public:
         meta.created_at = (int64_t)time(NULL);
         meta.persisted = false;
         edge_metadata_[meta.canonical_key()] = meta;
-        
+
         dirty_ = true;
     }
-    
+
     void unlink(const std::string& a, const std::string& b) {
         std::lock_guard<std::mutex> lock(mu_);
         adjacency_[a].erase(b);
         adjacency_[b].erase(a);
-        
+
         std::string key = a < b ? a + "|" + b : b + "|" + a;
         edge_metadata_.erase(key);
         dirty_ = true;
     }
-    
+
     const std::unordered_set<std::string>& neighbors(const std::string& id) const {
         static const std::unordered_set<std::string> empty;
         auto it = adjacency_.find(id);
         return it != adjacency_.end() ? it->second : empty;
     }
-    
+
     bool is_active(const std::string& id) const {
         return active_ids_.count(id) > 0;
     }
-    
+
     size_t active_count() const { return active_ids_.size(); }
-    
+
     const std::unordered_set<std::string>& active_ids() const { return active_ids_; }
-    
+
     // Tension tracking
-    void record_tension(const std::string& id) { tension_ids_.insert(id); }
-    bool has_tension(const std::string& id) const { return tension_ids_.count(id) > 0; }
-    void clear_tension(const std::string& id) { tension_ids_.erase(id); }
-    
+    void record_tension(const std::string& id) {
+        std::lock_guard<std::mutex> lock(mu_);
+        tension_ids_.insert(id);
+    }
+    bool has_tension(const std::string& id) const {
+        std::lock_guard<std::mutex> lock(mu_);
+        return tension_ids_.count(id) > 0;
+    }
+    void clear_tension(const std::string& id) {
+        std::lock_guard<std::mutex> lock(mu_);
+        tension_ids_.erase(id);
+    }
+
     std::string canonical_pair_key(const std::string& a, const std::string& b) const {
         return a < b ? (a + ":" + b) : (b + ":" + a);
     }
 
     // === RESEARCH-COMPATIBLE API ===
     // These methods provide API compatibility with research mode
-    
+
     // Add branch with optional parent (for lineage tracking)
     void add_branch(const std::string& id, const std::string& parent_id) {
         add_branch(id);  // Locks internally
@@ -652,7 +714,7 @@ public:
             meta.persisted = false;
             edge_metadata_[meta.canonical_key()] = meta;
             dirty_ = true;
-            
+
             // Link to siblings (other children of same parent)
             for (const auto& [child, parent] : parent_of_) {
                 if (parent == parent_id && child != id) {
@@ -672,7 +734,7 @@ public:
             }
         }
     }
-    
+
     // Check if two branches are adjacent
     bool are_adjacent(const std::string& a, const std::string& b) const {
         if (a == b) return false;
@@ -680,7 +742,7 @@ public:
         if (it == adjacency_.end()) return false;
         return it->second.count(b) > 0;
     }
-    
+
     // Get total number of edges (each edge counted once)
     size_t total_edges() const {
         size_t sum = 0;
@@ -689,23 +751,23 @@ public:
         }
         return sum / 2;  // Undirected: each edge counted twice
     }
-    
+
     // Get degree of a node
     size_t degree(const std::string& id) const {
         auto it = adjacency_.find(id);
         return it != adjacency_.end() ? it->second.size() : 0;
     }
-    
+
     // Merge two branches into one (inherits neighbors from both)
     void merge_branches(const std::string& merged_id,
                         const std::string& a_id,
                         const std::string& b_id) {
         std::lock_guard<std::mutex> lock(mu_);
         if (merged_id.empty() || a_id.empty() || b_id.empty()) return;
-        
+
         // Collect all neighbors to inherit
         std::unordered_set<std::string> inherited_neighbors;
-        
+
         if (adjacency_.count(a_id)) {
             for (const auto& n : adjacency_[a_id]) {
                 if (n != a_id && n != b_id && n != merged_id) {
@@ -720,17 +782,17 @@ public:
                 }
             }
         }
-        
+
         // Remove old branches
         active_ids_.erase(a_id);
         active_ids_.erase(b_id);
-        
+
         // Add merged branch
         active_ids_.insert(merged_id);
         if (adjacency_.find(merged_id) == adjacency_.end()) {
             adjacency_[merged_id] = {};
         }
-        
+
         // Link to all inherited neighbors
         for (const auto& n : inherited_neighbors) {
             if (active_ids_.count(n)) {
@@ -749,7 +811,7 @@ public:
         }
         dirty_ = true;
     }
-    
+
     // Parent tracking map (public for research compatibility)
     std::unordered_map<std::string, std::string> parent_of_;
 
@@ -759,23 +821,25 @@ public:
         auto it = edge_metadata_.find(key);
         return it != edge_metadata_.end() ? &it->second : nullptr;
     }
-    
+
     std::vector<EdgeMeta> get_edges_by_mode(const std::string& mode) const {
+        std::lock_guard<std::mutex> lock(mu_);
         std::vector<EdgeMeta> result;
         for (const auto& [_, meta] : edge_metadata_) {
             if (meta.source_mode == mode) result.push_back(meta);
         }
         return result;
     }
-    
+
     std::vector<EdgeMeta> get_unpersisted_edges() const {
+        std::lock_guard<std::mutex> lock(mu_);
         std::vector<EdgeMeta> result;
         for (const auto& [_, meta] : edge_metadata_) {
             if (!meta.persisted) result.push_back(meta);
         }
         return result;
     }
-    
+
     void mark_edges_persisted(const std::vector<std::string>& keys) {
         std::lock_guard<std::mutex> lock(mu_);
         for (const auto& key : keys) {
@@ -784,66 +848,75 @@ public:
             }
         }
     }
-    
+
     // === ENHANCED: Iteration tracking ===
     void advance_iteration() { current_iteration_++; }
     int64_t iteration() const { return current_iteration_; }
-    
+
     // === ENHANCED: Persistence ===
     std::string serialize() const {
         std::lock_guard<std::mutex> lock(mu_);
-        std::string json = "{\n";
-        json += "  \"session_id\": \"" + json_escape(session_id_) + "\",\n";
-        json += "  \"mode\": \"" + json_escape(current_mode_) + "\",\n";
-        json += "  \"gitgraph_prefix\": \"" + json_escape(gitgraph_prefix_) + "\",\n";
-        json += "  \"next_local_id\": " + std::to_string(next_local_id_) + ",\n";
-        json += "  \"current_iteration\": " + std::to_string(current_iteration_) + ",\n";
-        
-        // Active IDs
-        json += "  \"active_ids\": [";
-        bool first = true;
-        for (const auto& id : active_ids_) {
-            if (!first) json += ", ";
-            json += "\"" + json_escape(id) + "\"";
-            first = false;
-        }
-        json += "],\n";
-        
-        // Edges with metadata
-        json += "  \"edges\": [\n";
-        first = true;
-        for (const auto& [key, meta] : edge_metadata_) {
-            if (!first) json += ",\n";
-            json += "    {\"from\": \"" + json_escape(meta.from_id);
-            json += "\", \"to\": \"" + json_escape(meta.to_id);
-            json += "\", \"type\": \"" + json_escape(meta.edge_type);
-            json += "\", \"mode\": \"" + json_escape(meta.source_mode);
-            json += "\", \"weight\": " + std::to_string(meta.weight);
-            json += ", \"created_at\": " + std::to_string(meta.created_at);
-            json += ", \"persisted\": " + std::string(meta.persisted ? "true" : "false") + "}";
-            first = false;
-        }
-        json += "\n  ]\n}\n";
-        return json;
+        return serialize_unlocked();
     }
-    
+
     bool save() {
         std::lock_guard<std::mutex> lock(mu_);
-        if (persist_path_.empty() || !dirty_) return persist_path_.empty() ? false : true;
-        
-        FILE* f = fopen(persist_path_.c_str(), "w");
-        if (!f) return false;
-        
-        std::string json = serialize();
-        fwrite(json.c_str(), 1, json.size(), f);
-        fclose(f);
-        
-        dirty_ = false;
-        fprintf(stderr, "[BRANCH-GRAPH] Saved to %s (%zu nodes, %zu edges, mode=%s)\n",
-                persist_path_.c_str(), active_ids_.size(), edge_metadata_.size(), current_mode_.c_str());
-        return true;
+        return save_unlocked();
     }
-    
+
+    // Reclaim memory: remove inactive branches and any edges that reference them.
+    // This is the counterpart to remove_branch(), which intentionally leaves history behind.
+    void vacuum_inactive() {
+        std::lock_guard<std::mutex> lock(mu_);
+
+        // Collect inactive ids that still exist in adjacency_
+        std::vector<std::string> inactive;
+        inactive.reserve(adjacency_.size());
+        for (const auto& [id, _] : adjacency_) {
+            if (active_ids_.count(id) == 0) inactive.push_back(id);
+        }
+
+        if (inactive.empty()) return;
+
+        auto erase_edge_if_inactive = [&](const std::string& a, const std::string& b) -> bool {
+            return (active_ids_.count(a) == 0) || (active_ids_.count(b) == 0);
+        };
+
+        // Remove references from active nodes to inactive nodes
+        for (auto& [id, neigh] : adjacency_) {
+            if (active_ids_.count(id) == 0) continue;
+            for (auto it = neigh.begin(); it != neigh.end();) {
+                if (active_ids_.count(*it) == 0) it = neigh.erase(it);
+                else ++it;
+            }
+        }
+
+        // Drop adjacency buckets for inactive nodes
+        for (const auto& id : inactive) {
+            adjacency_.erase(id);
+            parent_of_.erase(id);
+            tension_ids_.erase(id);
+        }
+
+        // Drop edge metadata that points to inactive nodes
+        for (auto it = edge_metadata_.begin(); it != edge_metadata_.end();) {
+            const auto& m = it->second;
+            if (erase_edge_if_inactive(m.from_id, m.to_id)) it = edge_metadata_.erase(it);
+            else ++it;
+        }
+
+        dirty_ = true;
+    }
+
+    // Thread-safe snapshot of active ids.
+    std::vector<std::string> active_ids_vec() const {
+        std::lock_guard<std::mutex> lock(mu_);
+        std::vector<std::string> r;
+        r.reserve(active_ids_.size());
+        for (const auto& id : active_ids_) r.push_back(id);
+        return r;
+    }
+
     bool load(const std::string& path) {
         std::lock_guard<std::mutex> lock(mu_);
         FILE* f = fopen(path.c_str(), "r");
@@ -913,13 +986,47 @@ public:
                 size, path.c_str(), active_ids_.size(), edge_metadata_.size(), current_mode_.c_str());
         return true;
     }
-    
-    void checkpoint(int save_interval = 5) {
+
+    void checkpoint(int save_interval = 5, int vacuum_interval = 25) {
         std::lock_guard<std::mutex> lock(mu_);
-        if (persist_path_.empty() || !dirty_) return;
-        if (current_iteration_ % save_interval == 0) save();
+        if (persist_path_.empty()) return;
+
+        if (vacuum_interval > 0 && (current_iteration_ % vacuum_interval == 0)) {
+            // Run vacuum first so the persisted file stays compact.
+            // (save_unlocked below will set dirty_=false)
+            // Note: vacuum_inactive() takes a lock; we're already holding it.
+            // Inline the call here.
+            std::vector<std::string> inactive;
+            inactive.reserve(adjacency_.size());
+            for (const auto& [id, _] : adjacency_) {
+                if (active_ids_.count(id) == 0) inactive.push_back(id);
+            }
+            for (auto& [id, neigh] : adjacency_) {
+                if (active_ids_.count(id) == 0) continue;
+                for (auto it = neigh.begin(); it != neigh.end();) {
+                    if (active_ids_.count(*it) == 0) it = neigh.erase(it);
+                    else ++it;
+                }
+            }
+            for (const auto& id : inactive) {
+                adjacency_.erase(id);
+                parent_of_.erase(id);
+                tension_ids_.erase(id);
+            }
+            for (auto it = edge_metadata_.begin(); it != edge_metadata_.end();) {
+                const auto& m = it->second;
+                if (active_ids_.count(m.from_id) == 0 || active_ids_.count(m.to_id) == 0) it = edge_metadata_.erase(it);
+                else ++it;
+            }
+            if (!inactive.empty()) dirty_ = true;
+        }
+
+        if (!dirty_) return;
+        if (save_interval > 0 && (current_iteration_ % save_interval == 0)) {
+            (void)save_unlocked();
+        }
     }
-    
+
     // === Stats ===
     const std::string& session_id() const { return session_id_; }
     const std::string& current_mode() const { return current_mode_; }
@@ -937,23 +1044,23 @@ private:
     std::vector<Branch> branches_;
     std::vector<Tension> tensions_;
     BranchGraph graph_;
-    
+
     // Configuration (set by ModePolicy)
     BranchingLevel level_ = BranchingLevel::NONE;
     BranchBudget budget_;
     BranchTrigger triggers_;
     MergePolicy merge_policy_;
     CommitEligibility default_eligibility_ = CommitEligibility::NEVER;
-    
+
     // Callbacks
     std::function<std::string(const std::string&, float temp, int max_tokens)> generate_fn_;
     std::function<bool(const std::string&, const std::string&)> validate_fn_;
-    
+
     // Metrics
     int iteration_count_ = 0;
     int64_t start_time_ = 0;
     float global_entropy_ = 1.0f;
-    
+
     // ID generation
     int branch_counter_ = 0;
     int tension_counter_ = 0;
@@ -962,8 +1069,8 @@ public:
     // ========================================================================
     // CONFIGURATION
     // ========================================================================
-    
-    void configure(BranchingLevel level, 
+
+    void configure(BranchingLevel level,
                    const BranchBudget& budget,
                    const BranchTrigger& triggers,
                    const MergePolicy& merge_policy,
@@ -973,39 +1080,39 @@ public:
         triggers_ = triggers;
         merge_policy_ = merge_policy;
         default_eligibility_ = default_eligibility;
-        
+
         fprintf(stderr, "[BRANCH-ENGINE] Configured: level=%s, max_branches=%d, max_depth=%d\n",
-                level == BranchingLevel::NONE ? "NONE" : 
+                level == BranchingLevel::NONE ? "NONE" :
                 level == BranchingLevel::LIGHT ? "LIGHT" : "FULL",
                 budget.max_branches, budget.max_depth);
     }
-    
+
     void set_generate_fn(std::function<std::string(const std::string&, float, int)> fn) {
         generate_fn_ = fn;
     }
-    
+
     void set_validate_fn(std::function<bool(const std::string&, const std::string&)> fn) {
         validate_fn_ = fn;
     }
-    
+
     // ========================================================================
     // INITIALIZATION
     // ========================================================================
-    
+
     void reset() {
         branches_.clear();
         tensions_.clear();
-        graph_ = BranchGraph();
+        graph_.init_session("", "", "");  // Clear without copy
         iteration_count_ = 0;
         branch_counter_ = 0;
         tension_counter_ = 0;
         global_entropy_ = 1.0f;
         start_time_ = current_time_ms();
     }
-    
+
     void seed(const std::string& initial_content, BranchKind kind = BranchKind::UNCERTAINTY) {
         reset();
-        
+
         if (level_ == BranchingLevel::NONE) {
             // Single-path mode - just store content, no branching
             Branch b;
@@ -1020,7 +1127,7 @@ public:
             graph_.add_branch(b.id);
             return;
         }
-        
+
         // Create initial branch
         Branch root;
         root.id = generate_branch_id();
@@ -1031,84 +1138,84 @@ public:
         root.confidence = 0.5f;
         root.depth = 0;
         root.created_at = current_time_ms();
-        
+
         branches_.push_back(root);
         graph_.add_branch(root.id);
-        
+
         fprintf(stderr, "[BRANCH-ENGINE] Seeded with root branch %s (entropy=%.2f)\n",
                 root.id.c_str(), root.entropy);
     }
-    
+
     // ========================================================================
     // CORE OPERATIONS
     // ========================================================================
-    
+
     // Explore: Expand branches based on triggers
     void explore() {
         if (level_ == BranchingLevel::NONE) return;
         if (!check_budget()) return;
-        
+
         iteration_count_++;
-        
+
         // Collect branches that should fork
         std::vector<std::pair<std::string, BranchKind>> fork_candidates;
-        
+
         for (const auto& b : branches_) {
             if (!graph_.is_active(b.id)) continue;
             if (b.depth >= budget_.max_depth) continue;
-            
+
             // Check triggers
             BranchKind trigger_kind;
             if (should_fork(b, trigger_kind)) {
                 fork_candidates.emplace_back(b.id, trigger_kind);
             }
         }
-        
+
         // Fork within budget
         int forks_allowed = budget_.max_branches - (int)graph_.active_count();
         for (const auto& [parent_id, kind] : fork_candidates) {
             if (forks_allowed <= 0) break;
-            
+
             int num_forks = (level_ == BranchingLevel::LIGHT) ? 2 : 3;
             num_forks = std::min(num_forks, forks_allowed);
-            
+
             fork_branch(parent_id, num_forks, kind);
             forks_allowed -= num_forks;
         }
-        
+
         recompute_global_entropy();
     }
-    
+
     // Detect tensions between branches
     void detect_tensions() {
         if (level_ == BranchingLevel::NONE) return;
-        
+
         int checks = 0;
         std::unordered_set<std::string> checked_pairs;
-        
+
         // Only check between adjacent branches (O(n × avg_neighbors))
         for (const auto& id : graph_.active_ids()) {
             if (checks >= budget_.max_tension_checks) break;
-            
+
             for (const auto& neighbor_id : graph_.neighbors(id)) {
                 if (!graph_.is_active(neighbor_id)) continue;
-                
+
                 std::string pair_key = graph_.canonical_pair_key(id, neighbor_id);
                 if (checked_pairs.count(pair_key)) continue;
                 checked_pairs.insert(pair_key);
-                
+
                 if (checks >= budget_.max_tension_checks) break;
                 checks++;
-                
+
                 // Check for tension
                 const Branch* a = find_branch(id);
                 const Branch* b = find_branch(neighbor_id);
                 if (!a || !b) continue;
-                
+
                 TensionType tension_type;
                 float severity;
                 std::string description;
-                
+
                 if (detect_tension_between(*a, *b, tension_type, severity, description)) {
                     if (!graph_.has_tension(pair_key)) {
                         record_tension(id, neighbor_id, tension_type, severity, description);
@@ -1118,102 +1225,102 @@ public:
             }
         }
     }
-    
+
     // Merge branches based on policy
     void merge() {
         if (level_ == BranchingLevel::NONE) return;
         if (branches_.size() < 2) return;
-        
+
         // Find convergent branches
         std::vector<std::pair<std::string, std::string>> merge_candidates;
-        
+
         for (size_t i = 0; i < branches_.size(); ++i) {
             if (!graph_.is_active(branches_[i].id)) continue;
-            
+
             for (size_t j = i + 1; j < branches_.size(); ++j) {
                 if (!graph_.is_active(branches_[j].id)) continue;
-                
+
                 if (should_merge(branches_[i], branches_[j])) {
                     merge_candidates.emplace_back(branches_[i].id, branches_[j].id);
                 }
             }
         }
-        
+
         // Execute merges
         for (const auto& [id_a, id_b] : merge_candidates) {
             execute_merge(id_a, id_b);
         }
-        
+
         recompute_global_entropy();
     }
-    
+
     // Compress: Summarize branches that have stabilized
     void compress() {
         if (level_ == BranchingLevel::NONE) return;
-        
+
         for (auto& b : branches_) {
             if (!graph_.is_active(b.id)) continue;
             if (b.entropy > 0.3f) continue;  // Only compress low-entropy branches
             if (b.concepts.size() < 3) continue;  // Need content to compress
-            
+
             // Generate summary
             std::string content;
             for (const auto& c : b.concepts) {
                 content += c + "\n";
             }
-            
+
             if (generate_fn_) {
                 std::string prompt = "Summarize the following concepts into a single coherent statement:\n" + content;
                 b.summary = generate_fn_(prompt, 0.3f, 256);
-                
+
                 // Compress concepts into summary
                 b.concepts.clear();
                 b.concepts.push_back(b.summary);
                 b.entropy *= 0.5f;  // Reduce entropy after compression
-                
+
                 fprintf(stderr, "[BRANCH-ENGINE] Compressed branch %s\n", b.id.c_str());
             }
         }
     }
-    
+
     // ========================================================================
     // OUTPUT
     // ========================================================================
-    
+
     // Produce final output based on merge strategy
     std::string produce_output() {
         if (branches_.empty()) return "";
-        
+
         switch (merge_policy_.strategy) {
             case MergeStrategy::SYNTHESIS:
                 return synthesize_all();
-                
+
             case MergeStrategy::SELECTION:
                 return select_best();
-                
+
             case MergeStrategy::CURATED:
                 return present_options();
-                
+
             case MergeStrategy::CONDITIONAL:
                 return produce_conditional();
         }
-        
+
         return synthesize_all();
     }
-    
+
     // Get branches eligible for commit
     std::vector<const Branch*> get_committable_branches() const {
         std::vector<const Branch*> result;
-        
+
         for (const auto& b : branches_) {
             if (b.eligibility == CommitEligibility::NEVER) continue;
             if (b.eligibility == CommitEligibility::VALIDATED_ONLY && !b.validated) continue;
             result.push_back(&b);
         }
-        
+
         return result;
     }
-    
+
     // Get unresolved tensions
     std::vector<const Tension*> get_unresolved_tensions() const {
         std::vector<const Tension*> result;
@@ -1222,17 +1329,17 @@ public:
         }
         return result;
     }
-    
+
     // ========================================================================
     // ACCESSORS
     // ========================================================================
-    
+
     float global_entropy() const { return global_entropy_; }
     int iteration_count() const { return iteration_count_; }
     size_t branch_count() const { return graph_.active_count(); }
     size_t tension_count() const { return tensions_.size(); }
     BranchingLevel level() const { return level_; }
-    
+
     const std::vector<Branch>& branches() const { return branches_; }
     const std::vector<Tension>& tensions() const { return tensions_; }
 
@@ -1240,44 +1347,44 @@ private:
     // ========================================================================
     // INTERNAL HELPERS
     // ========================================================================
-    
+
     std::string generate_branch_id() {
         return "b" + std::to_string(++branch_counter_);
     }
-    
+
     std::string generate_tension_id() {
         return "t" + std::to_string(++tension_counter_);
     }
-    
+
     int64_t current_time_ms() const {
         return std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now().time_since_epoch()
         ).count();
     }
-    
+
     bool check_budget() const {
         if (iteration_count_ >= budget_.max_iterations) {
             fprintf(stderr, "[BRANCH-ENGINE] Budget exhausted: max iterations\n");
             return false;
         }
-        
+
         int64_t elapsed = current_time_ms() - start_time_;
         if (elapsed > budget_.max_total_time_ms) {
             fprintf(stderr, "[BRANCH-ENGINE] Budget exhausted: max time\n");
             return false;
         }
-        
+
         return true;
     }
-    
+
     float compute_initial_entropy(const std::string& content) const {
         // Simple entropy estimate based on content characteristics
         float entropy = 0.5f;
-        
+
         // More questions = higher entropy
         int question_count = std::count(content.begin(), content.end(), '?');
         entropy += question_count * 0.1f;
-        
+
         // Hedge words increase entropy
         if (content.find("maybe") != std::string::npos ||
             content.find("perhaps") != std::string::npos ||
@@ -1285,41 +1392,41 @@ private:
             content.find("could be") != std::string::npos) {
             entropy += 0.15f;
         }
-        
+
         // Contradictions increase entropy
         if (content.find("however") != std::string::npos ||
             content.find("but") != std::string::npos ||
             content.find("on the other hand") != std::string::npos) {
             entropy += 0.1f;
         }
-        
+
         return std::min(entropy, 1.0f);
     }
-    
+
     bool should_fork(const Branch& b, BranchKind& out_kind) const {
         // Check entropy threshold
         if (triggers_.on_uncertainty && b.entropy > triggers_.entropy_threshold) {
             out_kind = BranchKind::UNCERTAINTY;
             return true;
         }
-        
+
         // Check confidence threshold
         if (triggers_.on_ambiguity && b.confidence < triggers_.confidence_threshold) {
             out_kind = BranchKind::AMBIGUITY;
             return true;
         }
-        
+
         // Check for specific triggers in content
         std::string content;
         for (const auto& c : b.concepts) content += c + " ";
-        
-        if (triggers_.on_contradiction && 
+
+        if (triggers_.on_contradiction &&
             (content.find("contradict") != std::string::npos ||
              content.find("conflict") != std::string::npos)) {
             out_kind = BranchKind::CONTRADICTION;
             return true;
         }
-        
+
         if (triggers_.on_alternative_frame &&
             (content.find("alternatively") != std::string::npos ||
              content.find("another approach") != std::string::npos ||
@@ -1327,7 +1434,7 @@ private:
             out_kind = BranchKind::FRAME;
             return true;
         }
-        
+
         if (triggers_.on_design_tradeoff &&
             (content.find("trade-off") != std::string::npos ||
              content.find("tradeoff") != std::string::npos ||
@@ -1336,7 +1443,7 @@ private:
             out_kind = BranchKind::TRADE_OFF;
             return true;
         }
-        
+
         if (triggers_.on_implementation_choice &&
             (content.find("could implement") != std::string::npos ||
              content.find("another way") != std::string::npos ||
@@ -1344,20 +1451,20 @@ private:
             out_kind = BranchKind::IMPLEMENTATION;
             return true;
         }
-        
+
         return false;
     }
-    
+
     void fork_branch(const std::string& parent_id, int num_forks, BranchKind kind) {
         Branch* parent = nullptr;
         for (auto& b : branches_) {
             if (b.id == parent_id) { parent = &b; break; }
         }
         if (!parent) return;
-        
+
         fprintf(stderr, "[BRANCH-ENGINE] Forking %s into %d branches (kind=%s)\n",
                 parent_id.c_str(), num_forks, branch_kind_name(kind));
-        
+
         for (int i = 0; i < num_forks; ++i) {
             Branch child;
             child.id = generate_branch_id();
@@ -1368,10 +1475,10 @@ private:
             child.entropy = parent->entropy * 0.9f;  // Slightly reduce entropy
             child.confidence = parent->confidence;
             child.created_at = current_time_ms();
-            
+
             // Copy parent concepts
             child.concepts = parent->concepts;
-            
+
             // Generate divergent content if we have generate_fn
             if (generate_fn_) {
                 std::string prompt = build_fork_prompt(*parent, kind, i);
@@ -1380,52 +1487,52 @@ private:
                     child.concepts.push_back(expansion);
                 }
             }
-            
+
             branches_.push_back(child);
             graph_.add_branch(child.id);
             graph_.link(parent_id, child.id);
             parent->child_ids.push_back(child.id);
         }
-        
+
         // Deactivate parent after forking
         graph_.remove_branch(parent_id);
     }
-    
+
     std::string build_fork_prompt(const Branch& parent, BranchKind kind, int variant) const {
         std::string content;
         for (const auto& c : parent.concepts) content += c + "\n";
-        
+
         switch (kind) {
             case BranchKind::AMBIGUITY:
-                return "Given: " + content + "\nExplore interpretation #" + 
+                return "Given: " + content + "\nExplore interpretation #" +
                        std::to_string(variant + 1) + " of this ambiguous content:";
-                       
+
             case BranchKind::FRAME:
                 return "Given: " + content + "\nReframe this from perspective #" +
                        std::to_string(variant + 1) + ":";
-                       
+
             case BranchKind::IMPLEMENTATION:
                 return "Given: " + content + "\nProvide implementation approach #" +
                        std::to_string(variant + 1) + ":";
-                       
+
             case BranchKind::TRADE_OFF:
                 return "Given: " + content + "\nExplore trade-off option #" +
                        std::to_string(variant + 1) + ":";
-                       
+
             case BranchKind::CREATIVE_VARIATION:
                 return "Given: " + content + "\nCreate variation #" +
                        std::to_string(variant + 1) + ":";
-                       
+
             case BranchKind::ASSOCIATION:
                 return "Given: " + content + "\nFollow association chain #" +
                        std::to_string(variant + 1) + ":";
-                       
+
             default:
                 return "Given: " + content + "\nExplore alternative #" +
                        std::to_string(variant + 1) + ":";
         }
     }
-    
+
     bool detect_tension_between(const Branch& a, const Branch& b,
                                 TensionType& out_type, float& out_severity,
                                 std::string& out_description) const {
@@ -1433,9 +1540,9 @@ private:
         std::string content_a, content_b;
         for (const auto& c : a.concepts) content_a += c + " ";
         for (const auto& c : b.concepts) content_b += c + " ";
-        
+
         // Check for explicit contradiction markers
-        if ((content_a.find("not") != std::string::npos && 
+        if ((content_a.find("not") != std::string::npos &&
              content_b.find("is") != std::string::npos) ||
             (content_a.find("should") != std::string::npos &&
              content_b.find("shouldn't") != std::string::npos)) {
@@ -1444,7 +1551,7 @@ private:
             out_description = "Potential contradiction between branches";
             return true;
         }
-        
+
         // Check for trade-off patterns
         if (content_a.find("performance") != std::string::npos &&
             content_b.find("readability") != std::string::npos) {
@@ -1453,10 +1560,10 @@ private:
             out_description = "Performance vs readability trade-off";
             return true;
         }
-        
+
         return false;
     }
-    
+
     void record_tension(const std::string& branch_a, const std::string& branch_b,
                         TensionType type, float severity, const std::string& description) {
         Tension t;
@@ -1467,17 +1574,17 @@ private:
         t.severity = severity;
         t.description = description;
         tensions_.push_back(t);
-        
+
         fprintf(stderr, "[BRANCH-ENGINE] Tension %s: %s <-> %s (severity=%.2f)\n",
                 t.id.c_str(), branch_a.c_str(), branch_b.c_str(), severity);
     }
-    
+
     bool should_merge(const Branch& a, const Branch& b) const {
         // Check convergence
         if (merge_policy_.merge_on_convergence) {
             if (a.entropy < 0.2f && b.entropy < 0.2f) return true;
         }
-        
+
         // Check confidence
         if (merge_policy_.merge_on_confidence) {
             if (a.confidence > merge_policy_.auto_merge_confidence &&
@@ -1485,10 +1592,10 @@ private:
                 return true;
             }
         }
-        
+
         return false;
     }
-    
+
     void execute_merge(const std::string& id_a, const std::string& id_b) {
         Branch* a = nullptr;
         Branch* b = nullptr;
@@ -1497,9 +1604,9 @@ private:
             if (br.id == id_b) b = &br;
         }
         if (!a || !b) return;
-        
+
         fprintf(stderr, "[BRANCH-ENGINE] Merging %s + %s\n", id_a.c_str(), id_b.c_str());
-        
+
         // Create merged branch
         Branch merged;
         merged.id = generate_branch_id();
@@ -1508,7 +1615,7 @@ private:
         merged.depth = std::max(a->depth, b->depth);
         merged.parent_id = a->id;  // Track lineage
         merged.created_at = current_time_ms();
-        
+
         // Combine concepts
         for (const auto& c : a->concepts) merged.concepts.push_back(c);
         for (const auto& c : b->concepts) {
@@ -1519,11 +1626,11 @@ private:
             }
             if (!dup) merged.concepts.push_back(c);
         }
-        
+
         // Average entropy/confidence
         merged.entropy = (a->entropy + b->entropy) / 2.0f * 0.8f;  // Reduce after merge
         merged.confidence = std::max(a->confidence, b->confidence);
-        
+
         // Generate synthesis if we have generate_fn
         if (generate_fn_) {
             std::string content;
@@ -1531,16 +1638,16 @@ private:
             std::string prompt = "Synthesize these concepts into a coherent whole:\n" + content;
             merged.summary = generate_fn_(prompt, 0.5f, 512);
         }
-        
+
         branches_.push_back(merged);
         graph_.add_branch(merged.id);
         graph_.link(a->id, merged.id);
         graph_.link(b->id, merged.id);
-        
+
         // Deactivate merged branches
         graph_.remove_branch(a->id);
         graph_.remove_branch(b->id);
-        
+
         // Resolve related tensions
         for (auto& t : tensions_) {
             if ((t.branch_a == id_a || t.branch_a == id_b) &&
@@ -1550,13 +1657,13 @@ private:
             }
         }
     }
-    
+
     void recompute_global_entropy() {
         if (branches_.empty()) {
             global_entropy_ = 1.0f;
             return;
         }
-        
+
         float sum = 0.0f;
         int count = 0;
         for (const auto& b : branches_) {
@@ -1565,17 +1672,17 @@ private:
                 count++;
             }
         }
-        
+
         global_entropy_ = count > 0 ? sum / count : 1.0f;
     }
-    
+
     const Branch* find_branch(const std::string& id) const {
         for (const auto& b : branches_) {
             if (b.id == id) return &b;
         }
         return nullptr;
     }
-    
+
     // Output strategies
     std::string synthesize_all() const {
         std::string result;
@@ -1592,11 +1699,11 @@ private:
         }
         return result;
     }
-    
+
     std::string select_best() const {
         const Branch* best = nullptr;
         float best_score = -1.0f;
-        
+
         for (const auto& b : branches_) {
             if (!graph_.is_active(b.id)) continue;
             float score = b.confidence * (1.0f - b.entropy);
@@ -1605,23 +1712,23 @@ private:
                 best = &b;
             }
         }
-        
+
         if (!best) return "";
-        
+
         if (!best->summary.empty()) return best->summary;
-        
+
         std::string result;
         for (const auto& c : best->concepts) result += c + "\n";
         return result;
     }
-    
+
     std::string present_options() const {
         std::string result = "## Options\n\n";
         int option = 1;
-        
+
         for (const auto& b : branches_) {
             if (!graph_.is_active(b.id)) continue;
-            
+
             result += "### Option " + std::to_string(option++) + "\n";
             if (!b.summary.empty()) {
                 result += b.summary + "\n\n";
@@ -1632,23 +1739,23 @@ private:
             }
             result += "\n";
         }
-        
+
         return result;
     }
-    
+
     std::string produce_conditional() const {
         std::string result;
         int condition = 1;
-        
+
         for (const auto& b : branches_) {
             if (!graph_.is_active(b.id)) continue;
-            
+
             if (condition == 1) {
                 result += std::string("If exploring ") + branch_kind_name(b.kind) + ":\n";
             } else {
                 result += std::string("Alternatively, if ") + branch_kind_name(b.kind) + ":\n";
             }
-            
+
             if (!b.summary.empty()) {
                 result += b.summary + "\n\n";
             } else {
@@ -1659,7 +1766,7 @@ private:
             result += "\n";
             condition++;
         }
-        
+
         return result;
     }
 };
@@ -1672,7 +1779,7 @@ private:
 //   User Session
 //   ├── Dataset: "project-a" (isolated)
 //   │   ├── CHAT graph    → GitGraph commits
-//   │   ├── CODE graph    → GitGraph commits  
+//   │   ├── CODE graph    → GitGraph commits
 //   │   ├── RESEARCH graph → GitGraph commits
 //   │   ├── CREATIVE graph → File output only (fiction)
 //   │   └── DREAM graph   → File output only (pending review)
@@ -1743,9 +1850,9 @@ struct DreamOutput {
     std::vector<std::string> source_nodes;
     std::vector<CrossDatasetEdge> cross_links;
     int64_t created_at;
-    
+
     DreamOutput() : mode(IsolatedMode::DREAM), created_at(0) {}
-    
+
     std::string to_file_content() const {
         std::string result;
         result += "# Dream: " + id + "\n";
@@ -1768,10 +1875,10 @@ struct DatasetGraphs {
     std::string persist_dir;
     int64_t ingested_at;
     std::unordered_map<IsolatedMode, BranchGraph> mode_graphs;
-    
+
     DatasetGraphs() : ingested_at(0) {}
-    
-    void init(const std::string& id, const std::string& path, 
+
+    void init(const std::string& id, const std::string& path,
               const std::string& anchor, const std::string& persist) {
         dataset_id = id;
         dataset_path = path;
@@ -1779,7 +1886,7 @@ struct DatasetGraphs {
         persist_dir = persist;
         ingested_at = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::system_clock::now().time_since_epoch()).count();
-        
+
         for (auto m : {IsolatedMode::CHAT, IsolatedMode::CODE, IsolatedMode::RESEARCH,
                        IsolatedMode::CREATIVE, IsolatedMode::DREAM}) {
             mode_graphs[m].init_session(dataset_id + "_" + isolated_mode_name(m),
@@ -1787,13 +1894,174 @@ struct DatasetGraphs {
                                         persist + "/" + isolated_mode_name(m));
         }
     }
-    
+
     BranchGraph* get_mode(IsolatedMode m) {
         auto it = mode_graphs.find(m);
         return it != mode_graphs.end() ? &it->second : nullptr;
     }
-    
+
     void save_all() { for (auto& [m, g] : mode_graphs) g.save(); }
+};
+
+// ============================================================================
+// INCEPTION BUILDER: Curated Cross-Dataset Synthesis  
+// ============================================================================
+// Three workflows:
+//   A. Explicit picks   - manually select each node
+//   B. Filter query     - system suggests, you approve
+//   C. Staged review    - system proposes, you accept/reject each
+
+struct InceptionSource {
+    std::string dataset_id;
+    std::string node_id;
+    std::string node_type;
+    std::string summary;
+    float relevance;
+    bool approved;
+    bool rejected;
+    InceptionSource() : relevance(0.0f), approved(false), rejected(false) {}
+    std::string composite_id() const { return dataset_id + "::" + node_id; }
+};
+
+class InceptionBuilder {
+public:
+    InceptionBuilder() : manager_(nullptr), review_idx_(0) {}
+    void set_manager(void* mgr) { manager_ = mgr; }
+    
+    // Option A: Explicit picks
+    void pick(const std::string& ds, const std::string& node,
+              const std::string& type = "node", const std::string& summary = "") {
+        InceptionSource s;
+        s.dataset_id = ds; s.node_id = node; s.node_type = type;
+        s.summary = summary; s.relevance = 1.0f; s.approved = true;
+        sources_.push_back(s);
+    }
+    
+    void unpick(const std::string& ds, const std::string& node) {
+        std::string t = ds + "::" + node;
+        sources_.erase(std::remove_if(sources_.begin(), sources_.end(),
+            [&](const InceptionSource& s) { return s.composite_id() == t; }), sources_.end());
+    }
+    
+    // Option B: Filter query suggestions
+    void suggest(const std::string& ds, const std::string& node,
+                 const std::string& type, const std::string& summary, float rel) {
+        InceptionSource s;
+        s.dataset_id = ds; s.node_id = node; s.node_type = type;
+        s.summary = summary; s.relevance = rel; s.approved = false;
+        suggestions_.push_back(s);
+    }
+    
+    std::vector<InceptionSource>& pending_suggestions() { return suggestions_; }
+    
+    void approve(size_t i) {
+        if (i >= suggestions_.size()) return;
+        suggestions_[i].approved = true;
+        sources_.push_back(suggestions_[i]);
+        suggestions_.erase(suggestions_.begin() + i);
+    }
+    
+    void approve_by_id(const std::string& id) {
+        for (size_t i = 0; i < suggestions_.size(); ++i)
+            if (suggestions_[i].composite_id() == id) { approve(i); return; }
+    }
+    
+    void reject(size_t i) {
+        if (i >= suggestions_.size()) return;
+        suggestions_[i].rejected = true;
+        rejected_.push_back(suggestions_[i]);
+        suggestions_.erase(suggestions_.begin() + i);
+    }
+    
+    void reject_by_id(const std::string& id) {
+        for (size_t i = 0; i < suggestions_.size(); ++i)
+            if (suggestions_[i].composite_id() == id) { reject(i); return; }
+    }
+    
+    void approve_all() {
+        for (auto& s : suggestions_) { s.approved = true; sources_.push_back(s); }
+        suggestions_.clear();
+    }
+    
+    void reject_all() {
+        for (auto& s : suggestions_) { s.rejected = true; rejected_.push_back(s); }
+        suggestions_.clear();
+    }
+    
+    // Option C: Staged review
+    void propose_from_datasets(const std::vector<std::string>& ds) { proposed_datasets_ = ds; }
+    
+    InceptionSource* next_for_review() {
+        return review_idx_ < suggestions_.size() ? &suggestions_[review_idx_] : nullptr;
+    }
+    
+    void approve_current() {
+        if (review_idx_ < suggestions_.size()) {
+            suggestions_[review_idx_].approved = true;
+            sources_.push_back(suggestions_[review_idx_++]);
+        }
+    }
+    
+    void reject_current() {
+        if (review_idx_ < suggestions_.size()) {
+            suggestions_[review_idx_].rejected = true;
+            rejected_.push_back(suggestions_[review_idx_++]);
+        }
+    }
+    
+    void skip_current() { if (review_idx_ < suggestions_.size()) review_idx_++; }
+    void reset_review() { review_idx_ = 0; }
+    bool review_complete() const { return review_idx_ >= suggestions_.size(); }
+    size_t review_remaining() const { 
+        return review_idx_ < suggestions_.size() ? suggestions_.size() - review_idx_ : 0;
+    }
+    
+    // Synthesis
+    std::vector<InceptionSource> approved_sources() const {
+        std::vector<InceptionSource> r;
+        for (const auto& s : sources_) if (s.approved && !s.rejected) r.push_back(s);
+        return r;
+    }
+    
+    std::vector<std::string> involved_datasets() const {
+        std::unordered_set<std::string> ds;
+        for (const auto& s : sources_) if (s.approved && !s.rejected) ds.insert(s.dataset_id);
+        return std::vector<std::string>(ds.begin(), ds.end());
+    }
+    
+    struct SynthesisContext {
+        std::string query;
+        std::vector<InceptionSource> sources;
+        std::vector<std::string> datasets;
+        size_t approved_count, rejected_count;
+    };
+    
+    SynthesisContext build_context(const std::string& q) const {
+        SynthesisContext c;
+        c.query = q;
+        c.sources = approved_sources();
+        c.datasets = involved_datasets();
+        c.approved_count = c.sources.size();
+        c.rejected_count = rejected_.size();
+        return c;
+    }
+    
+    void clear() {
+        sources_.clear(); suggestions_.clear(); rejected_.clear();
+        proposed_datasets_.clear(); review_idx_ = 0;
+    }
+    
+    size_t picked_count() const { return sources_.size(); }
+    size_t suggestion_count() const { return suggestions_.size(); }
+    size_t rejected_count() const { return rejected_.size(); }
+
+private:
+    void* manager_;
+    std::vector<InceptionSource> sources_;
+    std::vector<InceptionSource> suggestions_;
+    std::vector<InceptionSource> rejected_;
+    std::vector<std::string> proposed_datasets_;
+    size_t review_idx_;
 };
 
 class BranchGraphManager {
@@ -1801,7 +2069,7 @@ public:
     BranchGraphManager() : cross_edge_counter_(0), dream_counter_(0), auto_switch_(true) {
         dream_dir_ = "data/dreams";
     }
-    
+
     bool ingest_dataset(const std::string& id, const std::string& path,
                         const std::string& anchor_hash, const std::string& persist_dir) {
         if (datasets_.count(id)) return false;
@@ -1811,33 +2079,33 @@ public:
         if (auto_switch_ && active_mode_ == IsolatedMode::DREAM) active_dataset_ = id;
         return true;
     }
-    
+
     bool remove_dataset(const std::string& id) { return datasets_.erase(id) > 0; }
-    
+
     std::vector<std::string> list_datasets() const {
         std::vector<std::string> r;
         for (const auto& [id, _] : datasets_) r.push_back(id);
         return r;
     }
-    
+
     DatasetGraphs* get_dataset(const std::string& id) {
         auto it = datasets_.find(id);
         return it != datasets_.end() ? &it->second : nullptr;
     }
-    
+
     BranchGraph* get_graph(const std::string& dataset_id, IsolatedMode mode) {
         if (mode == IsolatedMode::INCEPTION) return &inception_graph_;
         auto* ds = get_dataset(dataset_id);
         return ds ? ds->get_mode(mode) : nullptr;
     }
-    
+
     void set_context(const std::string& dataset_id, IsolatedMode mode) {
         active_dataset_ = dataset_id;
         active_mode_ = mode;
     }
-    
+
     BranchGraph* active_graph() { return get_graph(active_dataset_, active_mode_); }
-    
+
     std::string save_dream(const DreamOutput& dream) {
         auto now = std::chrono::system_clock::now();
         auto tt = std::chrono::system_clock::to_time_t(now);
@@ -1849,7 +2117,7 @@ public:
         if (out) { out << dream.to_file_content(); out.close(); }
         return filepath;
     }
-    
+
     DreamOutput create_dream(const std::string& type, const std::string& content,
                              const std::vector<std::string>& sources = {}) {
         DreamOutput d;
@@ -1865,7 +2133,7 @@ public:
         if (ds) d.dataset_anchor = ds->dataset_anchor;
         return d;
     }
-    
+
     std::string create_cross_link(const std::string& from_ds, const std::string& from_node,
                                    const std::string& to_ds, const std::string& to_node,
                                    const std::string& edge_type, const std::string& insight,
@@ -1882,7 +2150,7 @@ public:
         inception_graph_.link(from_ds + "::" + from_node, to_ds + "::" + to_node, edge_type, strength);
         return e.id;
     }
-    
+
     DreamOutput create_inception_dream(const std::string& content,
                                         const std::vector<std::string>& datasets,
                                         const std::vector<CrossDatasetEdge>& links) {
@@ -1897,20 +2165,20 @@ public:
             std::chrono::system_clock::now().time_since_epoch()).count();
         return d;
     }
-    
+
     std::vector<CrossDatasetEdge> find_cross_patterns(const std::string& type = "") const {
         std::vector<CrossDatasetEdge> r;
         for (const auto& e : cross_edges_)
             if (type.empty() || e.edge_type == type) r.push_back(e);
         return r;
     }
-    
+
     struct SynthesisContext {
         std::string query;
         std::vector<std::pair<std::string, std::string>> source_nodes;
         std::vector<CrossDatasetEdge> relevant_links;
     };
-    
+
     SynthesisContext prepare_synthesis(const std::vector<std::string>& ds_ids, const std::string& query) {
         SynthesisContext ctx;
         ctx.query = query;
@@ -1918,7 +2186,7 @@ public:
             auto* ds = get_dataset(id);
             if (!ds) continue;
             for (const auto& [m, g] : ds->mode_graphs)
-                for (const auto& node : g.active_ids())
+                for (const auto& node : g.active_ids_vec())
                     ctx.source_nodes.emplace_back(id, node);
         }
         for (const auto& e : cross_edges_) {
@@ -1928,11 +2196,11 @@ public:
         }
         return ctx;
     }
-    
+
     void set_dream_output_dir(const std::string& d) { dream_dir_ = d; }
     void set_auto_switch_on_ingest(bool v) { auto_switch_ = v; }
     void save_all() { for (auto& [_, ds] : datasets_) ds.save_all(); inception_graph_.save(); }
-    
+
     const std::string& active_dataset_id() const { return active_dataset_; }
     IsolatedMode active_mode() const { return active_mode_; }
     size_t dataset_count() const { return datasets_.size(); }
