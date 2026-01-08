@@ -213,6 +213,7 @@ static inline int zeta_extract_functions_regex(
                         strncpy(e->filepath, filename, sizeof(e->filepath) - 1);
                         strncpy(e->return_type, ret_type, sizeof(e->return_type) - 1);
                         e->line_start = line;
+                        e->line_end = line;
                         added++;
                     }
                     break;
@@ -271,6 +272,7 @@ static inline int zeta_extract_structs_regex(
                 strncpy(e->name, name, sizeof(e->name) - 1);
                 strncpy(e->filepath, filename, sizeof(e->filepath) - 1);
                 e->line_start = line;
+                e->line_end = line;
                 added++;
             }
         }
@@ -294,6 +296,7 @@ static inline int zeta_extract_structs_regex(
                 strncpy(e->name, name, sizeof(e->name) - 1);
                 strncpy(e->filepath, filename, sizeof(e->filepath) - 1);
                 e->line_start = line;
+                e->line_end = line;
                 added++;
             }
         }
@@ -318,6 +321,7 @@ static inline int zeta_extract_structs_regex(
                 strncpy(e->name, name, sizeof(e->name) - 1);
                 strncpy(e->filepath, filename, sizeof(e->filepath) - 1);
                 e->line_start = line;
+                e->line_end = line;
                 added++;
             }
         }
@@ -341,8 +345,22 @@ static inline int zeta_commit_code_to_graph(
     if (!ctx || !result) return 0;
     int committed = 0;
 
-    for (int i = 0; i < result->num_entities; i++) {
+    // We need a stable mapping from extraction-local entity IDs (used by relationships)
+    // to committed graph node IDs. We also need the *graph* file node ID to create
+    // file -> entity edges; the incoming file_node_id is the extraction ID.
+    int n = result->num_entities;
+    int64_t* orig_ids = (int64_t*)calloc((size_t)n, sizeof(int64_t));
+    int64_t* graph_ids = (int64_t*)calloc((size_t)n, sizeof(int64_t));
+    if (!orig_ids || !graph_ids) {
+        if (orig_ids) free(orig_ids);
+        if (graph_ids) free(graph_ids);
+        return 0;
+    }
+
+    // Pass 1: create nodes and record mapping
+    for (int i = 0; i < n; i++) {
         zeta_code_entity* e = &result->entities[i];
+        orig_ids[i] = e->id;
 
         // Build value string with metadata
         char value[1024];
@@ -350,31 +368,31 @@ static inline int zeta_commit_code_to_graph(
             case CODE_ENTITY_FILE:
                 snprintf(value, sizeof(value),
                          "file:%s|lines:%d-%d",
-                         e->name, e->line_start, e->line_end);
+                         e->filepath, e->line_start, e->line_end);
                 break;
             case CODE_ENTITY_FUNCTION:
                 snprintf(value, sizeof(value),
-                         "func:%s|ret:%s|file:%s|L%d",
-                         e->name, e->return_type, e->filepath, e->line_start);
+                         "func:%s|ret:%s|file:%s|L%d-%d",
+                         e->name, e->return_type, e->filepath, e->line_start, e->line_end);
                 break;
             case CODE_ENTITY_STRUCT:
                 snprintf(value, sizeof(value),
-                         "struct:%s|file:%s|L%d",
-                         e->name, e->filepath, e->line_start);
+                         "struct:%s|file:%s|L%d-%d",
+                         e->name, e->filepath, e->line_start, e->line_end);
                 break;
             case CODE_ENTITY_CLASS:
                 snprintf(value, sizeof(value),
-                         "class:%s|parent:%s|file:%s|L%d",
-                         e->name, e->parent_name, e->filepath, e->line_start);
+                         "class:%s|parent:%s|file:%s|L%d-%d",
+                         e->name, e->parent_name, e->filepath, e->line_start, e->line_end);
                 break;
             case CODE_ENTITY_ENUM:
                 snprintf(value, sizeof(value),
-                         "enum:%s|file:%s|L%d",
-                         e->name, e->filepath, e->line_start);
+                         "enum:%s|file:%s|L%d-%d",
+                         e->name, e->filepath, e->line_start, e->line_end);
                 break;
             default:
-                snprintf(value, sizeof(value), "%s:%s",
-                         zeta_entity_type_str(e->type), e->name);
+                snprintf(value, sizeof(value), "%s:%s|file:%s|L%d-%d",
+                         zeta_entity_type_str(e->type), e->name, e->filepath, e->line_start, e->line_end);
         }
 
         // Create node directly (SOURCE_MODEL, no 14B involvement)
@@ -388,29 +406,51 @@ static inline int zeta_commit_code_to_graph(
             SOURCE_MODEL
         );
 
+        graph_ids[i] = node_id;
         if (node_id > 0) {
             e->id = node_id;  // Update with actual graph ID
             committed++;
+        }
+    }
 
-            // Create CONTAINS edge from file to this entity
-            if (file_node_id > 0 && e->type != CODE_ENTITY_FILE) {
-                zeta_create_edge(ctx, file_node_id, node_id, EDGE_HAS, 1.0f);
+    // Resolve file graph ID from extraction-local ID
+    int64_t file_graph_id = 0;
+    if (file_node_id > 0) {
+        for (int i = 0; i < n; i++) {
+            if (orig_ids[i] == file_node_id) {
+                file_graph_id = graph_ids[i];
+                break;
             }
         }
     }
 
-    // Create relationship edges
+    // Pass 2: create file -> entity edges (now using committed graph IDs)
+    if (file_graph_id > 0) {
+        for (int i = 0; i < n; i++) {
+            zeta_code_entity* e = &result->entities[i];
+            if (e->type == CODE_ENTITY_FILE) continue;
+            if (graph_ids[i] > 0) {
+                zeta_create_edge(ctx, file_graph_id, graph_ids[i], EDGE_HAS, 1.0f);
+            }
+        }
+    }
+
+    // Pass 3: map relationship IDs and create relationship edges
     for (int i = 0; i < result->num_relationships; i++) {
         zeta_code_rel* r = &result->relationships[i];
 
-        // Find actual graph IDs
-        int64_t src_graph_id = 0, tgt_graph_id = 0;
-        for (int j = 0; j < result->num_entities; j++) {
-            if (result->entities[j].id == r->src_id) src_graph_id = result->entities[j].id;
-            if (result->entities[j].id == r->tgt_id) tgt_graph_id = result->entities[j].id;
+        int64_t src_graph_id = 0;
+        int64_t tgt_graph_id = 0;
+        for (int j = 0; j < n; j++) {
+            if (orig_ids[j] == r->src_id) src_graph_id = graph_ids[j];
+            if (orig_ids[j] == r->tgt_id) tgt_graph_id = graph_ids[j];
         }
 
         if (src_graph_id > 0 && tgt_graph_id > 0) {
+            // Update relationship IDs so the caller can rely on graph IDs post-commit.
+            r->src_id = src_graph_id;
+            r->tgt_id = tgt_graph_id;
+
             zeta_edge_type_t edge_type = EDGE_RELATED;
             switch (r->type) {
                 case CODE_REL_CONTAINS:
@@ -427,6 +467,9 @@ static inline int zeta_commit_code_to_graph(
             zeta_create_edge(ctx, src_graph_id, tgt_graph_id, edge_type, r->confidence);
         }
     }
+
+    free(orig_ids);
+    free(graph_ids);
 
     fprintf(stderr, "[CODE-EXTRACT] Committed %d entities to graph\n", committed);
     return committed;

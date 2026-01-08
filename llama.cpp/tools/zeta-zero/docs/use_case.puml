@@ -1,0 +1,20 @@
+@startuml
+left to right direction
+actor Developer
+actor "External System" as Ext
+
+package "Z.E.T.A. Zero" {
+    usecase "Chat with Context" as UC1
+    usecase "Analyze Git Codebase" as UC2
+    usecase "Enforce Ethical Constraints" as UC3
+    usecase "Consolidate Memories (Dreaming)" as UC4
+    usecase "Rapid Memory Injection" as UC5
+}
+
+Developer --> UC1
+Developer --> UC2
+Developer --> UC3
+Ext --> UC5
+UC1 ..> UC5 : <<include>>
+UC4 -- system
+@enduml

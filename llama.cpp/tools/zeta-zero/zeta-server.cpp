@@ -14,7 +14,7 @@
 // ============================================================================
 
 // DEFAULT MODEL PATHS - Docker uses /models, override with CLI flags or zeta.conf
-#define Z6_MODEL_14B    "/models/qwen2.5-14b-instruct-q4_k_m.gguf"
+#define Z6_MODEL_14B    "/models/qwen2.5-14b-instruct-q4_k_m-00001-of-00003.gguf"
 #define Z6_MODEL_7B     "/models/qwen2.5-coder-7b-instruct-q4_k_m.gguf"
 #define Z6_MODEL_EMBED  "/models/nomic-embed-text-v1.5.f16.gguf"
 #define Z6_DEFAULT_PORT 8080
@@ -5062,33 +5062,33 @@ int main(int argc, char** argv) {
     // GET /mode - Return current mode and policy info
     svr.Get("/mode", [](const httplib::Request&, httplib::Response& res) {
         res.set_header("Access-Control-Allow-Origin", "*");
-        
+
         auto mode = g_mode_ctrl.current_mode();
         auto policy = g_mode_ctrl.current_policy();
-        
+
         std::ostringstream json;
         json << "{"
              << "\"mode\": \"" << zeta_modes::mode_name(mode) << "\","
-             << "\"branching_level\": \"" 
+             << "\"branching_level\": \""
              << (policy.branching_level == zeta_branching::BranchingLevel::NONE ? "NONE" :
                  policy.branching_level == zeta_branching::BranchingLevel::LIGHT ? "LIGHT" : "FULL") << "\","
              << "\"max_branches\": " << policy.branch_budget.max_branches << ","
              << "\"max_depth\": " << policy.branch_budget.max_depth << ","
              << "\"temperature\": " << policy.temperature << ","
-             << "\"commit_policy\": \"" 
+             << "\"commit_policy\": \""
              << (policy.commit_policy == zeta_modes::CommitPolicy::NEVER ? "NEVER" :
                  policy.commit_policy == zeta_modes::CommitPolicy::FACTS_VALIDATED ? "FACTS_VALIDATED" :
                  policy.commit_policy == zeta_modes::CommitPolicy::SUMMARIES_VALIDATED ? "SUMMARIES_VALIDATED" :
                  policy.commit_policy == zeta_modes::CommitPolicy::SELECTED_SOLUTION ? "SELECTED_SOLUTION" : "LUCID_GATED") << "\""
              << "}";
-        
+
         res.set_content(json.str(), "application/json");
     });
 
     // POST /mode - Switch mode: {"mode": "CHAT|CREATIVE|RESEARCH|CODE|DREAM"}
     svr.Post("/mode", [](const httplib::Request& req, httplib::Response& res) {
         res.set_header("Access-Control-Allow-Origin", "*");
-        
+
         // Manual JSON parsing (matches existing server style)
         std::string mode_str;
         size_t mode_pos = req.body.find("\"mode\":");
@@ -5101,16 +5101,16 @@ int main(int argc, char** argv) {
                 }
             }
         }
-        
+
         if (mode_str.empty()) {
             res.status = 400;
             res.set_content("{\"error\": \"Missing 'mode' field\"}", "application/json");
             return;
         }
-        
+
         // Normalize to uppercase
         std::transform(mode_str.begin(), mode_str.end(), mode_str.begin(), ::toupper);
-        
+
         zeta_modes::Mode new_mode;
         if (mode_str == "CHAT") new_mode = zeta_modes::Mode::CHAT;
         else if (mode_str == "CREATIVE") new_mode = zeta_modes::Mode::CREATIVE;
@@ -5122,38 +5122,38 @@ int main(int argc, char** argv) {
             res.set_content("{\"error\": \"Unknown mode. Use: CHAT, CREATIVE, RESEARCH, CODE, DREAM\"}", "application/json");
             return;
         }
-        
+
         auto old_mode = g_mode_ctrl.current_mode();
         g_mode_ctrl.set_mode(new_mode);
-        
-        fprintf(stderr, "[MODE] Switched: %s -> %s\n", 
+
+        fprintf(stderr, "[MODE] Switched: %s -> %s\n",
                 zeta_modes::mode_name(old_mode), zeta_modes::mode_name(new_mode));
-        
+
         auto policy = g_mode_ctrl.current_policy();
         std::ostringstream json;
         json << "{"
              << "\"status\": \"ok\","
              << "\"old_mode\": \"" << zeta_modes::mode_name(old_mode) << "\","
              << "\"new_mode\": \"" << zeta_modes::mode_name(new_mode) << "\","
-             << "\"branching_level\": \"" 
+             << "\"branching_level\": \""
              << (policy.branching_level == zeta_branching::BranchingLevel::NONE ? "NONE" :
                  policy.branching_level == zeta_branching::BranchingLevel::LIGHT ? "LIGHT" : "FULL") << "\""
              << "}";
-        
+
         res.set_content(json.str(), "application/json");
     });
 
     // GET /branching - Return current branching configuration
     svr.Get("/branching", [](const httplib::Request&, httplib::Response& res) {
         res.set_header("Access-Control-Allow-Origin", "*");
-        
+
         auto policy = g_mode_ctrl.current_policy();
         auto& budget = policy.branch_budget;
         auto& triggers = policy.branch_triggers;
-        
+
         std::ostringstream json;
         json << "{"
-             << "\"level\": \"" 
+             << "\"level\": \""
              << (policy.branching_level == zeta_branching::BranchingLevel::NONE ? "NONE" :
                  policy.branching_level == zeta_branching::BranchingLevel::LIGHT ? "LIGHT" : "FULL") << "\","
              << "\"budget\": {"
@@ -5169,14 +5169,14 @@ int main(int argc, char** argv) {
              << "\"entropy_threshold\": " << triggers.entropy_threshold
              << "}"
              << "}";
-        
+
         res.set_content(json.str(), "application/json");
     });
 
     // POST /branching - Override branching settings (runtime tuning)
     svr.Post("/branching", [](const httplib::Request& req, httplib::Response& res) {
         res.set_header("Access-Control-Allow-Origin", "*");
-        
+
         // Manual JSON parsing for branching overrides
         // Parse "level" field
         size_t level_pos = req.body.find("\"level\":");
@@ -5193,7 +5193,7 @@ int main(int argc, char** argv) {
                 }
             }
         }
-        
+
         // Parse "max_branches" field
         size_t mb_pos = req.body.find("\"max_branches\":");
         if (mb_pos != std::string::npos) {
@@ -5204,7 +5204,7 @@ int main(int argc, char** argv) {
                 g_mode_ctrl.set_budget_override("max_branches", val);
             }
         }
-        
+
         // Parse "max_depth" field
         size_t md_pos = req.body.find("\"max_depth\":");
         if (md_pos != std::string::npos) {
@@ -5215,19 +5215,19 @@ int main(int argc, char** argv) {
                 g_mode_ctrl.set_budget_override("max_depth", val);
             }
         }
-        
+
         fprintf(stderr, "[BRANCHING] Runtime override applied\n");
-        
+
         auto policy = g_mode_ctrl.current_policy();
         std::ostringstream json;
         json << "{"
              << "\"status\": \"ok\","
-             << "\"effective_level\": \"" 
+             << "\"effective_level\": \""
              << (policy.branching_level == zeta_branching::BranchingLevel::NONE ? "NONE" :
                  policy.branching_level == zeta_branching::BranchingLevel::LIGHT ? "LIGHT" : "FULL") << "\","
              << "\"effective_max_branches\": " << policy.branch_budget.max_branches
              << "}";
-        
+
         res.set_content(json.str(), "application/json");
     });
 
@@ -5480,6 +5480,8 @@ int main(int argc, char** argv) {
         // Parse JSON body
         std::string code, filename;
         bool commit_to_graph = true;
+        int max_entities_out = 200;
+        int max_rels_out = 200;
 
         // Try to parse as JSON
         if (req.body.find("{") != std::string::npos) {
@@ -5506,6 +5508,30 @@ int main(int argc, char** argv) {
                 }
             }
 
+            // Back-compat: allow {"content": "..."}
+            if (code.empty()) {
+                size_t content_start = req.body.find("\"content\"");
+                if (content_start != std::string::npos) {
+                    size_t val_start = req.body.find("\"", content_start + 9);
+                    if (val_start != std::string::npos) {
+                        size_t val_end = val_start + 1;
+                        while (val_end < req.body.size()) {
+                            if (req.body[val_end] == '\"' && req.body[val_end-1] != '\\') break;
+                            val_end++;
+                        }
+                        code = req.body.substr(val_start + 1, val_end - val_start - 1);
+                        size_t pos = 0;
+                        while ((pos = code.find("\\n", pos)) != std::string::npos) {
+                            code.replace(pos, 2, "\n");
+                        }
+                        pos = 0;
+                        while ((pos = code.find("\\\"", pos)) != std::string::npos) {
+                            code.replace(pos, 2, "\"");
+                        }
+                    }
+                }
+            }
+
             size_t fn_start = req.body.find("\"filename\"");
             if (fn_start != std::string::npos) {
                 size_t val_start = req.body.find("\"", fn_start + 10);
@@ -5517,6 +5543,28 @@ int main(int argc, char** argv) {
                 }
             }
 
+            // Back-compat: allow {"file": "..."}
+            if (filename.empty()) {
+                size_t file_start = req.body.find("\"file\"");
+                if (file_start != std::string::npos) {
+                    size_t val_start = req.body.find("\"", file_start + 6);
+                    if (val_start != std::string::npos) {
+                        size_t val_end = req.body.find("\"", val_start + 1);
+                        if (val_end != std::string::npos) {
+                            filename = req.body.substr(val_start + 1, val_end - val_start - 1);
+                        }
+                    }
+                }
+            }
+
+            // Optional output sizing
+            if (req.body.find("\"max_entities\"") != std::string::npos) {
+                max_entities_out = zeta_mcp::extract_json_int(req.body, "max_entities", max_entities_out);
+            }
+            if (req.body.find("\"max_rels\"") != std::string::npos) {
+                max_rels_out = zeta_mcp::extract_json_int(req.body, "max_rels", max_rels_out);
+            }
+
             if (req.body.find("\"commit\":false") != std::string::npos ||
                 req.body.find("\"commit\": false") != std::string::npos) {
                 commit_to_graph = false;
@@ -5526,7 +5574,20 @@ int main(int argc, char** argv) {
             code = req.get_param_value("code");
             filename = req.get_param_value("filename");
             commit_to_graph = req.get_param_value("commit") != "false";
+
+            if (req.has_param("max_entities")) {
+                max_entities_out = std::stoi(req.get_param_value("max_entities"));
+            }
+            if (req.has_param("max_rels")) {
+                max_rels_out = std::stoi(req.get_param_value("max_rels"));
+            }
         }
+
+        // Clamp output sizes to reasonable bounds
+        if (max_entities_out < 0) max_entities_out = 0;
+        if (max_rels_out < 0) max_rels_out = 0;
+        if (max_entities_out > 2000) max_entities_out = 2000;
+        if (max_rels_out > 5000) max_rels_out = 5000;
 
         if (code.empty()) {
             res.set_content("{\"error\": \"code required\"}", "application/json");
@@ -5591,7 +5652,8 @@ int main(int argc, char** argv) {
 
         // First 20 entities
         json += "\"entities\": [";
-        int max_show = (result->num_entities < 20) ? result->num_entities : 20;
+        int max_show = result->num_entities;
+        if (max_show > max_entities_out) max_show = max_entities_out;
         for (int i = 0; i < max_show; i++) {
             zeta_code_entity& e = result->entities[i];
             if (i > 0) json += ",";
@@ -5599,14 +5661,19 @@ int main(int argc, char** argv) {
             json += "\"type\": \"" + std::string(zeta_entity_type_str(e.type)) + "\",";
             json += "\"name\": \"" + std::string(e.name) + "\",";
             json += "\"file\": \"" + std::string(e.filepath) + "\",";
-            json += "\"line\": " + std::to_string(e.line_start);
+            json += "\"line\": " + std::to_string(e.line_start) + ",";
+            json += "\"line_end\": " + std::to_string(e.line_end);
+            if (commit_to_graph) {
+                json += ",\"node_id\": " + std::to_string((long long)e.id);
+            }
             json += "}";
         }
         json += "],";
 
-        // First 20 relationships
+        // Relationships
         json += "\"relationships\": [";
-        max_show = (result->num_relationships < 20) ? result->num_relationships : 20;
+        max_show = result->num_relationships;
+        if (max_show > max_rels_out) max_show = max_rels_out;
         for (int i = 0; i < max_show; i++) {
             zeta_code_rel& r = result->relationships[i];
             if (i > 0) json += ",";
@@ -5621,6 +5688,183 @@ int main(int argc, char** argv) {
         json += "}";
 
         zeta_extract_result_free(result);
+        res.set_content(json, "application/json");
+    });
+
+    // =========================================================================
+    // POST /extract_text_7b - Non-code dataset ingestion (facts -> graph)
+    // Runs subconscious semantic extraction over arbitrary text and commits nodes
+    // into the same GitGraph-backed memory. Also creates a stable document node
+    // (derived from source_id) and links it to newly created nodes for this call.
+    // =========================================================================
+    svr.Post("/extract_text_7b", [](const httplib::Request& req, httplib::Response& res) {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        g_last_activity = time(NULL);
+        res.set_header("Access-Control-Allow-Origin", "*");
+
+        if (!g_dual) {
+            res.set_content("{\"error\": \"Memory system not available\"}", "application/json");
+            return;
+        }
+
+        // Parse JSON body
+        std::string text = zeta_mcp::extract_json_string(req.body, "text");
+        if (text.empty()) text = zeta_mcp::extract_json_string(req.body, "content");
+
+        std::string source_id = zeta_mcp::extract_json_string(req.body, "source_id");
+        if (source_id.empty()) source_id = zeta_mcp::extract_json_string(req.body, "source");
+        if (source_id.empty()) source_id = zeta_mcp::extract_json_string(req.body, "filename");
+        if (source_id.empty()) source_id = "dataset";
+
+        // Optional: route dataset ingestion into a dedicated GitGraph branch.
+        // This provides a hard separation between dataset noise and curated memory.
+        std::string branch = zeta_mcp::extract_json_string(req.body, "branch");
+        bool auto_branch = (req.body.find("\"auto_branch\":false") == std::string::npos &&
+                            req.body.find("\"auto_branch\": false") == std::string::npos);
+
+        auto sanitize_branch_component = [](const std::string& s) -> std::string {
+            std::string out;
+            out.reserve(s.size());
+            for (unsigned char c : s) {
+                if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                    (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.') {
+                    out.push_back((char)tolower(c));
+                } else if (c == ' ' || c == '/' || c == '\\' || c == ':') {
+                    out.push_back('-');
+                } else {
+                    // Drop other punctuation
+                }
+            }
+            // Trim repeated dashes and keep it short
+            while (out.find("--") != std::string::npos) {
+                out.replace(out.find("--"), 2, "-");
+            }
+            if (out.size() > 48) out.resize(48);
+            while (!out.empty() && out.back() == '-') out.pop_back();
+            while (!out.empty() && out.front() == '-') out.erase(out.begin());
+            if (out.empty()) out = "dataset";
+            return out;
+        };
+
+        bool link_document = true;
+        if (req.body.find("\"link\":false") != std::string::npos ||
+            req.body.find("\"link\": false") != std::string::npos ||
+            req.body.find("\"commit\":false") != std::string::npos ||
+            req.body.find("\"commit\": false") != std::string::npos) {
+            link_document = false;
+        }
+
+        // Noise controls for linking document -> nodes.
+        // This does NOT prevent node creation (that happens inside subconscious extraction),
+        // but it prevents the graph from getting overwhelmed by doc link edges.
+        int max_links = zeta_mcp::extract_json_int(req.body, "max_links", 50);
+        if (max_links < 0) max_links = 0;
+        if (max_links > 500) max_links = 500;
+        float min_link_salience = zeta_mcp::extract_json_float(req.body, "min_link_salience", 0.65f);
+        if (min_link_salience < 0.0f) min_link_salience = 0.0f;
+        if (min_link_salience > 1.0f) min_link_salience = 1.0f;
+        int min_value_len = zeta_mcp::extract_json_int(req.body, "min_value_len", 8);
+        if (min_value_len < 0) min_value_len = 0;
+        if (min_value_len > 256) min_value_len = 256;
+
+        if (text.empty()) {
+            res.set_content("{\"error\": \"text required\"}", "application/json");
+            return;
+        }
+
+        // Branch routing (optional)
+        std::string chosen_branch;
+        bool branch_ok = true;
+        if (g_git) {
+            if (branch.empty() && auto_branch) {
+                std::string norm_src = zeta_norm(source_id);
+                std::string slug = sanitize_branch_component(norm_src);
+                uint64_t h = fnv1a64(norm_src);
+                char suf[17];
+                snprintf(suf, sizeof(suf), "%016llx", (unsigned long long)h);
+                chosen_branch = "dataset/" + slug + "-" + std::string(suf);
+            } else if (!branch.empty()) {
+                chosen_branch = branch;
+            }
+
+            if (!chosen_branch.empty()) {
+                int idx = zeta_git_find_branch(g_git, chosen_branch.c_str());
+                if (idx < 0) {
+                    idx = zeta_git_branch(g_git, chosen_branch.c_str());
+                }
+                branch_ok = zeta_git_checkout(g_git, chosen_branch.c_str());
+            }
+        }
+
+        // Create (or touch) a stable document node for this dataset source
+        int64_t doc_node_id = -1;
+        if (link_document && g_git) {
+            std::string norm_src = zeta_norm(source_id);
+            uint64_t h = fnv1a64(norm_src);
+            char doc_label[128];
+            snprintf(doc_label, sizeof(doc_label), "dataset_doc:%016llx", (unsigned long long)h);
+
+            doc_node_id = zeta_git_commit(g_git, NODE_ENTITY, doc_label, source_id.c_str(),
+                                          0.60f, SOURCE_MODEL);
+        }
+
+        // Track nodes created during this extraction so we can link them back to the document
+        const int nodes_before = g_dual->num_nodes;
+        const int edges_before = g_dual->num_edges;
+
+        // Use subconscious semantic extraction. Default to from_user=false for datasets.
+        int facts_created = zeta_subconscious_extract_facts(g_dual, text.c_str(), false);
+
+        const int nodes_after = g_dual->num_nodes;
+
+        // Link the document node to all new nodes created by this call
+        int nodes_linked = 0;
+        int edges_created = 0;
+        int nodes_candidates = 0;
+        if (link_document && doc_node_id >= 0) {
+            auto edge_exists = [](zeta_dual_ctx_t* ctx, int64_t src, int64_t tgt, zeta_edge_type_t type) -> bool {
+                for (int i = 0; i < ctx->num_edges; i++) {
+                    zeta_graph_edge_t* e = &ctx->edges[i];
+                    if (e->source_id == src && e->target_id == tgt && e->type == type) return true;
+                }
+                return false;
+            };
+
+            for (int i = nodes_before; i < nodes_after; i++) {
+                zeta_graph_node_t* n = &g_dual->nodes[i];
+                if (!n->is_active) continue;
+                if (n->node_id == doc_node_id) continue;
+                nodes_candidates++;
+                if (max_links > 0 && nodes_linked >= max_links) continue;
+                if (n->salience < min_link_salience) continue;
+                if ((int)strlen(n->value) < min_value_len) continue;
+                if (!edge_exists(g_dual, doc_node_id, n->node_id, EDGE_HAS)) {
+                    int64_t eid = zeta_create_edge(g_dual, doc_node_id, n->node_id, EDGE_HAS, 0.90f);
+                    if (eid >= 0) {
+                        edges_created++;
+                        nodes_linked++;
+                    }
+                }
+            }
+        }
+
+        // Build JSON response
+        std::string json = "{";
+        json += "\"status\":\"ok\",";
+        json += "\"source_id\":\"" + source_id + "\",";
+        json += "\"branch\":\"" + (chosen_branch.empty() ? std::string("") : chosen_branch) + "\",";
+        json += "\"branch_ok\":" + std::string(branch_ok ? "true" : "false") + ",";
+        json += "\"document_node_id\":" + std::to_string((long long)doc_node_id) + ",";
+        json += "\"facts_created\":" + std::to_string(facts_created) + ",";
+        json += "\"nodes_before\":" + std::to_string(nodes_before) + ",";
+        json += "\"nodes_after\":" + std::to_string(nodes_after) + ",";
+        json += "\"edges_before\":" + std::to_string(edges_before) + ",";
+        json += "\"edges_after\":" + std::to_string(g_dual->num_edges) + ",";
+        json += "\"nodes_candidates\":" + std::to_string(nodes_candidates) + ",";
+        json += "\"nodes_linked\":" + std::to_string(nodes_linked) + ",";
+        json += "\"edges_created\":" + std::to_string(edges_created);
+        json += "}";
+
         res.set_content(json, "application/json");
     });
 

@@ -25,7 +25,7 @@ RUN cmake -B build \
     -DGGML_CUDA=ON \
     -DLLAMA_CURL=OFF \
     -DBUILD_SHARED_LIBS=OFF \
-    && cmake --build build --config Release --target zeta-server -j$(nproc)
+    && cmake --build build --config Release --target zeta-zero-server -j$(nproc)
 
 # Runtime Stage
 FROM nvidia/cuda:12.2.0-runtime-ubuntu22.04
@@ -41,7 +41,7 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 
 # Copy the compiled binary from the builder stage
-COPY --from=builder /app/llama.cpp/build/bin/zeta-server /app/zeta-server
+COPY --from=builder /app/llama.cpp/build/bin/zeta-zero-server /app/zeta-server
 
 # Create directories for models, storage, and dreams
 RUN mkdir -p /models /storage /storage/dreams/pending /storage/dreams/archive /storage/blocks
@@ -49,7 +49,7 @@ RUN mkdir -p /models /storage /storage/dreams/pending /storage/dreams/archive /s
 # Environment variables (defaults - 14B + 7B production config)
 ENV ZETA_HOST="0.0.0.0"
 ENV ZETA_PORT="8080"
-ENV MODEL_MAIN="/models/qwen2.5-14b-instruct-q4_k_m.gguf"
+ENV MODEL_MAIN="/models/qwen2.5-14b-instruct-q4_k_m-00001-of-00003.gguf"
 ENV MODEL_CODER="/models/qwen2.5-coder-7b-instruct-q4_k_m.gguf"
 ENV MODEL_EMBED="/models/nomic-embed-text-v1.5.f16.gguf"
 ENV ZETA_STORAGE="/storage"

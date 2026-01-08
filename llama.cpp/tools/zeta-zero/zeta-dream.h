@@ -666,7 +666,6 @@ public:
             for (auto& dream : pending_dreams) {
                 dream.outcome = DREAM_ACCEPTED;
                 g_dream_review_stats.record_outcome(dream.category, DREAM_ACCEPTED);
-                commit_dream_to_memory(dream);
                 archive_dream(dream);
                 count++;
             }
@@ -710,7 +709,6 @@ public:
             case 'Y':  // Accept
                 dream.outcome = DREAM_ACCEPTED;
                 g_dream_review_stats.record_outcome(dream.category, DREAM_ACCEPTED);
-                commit_dream_to_memory(dream);
                 archive_dream(dream);
                 pending_dreams.erase(pending_dreams.begin() + index - 1);
                 result = "✓ Accepted dream #" + std::to_string(index) + " [" + dream.category + "]";
@@ -751,26 +749,10 @@ public:
         dream.outcome = DREAM_EDITED;
 
         g_dream_review_stats.record_outcome(dream.category, DREAM_EDITED);
-        commit_dream_to_memory(dream);
         archive_dream(dream);
 
         pending_dreams.erase(pending_dreams.begin() + index - 1);
         return "✎ Edited and accepted dream #" + std::to_string(index);
-    }
-
-    // Commit dream to memory graph
-    void commit_dream_to_memory(const ZetaDreamEntry& dream) {
-        if (!ctx) return;
-
-        // Create a node for the dream insight
-        std::string label = "dream_" + dream.category;
-        float salience = dream.confidence * 0.8f;  // Dreams get slightly lower salience
-
-        zeta_commit_fact(ctx, NODE_FACT, label.c_str(), dream.content.c_str(),
-                        salience, SOURCE_MODEL);
-
-        fprintf(stderr, "[DREAM] Committed to memory: %s = %.40s...\n",
-                label.c_str(), dream.content.c_str());
     }
 
     void clear_briefing() {

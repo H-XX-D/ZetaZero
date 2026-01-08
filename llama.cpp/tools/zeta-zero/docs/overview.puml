@@ -1,0 +1,32 @@
+@startuml
+package "Z.E.T.A. Zero System" {
+    [OpenAI API Server] as Server
+    [Cognitive Loop Manager] as Loop
+    [Dream State Engine] as Dream
+
+    package "Memory Layer" {
+        [Graph-KV Storage] as GKV
+        database "Tiered Store (VRAM/RAM/NVMe)" as Tiered
+    }
+
+    package "Security Layer" {
+        [Silicon Accord Lock] as Accord
+        file "Constitution.txt" as Const
+    }
+
+    package "Model Pool (llama.cpp)" {
+        [Reasoning Model (14B)] as M14
+        [Critic/Coder Model (7B)] as M7
+        [Embedding Model] as MEmb
+    }
+}
+
+Server --> Accord : Verify Hash
+Accord ..> Const : SHA-256
+Server --> Loop : Dispatch Request
+Loop --> GKV : Retrieval
+GKV --> Tiered : Load/Save KV
+Loop --> M14 : Inference
+Loop --> M7 : Extraction/Critique
+Dream --> GKV : Consolidation
+@enduml

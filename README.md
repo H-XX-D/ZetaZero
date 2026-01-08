@@ -35,15 +35,16 @@ Z.E.T.A. Zero inverts the current dogma that **More Parameters = More Intelligen
 
 Current LLMs are structurally stateless. They spend massive amounts of energy computing a "thought," only to discard that thought into entropy the moment the token is generated. They recompute the entire world model for every single exchange.
 
-Z.E.T.A. asks three simple questions:
+Understanding what  Z.E.T.A. answers simple questions:
 
 1. **Why waste the compute?** If a thought is computed once, it should be persisted, not discarded.
 
 2. **Why limit context to VRAM?** Memory should be an explicit graph, not an implicit buffer.
 
-3. **Why force generation?** If the model doesn't have an answer, should it output nonsense? Or should it have the agency to stop and correct itself?
+3. **If there is a better faster less energy intensive way for AI to operate?**It is gross negligence by humanity to contiue to pollute and waste valueable resources if the technology exists
+    that is 11x more energy efficent and 4.3x faster with a software download. 
 
-4. **What would an AI dream up while you're dreaming too?**
+5. **What would an AI dream up while you're dreaming too?**
 
 **Z.E.T.A. is not a model. It is a Framework for Cognitive Constructs.**
 
@@ -74,7 +75,7 @@ That's **4.6x faster** and **11x less energy**.
 
 **Hardware:**
 - GPU: NVIDIA RTX 5060 Ti 16GB
-- System: Jetson-class edge server
+- System: HP Z6 Gen 4 24-core Xeon Gold 32GB DDR4 Ram 4TB Nvme M.2 
 - Idle power: ~20W
 
 **Test Setup:**

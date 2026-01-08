@@ -17,6 +17,7 @@
 #include "zeta-tools.h"
 #include <cstring>
 #include <cstdio>
+#include <cstdlib>
 
 namespace zeta_mcp {
 
@@ -93,6 +94,68 @@ inline std::string extract_json_object(const std::string& json, const std::strin
     }
 
     return json.substr(pos, end - pos);
+}
+
+inline int extract_json_int(const std::string& json, const std::string& key, int default_value = 0) {
+    std::string search = "\"" + key + "\"";
+    size_t pos = json.find(search);
+    if (pos == std::string::npos) return default_value;
+
+    pos = json.find(":", pos);
+    if (pos == std::string::npos) return default_value;
+    pos++;
+
+    while (pos < json.size() && (json[pos] == ' ' || json[pos] == '\t' || json[pos] == '\n' || json[pos] == '\r')) pos++;
+    if (pos >= json.size()) return default_value;
+    if (json[pos] == '"') pos++;
+
+    size_t end = pos;
+    while (end < json.size()) {
+        char c = json[end];
+        if ((c >= '0' && c <= '9') || c == '-' || c == '+') {
+            end++;
+            continue;
+        }
+        break;
+    }
+
+    if (end == pos) return default_value;
+    std::string s = json.substr(pos, end - pos);
+    char* endptr = nullptr;
+    long v = std::strtol(s.c_str(), &endptr, 10);
+    if (endptr == s.c_str()) return default_value;
+    return (int)v;
+}
+
+inline float extract_json_float(const std::string& json, const std::string& key, float default_value = 0.0f) {
+    std::string search = "\"" + key + "\"";
+    size_t pos = json.find(search);
+    if (pos == std::string::npos) return default_value;
+
+    pos = json.find(":", pos);
+    if (pos == std::string::npos) return default_value;
+    pos++;
+
+    while (pos < json.size() && (json[pos] == ' ' || json[pos] == '\t' || json[pos] == '\n' || json[pos] == '\r')) pos++;
+    if (pos >= json.size()) return default_value;
+    if (json[pos] == '"') pos++;
+
+    size_t end = pos;
+    while (end < json.size()) {
+        char c = json[end];
+        if ((c >= '0' && c <= '9') || c == '-' || c == '+' || c == '.' || c == 'e' || c == 'E') {
+            end++;
+            continue;
+        }
+        break;
+    }
+
+    if (end == pos) return default_value;
+    std::string s = json.substr(pos, end - pos);
+    char* endptr = nullptr;
+    float v = std::strtof(s.c_str(), &endptr);
+    if (endptr == s.c_str()) return default_value;
+    return v;
 }
 
 inline MCPMethod parse_method(const std::string& method) {
