@@ -20,6 +20,6 @@ echo "Files transferred."
 
 # Trigger remote build
 echo "Triggering remote build..."
-ssh $SERVER "cd ~/ZetaZero/llama.cpp && cmake -B build && cmake --build build --config Release --target zeta-server -j4"
+ssh $SERVER "cd ~/ZetaZero/llama.cpp && cmake -B build && cmake --build build --config Release --target zeta-zero-server -j4"
 
 echo "Deployment complete."

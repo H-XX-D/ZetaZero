@@ -222,6 +222,16 @@ static inline bool zeta_load_config_file(const char* path, std::map<std::string,
     return true;
 }
 
+static inline std::string zeta_expand_user_path(const std::string &path) {
+    if (path.size() >= 2 && path[0] == '~' && path[1] == '/') {
+        const char *home = getenv("HOME");
+        if (home && home[0] != '\0') {
+            return std::string(home) + path.substr(1);
+        }
+    }
+    return path;
+}
+
 // Find and load config file
 static inline bool zeta_load_config() {
     std::map<std::string, std::string> config;
@@ -257,11 +267,11 @@ static inline bool zeta_load_config() {
     }
 
     // Apply config values
-    if (config.count("MODEL_14B")) g_config.model_14b = config["MODEL_14B"];
-    if (config.count("MODEL_7B_CODER")) g_config.model_7b_coder = config["MODEL_7B_CODER"];
-    if (config.count("MODEL_EMBED")) g_config.model_embed = config["MODEL_EMBED"];
-    if (config.count("MODEL_3B_INSTRUCT")) g_config.model_3b_instruct = config["MODEL_3B_INSTRUCT"];
-    if (config.count("MODEL_3B_CODER")) g_config.model_3b_coder = config["MODEL_3B_CODER"];
+    if (config.count("MODEL_14B")) g_config.model_14b = zeta_expand_user_path(config["MODEL_14B"]);
+    if (config.count("MODEL_7B_CODER")) g_config.model_7b_coder = zeta_expand_user_path(config["MODEL_7B_CODER"]);
+    if (config.count("MODEL_EMBED")) g_config.model_embed = zeta_expand_user_path(config["MODEL_EMBED"]);
+    if (config.count("MODEL_3B_INSTRUCT")) g_config.model_3b_instruct = zeta_expand_user_path(config["MODEL_3B_INSTRUCT"]);
+    if (config.count("MODEL_3B_CODER")) g_config.model_3b_coder = zeta_expand_user_path(config["MODEL_3B_CODER"]);
 
     if (config.count("ZETA_HOST")) g_config.host = config["ZETA_HOST"];
     if (config.count("ZETA_PORT")) g_config.port = atoi(config["ZETA_PORT"].c_str());

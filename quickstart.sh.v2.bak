@@ -1,0 +1,559 @@
+#!/bin/bash
+#
+# Z.E.T.A. Quickstart
+#
+# Usage:
+#   ./quickstart.sh             # Start Z.E.T.A. (safe mode)
+#   ./quickstart.sh --unlock    # Disable sudo protection (edit config freely)
+#   ./quickstart.sh --lite      # Force lite profile (7B + 3B)
+#   ./quickstart.sh --full      # Force full profile (14B + 7B)
+#
+# After running, you can:
+#   - Edit zeta.conf for basic settings
+#   - Run with --unlock to remove password requirement
+#   - Check docker-compose.yml for hardware profiles
+#
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
+CONFIG_DIR=".zetazero"
+CONFIG_FILE="$CONFIG_DIR/zeta.conf"
+
+prompt_yes_no() {
+    # prompt_yes_no <prompt> <default>
+    # default: y|n
+    local prompt="$1"
+    local default="$2"
+    local reply
+
+    while true; do
+        if [ "$default" = "y" ]; then
+            read -r -p "$prompt [Y/n]: " reply
+            reply=${reply:-Y}
+        else
+            read -r -p "$prompt [y/N]: " reply
+            reply=${reply:-N}
+        fi
+
+        case "${reply}" in
+            Y|y) return 0 ;;
+            N|n) return 1 ;;
+            *) echo "Please answer y or n." ;;
+        esac
+    done
+}
+
+prompt_path() {
+    # prompt_path <prompt> <default>
+    local prompt="$1"
+    local default="$2"
+    local reply
+    read -r -p "$prompt [$default]: " reply
+    echo "${reply:-$default}"
+}
+
+abspath() {
+    # abspath <path>
+    # macOS: prefer python3 if available
+    local p="$1"
+    if command -v python3 >/dev/null 2>&1; then
+        python3 - <<PY
+import os,sys
+print(os.path.abspath(os.path.expanduser(sys.argv[1])))
+PY
+"$p"
+    else
+        # Fallback: naive (no ~ expansion)
+        if [[ "$p" = /* ]]; then
+            echo "$p"
+        else
+            echo "$PWD/$p"
+        fi
+    fi
+}
+
+usage() {
+    cat << 'EOF'
+Usage:
+  ./quickstart.sh [--unlock|-u] [--lite|--full]
+
+Modes:
+  --lite  Starts the lite profile (zeta-lite)
+  --full  Starts the full profile (zeta)
+  (default is auto: full if models are present, otherwise lite)
+EOF
+}
+
+download_file() {
+    # download_file <hf_repo> <hf_filename> <output_path>
+    local hf_repo="$1"
+    local hf_filename="$2"
+    local out_path="$3"
+
+    if command -v huggingface-cli &>/dev/null; then
+        huggingface-cli download "$hf_repo" "$hf_filename" --local-dir "$(dirname "$out_path")" --local-dir-use-symlinks False
+        # huggingface-cli uses the original filename; move/symlink handled by caller
+        return 0
+    fi
+
+    local url="https://huggingface.co/${hf_repo}/resolve/main/${hf_filename}"
+    if command -v wget &>/dev/null; then
+        wget -O "$out_path" "$url"
+    elif command -v curl &>/dev/null; then
+        curl -L -o "$out_path" "$url"
+    else
+        echo "ERROR: No download tool found (huggingface-cli, wget, or curl)"
+        exit 1
+    fi
+}
+
+ensure_model() {
+    # ensure_model <expected_path> <hf_repo> <hf_filename> [alt_existing_path]
+    local expected="$1"
+    local hf_repo="$2"
+    local hf_filename="$3"
+    local alt_existing="${4:-}"
+
+    if [ -f "$expected" ]; then
+        return 0
+    fi
+
+    if [ -n "$alt_existing" ] && [ -f "$alt_existing" ]; then
+        ln -sf "$alt_existing" "$expected"
+        return 0
+    fi
+
+    echo "Downloading model: $(basename "$expected")"
+
+    # If using huggingface-cli, it will land at ~/models/<hf_filename>
+    local tmp_out="$expected"
+    if command -v huggingface-cli &>/dev/null; then
+        tmp_out="$(dirname "$expected")/$hf_filename"
+    fi
+
+    download_file "$hf_repo" "$hf_filename" "$tmp_out"
+
+    if [ "$tmp_out" != "$expected" ]; then
+        ln -sf "$tmp_out" "$expected"
+    fi
+}
+
+UNLOCK=false
+MODE="auto"
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --unlock|-u)
+            UNLOCK=true
+            ;;
+        --lite)
+            MODE="lite"
+            ;;
+        --full)
+            MODE="full"
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            echo "ERROR: Unknown argument: $1"
+            usage
+            exit 1
+            ;;
+    esac
+    shift
+done
+
+if [ "$UNLOCK" = true ]; then
+    echo "=========================================="
+    echo "  Z.E.T.A. Quickstart (UNLOCKED)"
+    echo "=========================================="
+    echo ""
+    echo "Sudo protection DISABLED - edit zeta.conf freely"
+    echo ""
+else
+    echo "=========================================="
+    echo "  Z.E.T.A. Quickstart"
+    echo "=========================================="
+    echo ""
+fi
+
+# Dependency preflight (best-effort)
+if [ -x "./scripts/doctor.sh" ]; then
+    echo "Running dependency checker..."
+    ./scripts/doctor.sh || {
+        echo ""
+        echo "Dependency check failed. Fix the issues above, then re-run ./quickstart.sh"
+        exit 1
+    }
+    echo ""
+fi
+
+FULL_MAIN="$HOME/models/qwen2.5-14b-instruct-q4_k_m.gguf"
+
+# ==============================================================================
+# MODEL SELECTION MENU (with purpose docstrings)
+# ==============================================================================
+
+show_model_docs() {
+    cat << 'MODELDOCS'
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                      Z.E.T.A. Model Architecture                             ║
+╠══════════════════════════════════════════════════════════════════════════════╣
+║                                                                              ║
+║  ┌─────────────────────────────────────────────────────────────────────────┐ ║
+║  │  🧠 MAIN MODEL (Reasoning Engine)                                       │ ║
+║  │  ─────────────────────────────────────────────────────────────────────  │ ║
+║  │  Purpose: Primary inference engine for epistemic search and reasoning   │ ║
+║  │                                                                         │ ║
+║  │  Responsibilities:                                                      │ ║
+║  │    • Conversation and Q&A                                               │ ║
+║  │    • Research mode branching (tension detection, entropy compression)   │ ║
+║  │    • Dream generation and grounded dreaming                             │ ║
+║  │    • Decision making and tool orchestration                             │ ║
+║  │                                                                         │ ║
+║  │  Options:                                                               │ ║
+║  │    14B - Qwen2.5-14B-Instruct: Best reasoning, handles complex tasks    │ ║
+║  │     7B - Qwen2.5-7B-Instruct:  Good balance of speed and capability     │ ║
+║  └─────────────────────────────────────────────────────────────────────────┘ ║
+║                                                                              ║
+║  ┌─────────────────────────────────────────────────────────────────────────┐ ║
+║  │  💻 CODER MODEL (Code Specialist)                                       │ ║
+║  │  ─────────────────────────────────────────────────────────────────────  │ ║
+║  │  Purpose: Specialized model for code understanding and generation       │ ║
+║  │                                                                         │ ║
+║  │  Responsibilities:                                                      │ ║
+║  │    • /code command execution                                            │ ║
+║  │    • Grounded dreams over indexed codebases                             │ ║
+║  │    • Syntax-aware completions and refactoring                           │ ║
+║  │    • Tool-use code generation                                           │ ║
+║  │                                                                         │ ║
+║  │  Options:                                                               │ ║
+║  │     7B - Qwen2.5-Coder-7B-Instruct: Best code quality, multi-language   │ ║
+║  │     3B - Qwen2.5-Coder-3B-Instruct: Faster, good for simpler tasks      │ ║
+║  └─────────────────────────────────────────────────────────────────────────┘ ║
+║                                                                              ║
+║  ┌─────────────────────────────────────────────────────────────────────────┐ ║
+║  │  🔍 EMBEDDING MODEL (Semantic Memory)                                   │ ║
+║  │  ─────────────────────────────────────────────────────────────────────  │ ║
+║  │  Purpose: Converts text to vectors for GitGraph semantic search         │ ║
+║  │                                                                         │ ║
+║  │  Responsibilities:                                                      │ ║
+║  │    • Node/edge similarity in GitGraph                                   │ ║
+║  │    • Context retrieval for grounded dreams                              │ ║
+║  │    • Semantic deduplication                                             │ ║
+║  │                                                                         │ ║
+║  │  Model: Nomic-Embed-Text-v1.5 (F16) - 768-dim, high quality (~260MB)    │ ║
+║  └─────────────────────────────────────────────────────────────────────────┘ ║
+║                                                                              ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+MODELDOCS
+}
+
+select_model_profile() {
+    show_model_docs
+
+    echo ""
+    echo "Select your hardware profile:"
+    echo ""
+    echo "  [1] FULL   - 14B Main + 7B Coder + Embeddings"
+    echo "             ~14GB VRAM/RAM | Best quality | 16GB+ recommended"
+    echo "             Downloads: ~9GB + ~5GB + ~260MB = ~14.3GB"
+    echo ""
+    echo "  [2] LITE   - 7B Main + 3B Coder + Embeddings"
+    echo "             ~7GB VRAM/RAM | Good balance | 8GB+ systems"
+    echo "             Downloads: ~5GB + ~2GB + ~260MB = ~7.3GB"
+    echo ""
+    echo "  [3] CUSTOM - Choose individual models"
+    echo ""
+
+    local choice
+    read -r -p "Enter choice [1/2/3] (default: 2): " choice
+    choice=${choice:-2}
+
+    case "$choice" in
+        1)
+            MODE="full"
+            MAIN_CHOICE="14b"
+            CODER_CHOICE="7b"
+            ;;
+        2)
+            MODE="lite"
+            MAIN_CHOICE="7b"
+            CODER_CHOICE="3b"
+            ;;
+        3)
+            echo ""
+            echo "Main model (reasoning engine):"
+            echo "  [1] Qwen2.5-14B-Instruct - Best reasoning (~9GB)"
+            echo "  [2] Qwen2.5-7B-Instruct  - Faster (~5GB)"
+            read -r -p "Choice [1/2] (default: 1): " mc
+            mc=${mc:-1}
+            [ "$mc" = "1" ] && MAIN_CHOICE="14b" || MAIN_CHOICE="7b"
+
+            echo ""
+            echo "Coder model (code specialist):"
+            echo "  [1] Qwen2.5-Coder-7B-Instruct - Best code (~5GB)"
+            echo "  [2] Qwen2.5-Coder-3B-Instruct - Faster (~2GB)"
+            read -r -p "Choice [1/2] (default: 1): " cc
+            cc=${cc:-1}
+            [ "$cc" = "1" ] && CODER_CHOICE="7b" || CODER_CHOICE="3b"
+
+            # Determine compose profile based on largest model
+            if [ "$MAIN_CHOICE" = "14b" ]; then
+                MODE="full"
+            else
+                MODE="lite"
+            fi
+            ;;
+        *)
+            echo "Invalid choice, defaulting to LITE"
+            MODE="lite"
+            MAIN_CHOICE="7b"
+            CODER_CHOICE="3b"
+            ;;
+    esac
+
+    echo ""
+    echo "✓ Selected: Main=${MAIN_CHOICE}, Coder=${CODER_CHOICE}"
+}
+
+# HuggingFace repos for all model variants
+HF_MAIN_14B_REPO="Qwen/Qwen2.5-14B-Instruct-GGUF"
+HF_MAIN_14B_FILE="qwen2.5-14b-instruct-q4_k_m.gguf"
+HF_MAIN_7B_REPO="Qwen/Qwen2.5-7B-Instruct-GGUF"
+HF_MAIN_7B_FILE="qwen2.5-7b-instruct-q4_k_m.gguf"
+HF_CODER_7B_REPO="Qwen/Qwen2.5-Coder-7B-Instruct-GGUF"
+HF_CODER_7B_FILE="qwen2.5-coder-7b-instruct-q4_k_m.gguf"
+HF_CODER_3B_REPO="bartowski/Qwen2.5-Coder-3B-Instruct-GGUF"
+HF_CODER_3B_FILE="Qwen2.5-Coder-3B-Instruct-Q4_K_M.gguf"
+HF_EMBED_REPO="nomic-ai/nomic-embed-text-v1.5-GGUF"
+HF_EMBED_FILE="nomic-embed-text-v1.5.f16.gguf"
+
+
+# Call the model selection menu if MODE is auto
+if [ "$MODE" = "auto" ]; then
+    select_model_profile
+else
+    # Set choices based on MODE flag
+    if [ "$MODE" = "full" ]; then
+        MAIN_CHOICE="14b"
+        CODER_CHOICE="7b"
+    else
+        MAIN_CHOICE="7b"
+        CODER_CHOICE="3b"
+    fi
+fi
+
+# Ask whether to auto-setup paths or use user-provided paths
+if prompt_yes_no "Do you want quickstart to set up model + GitGraph paths for you?" "y"; then
+    AUTO_PATHS=true
+else
+    AUTO_PATHS=false
+fi
+
+GITGRAPH_HOST="$(prompt_path "GitGraph root directory on this machine" "$DEFAULT_GITGRAPH_HOST")"
+GITGRAPH_HOST="$(abspath "$GITGRAPH_HOST")"
+
+# Create required GitGraph directories (end-to-end folders)
+mkdir -p "$GITGRAPH_HOST" "$GITGRAPH_HOST/graph_kv" "$GITGRAPH_HOST/dreams" "$GITGRAPH_HOST/blocks"
+
+# Set model paths based on user's choices
+if [ "$AUTO_PATHS" = true ]; then
+    mkdir -p "$HOME/models"
+
+    # Determine actual model files based on MAIN_CHOICE and CODER_CHOICE
+    if [ "$MAIN_CHOICE" = "14b" ]; then
+        MODEL_MAIN_HOST="$HOME/models/$HF_MAIN_14B_FILE"
+        MAIN_HF_REPO="$HF_MAIN_14B_REPO"
+        MAIN_HF_FILE="$HF_MAIN_14B_FILE"
+    else
+        MODEL_MAIN_HOST="$HOME/models/$HF_MAIN_7B_FILE"
+        MAIN_HF_REPO="$HF_MAIN_7B_REPO"
+        MAIN_HF_FILE="$HF_MAIN_7B_FILE"
+    fi
+
+    if [ "$CODER_CHOICE" = "7b" ]; then
+        MODEL_SUB_HOST="$HOME/models/$HF_CODER_7B_FILE"
+        CODER_HF_REPO="$HF_CODER_7B_REPO"
+        CODER_HF_FILE="$HF_CODER_7B_FILE"
+    else
+        MODEL_SUB_HOST="$HOME/models/$HF_CODER_3B_FILE"
+        CODER_HF_REPO="$HF_CODER_3B_REPO"
+        CODER_HF_FILE="$HF_CODER_3B_FILE"
+    fi
+
+    MODEL_EMBED_HOST="$HOME/models/$HF_EMBED_FILE"
+else
+    if [ "$MAIN_CHOICE" = "14b" ]; then
+        MODEL_MAIN_HOST="$(prompt_path "Main model path (14B Instruct GGUF)" "$HOME/models/$HF_MAIN_14B_FILE")"
+    else
+        MODEL_MAIN_HOST="$(prompt_path "Main model path (7B Instruct GGUF)" "$HOME/models/$HF_MAIN_7B_FILE")"
+    fi
+
+    if [ "$CODER_CHOICE" = "7b" ]; then
+        MODEL_SUB_HOST="$(prompt_path "Sub model path (7B Coder GGUF)" "$HOME/models/$HF_CODER_7B_FILE")"
+    else
+        MODEL_SUB_HOST="$(prompt_path "Sub model path (3B Coder GGUF)" "$HOME/models/$HF_CODER_3B_FILE")"
+    fi
+    MODEL_EMBED_HOST="$(prompt_path "Embedding model path (GGUF)" "$HOME/models/$HF_EMBED_FILE")"
+
+    MODEL_MAIN_HOST="$(abspath "$MODEL_MAIN_HOST")"
+    MODEL_SUB_HOST="$(abspath "$MODEL_SUB_HOST")"
+    MODEL_EMBED_HOST="$(abspath "$MODEL_EMBED_HOST")"
+
+    if [ ! -f "$MODEL_MAIN_HOST" ]; then
+        echo "ERROR: Main model not found: $MODEL_MAIN_HOST"
+        exit 1
+    fi
+    if [ ! -f "$MODEL_SUB_HOST" ]; then
+        echo "ERROR: Sub model not found: $MODEL_SUB_HOST"
+        exit 1
+    fi
+    if [ ! -f "$MODEL_EMBED_HOST" ]; then
+        echo "ERROR: Embedding model not found: $MODEL_EMBED_HOST"
+        exit 1
+    fi
+fi
+
+# Ensure absolute paths in .env for docker compose
+MODEL_MAIN_HOST="$(abspath "$MODEL_MAIN_HOST")"
+MODEL_SUB_HOST="$(abspath "$MODEL_SUB_HOST")"
+MODEL_EMBED_HOST="$(abspath "$MODEL_EMBED_HOST")"
+
+# Download models if AUTO_PATHS is enabled
+if [ "$AUTO_PATHS" = true ]; then
+    echo ""
+    echo "Checking/downloading models..."
+    echo ""
+
+    # Download main model (14B or 7B)
+    ensure_model "$MODEL_MAIN_HOST" "$MAIN_HF_REPO" "$MAIN_HF_FILE"
+
+    # Download coder model (7B or 3B)
+    # Handle the bartowski repo naming quirk for 3B
+    if [ "$CODER_CHOICE" = "3b" ]; then
+        ALT_CODER="$HOME/models/Qwen2.5-Coder-3B-Instruct-Q4_K_M.gguf"
+        ensure_model "$MODEL_SUB_HOST" "$CODER_HF_REPO" "$CODER_HF_FILE" "$ALT_CODER"
+    else
+        ensure_model "$MODEL_SUB_HOST" "$CODER_HF_REPO" "$CODER_HF_FILE"
+    fi
+
+    # Download embedding model
+    ensure_model "$MODEL_EMBED_HOST" "$HF_EMBED_REPO" "$HF_EMBED_FILE"
+
+    echo ""
+    echo "✓ All models ready"
+fi
+
+echo ""
+echo "Mode: ${MODE} (Main=${MAIN_CHOICE}, Coder=${CODER_CHOICE})"
+cat > .env <<EOF
+ZETA_GITGRAPH_PATH=${GITGRAPH_HOST}
+ZETA_MODEL_MAIN_HOST=${MODEL_MAIN_HOST}
+ZETA_MODEL_SUB_HOST=${MODEL_SUB_HOST}
+ZETA_MODEL_EMBED_HOST=${MODEL_EMBED_HOST}
+EOF
+
+# Generate minimal config with sudo setting
+echo "Generating config..."
+mkdir -p "$CONFIG_DIR"
+if [ "$UNLOCK" = true ]; then
+    cat > "$CONFIG_FILE" << 'EOF'
+# Z.E.T.A. Quickstart Config (Unlocked)
+# Sudo protection DISABLED - edit freely
+
+ZETA_HOST="0.0.0.0"
+ZETA_PORT=8080
+ZETA_SUDO_ENABLED=false
+
+# Model paths (inside container)
+MODEL_14B="/models/main.gguf"
+MODEL_7B_CODER="/models/sub.gguf"
+MODEL_EMBED="/models/embed.gguf"
+
+# GitGraph / persistent paths (inside container)
+ZETA_STORAGE="/storage"
+ZETA_GKV_DIR="/storage/graph_kv"
+ZETA_DREAM_DIR="/storage/dreams"
+
+# Run ./setup.sh for 126+ tunable parameters
+EOF
+else
+    cat > "$CONFIG_FILE" << 'EOF'
+# Z.E.T.A. Quickstart Config (Safe Mode)
+# Config changes require password (default: zeta1234)
+
+ZETA_HOST="0.0.0.0"
+ZETA_PORT=8080
+ZETA_SUDO_ENABLED=true
+ZETA_SUDO_PASSWORD="zeta1234"
+
+# Model paths (inside container)
+MODEL_14B="/models/main.gguf"
+MODEL_7B_CODER="/models/sub.gguf"
+MODEL_EMBED="/models/embed.gguf"
+
+# GitGraph / persistent paths (inside container)
+ZETA_STORAGE="/storage"
+ZETA_GKV_DIR="/storage/graph_kv"
+ZETA_DREAM_DIR="/storage/dreams"
+
+# Run ./setup.sh for 126+ tunable parameters
+EOF
+fi
+
+# Start with Docker
+echo ""
+echo "Starting Z.E.T.A. with Docker..."
+if [ "$MODE" = "lite" ]; then
+    docker compose --profile lite up -d
+    CONTAINER_NAME="zeta-lite"
+else
+    docker compose up -d
+    CONTAINER_NAME="zeta"
+fi
+
+echo ""
+echo "=========================================="
+echo "  Z.E.T.A. is running!"
+echo "=========================================="
+echo ""
+echo "  API:    http://localhost:8080"
+echo "  Health: curl http://localhost:8080/health"
+echo "  Logs:   docker logs -f ${CONTAINER_NAME}"
+echo "  Stop:   docker compose down"
+echo ""
+if [ "$UNLOCK" = true ]; then
+    echo "  Mode:   UNLOCKED (edit ${CONFIG_FILE} freely)"
+else
+    echo "  Mode:   SAFE (sudo password: zeta1234)"
+    echo ""
+    echo "  Want to tweak? ./quickstart.sh --unlock"
+fi
+echo ""
+
+# ==============================================================================
+# Offer to seed the graph
+# ==============================================================================
+echo ""
+echo "=========================================="
+echo "  Graph Seeding (Recommended)"
+echo "=========================================="
+echo ""
+echo "  The graph starts with only 5 identity nodes."
+echo "  Seed it with your codebase for grounded dreams:"
+echo ""
+echo "    python3 scripts/seed_graph.py --path /path/to/your/project"
+echo ""
+echo "  Or index directly:"
+echo ""
+echo "    python3 scripts/index_codebase.py --path /path/to/your/project/src"
+echo ""
+echo "  Verify: curl http://localhost:8080/graph | jq '.nodes | length'"
+echo ""
