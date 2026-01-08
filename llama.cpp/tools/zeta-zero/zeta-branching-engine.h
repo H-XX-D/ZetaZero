@@ -259,7 +259,13 @@ struct EdgeMeta {
 
 class BranchGraph {
 private:
+    struct BranchNode {
+        std::string id;
+        std::string content;
+    };
+
     std::unordered_map<std::string, std::unordered_set<std::string>> adjacency_;
+    std::unordered_map<std::string, BranchNode> nodes_;
     std::unordered_set<std::string> active_ids_;
     std::unordered_set<std::string> tension_ids_;
 
@@ -586,6 +592,7 @@ public:
         }
 
         adjacency_.clear();
+        nodes_.clear();
         active_ids_.clear();
         tension_ids_.clear();
         edge_metadata_.clear();
@@ -619,6 +626,37 @@ public:
         if (adjacency_.find(id) == adjacency_.end()) {
             adjacency_[id] = {};
         }
+        auto& n = nodes_[id];
+        n.id = id;
+        if (n.content.empty()) {
+            // Default content to id so retrieval remains meaningful even if
+            // callers don't explicitly set content.
+            n.content = id;
+        }
+        dirty_ = true;
+    }
+
+    // Minimal node-content API used by cross-dataset retrieval/dream flows.
+    // NOTE: pointer remains valid only as long as the underlying map isn't
+    // rehashed; callers should use it immediately.
+    BranchNode* get_branch(const std::string& id) {
+        std::lock_guard<std::mutex> lock(mu_);
+        auto it = nodes_.find(id);
+        return it != nodes_.end() ? &it->second : nullptr;
+    }
+
+    const BranchNode* get_branch(const std::string& id) const {
+        std::lock_guard<std::mutex> lock(mu_);
+        auto it = nodes_.find(id);
+        return it != nodes_.end() ? &it->second : nullptr;
+    }
+
+    void set_branch_content(const std::string& id, const std::string& content) {
+        std::lock_guard<std::mutex> lock(mu_);
+        if (id.empty()) return;
+        auto& n = nodes_[id];
+        n.id = id;
+        n.content = content;
         dirty_ = true;
     }
 
@@ -1904,7 +1942,7 @@ struct DatasetGraphs {
 };
 
 // ============================================================================
-// INCEPTION BUILDER: Curated Cross-Dataset Synthesis  
+// INCEPTION BUILDER: Curated Cross-Dataset Synthesis
 // ============================================================================
 // Three workflows:
 //   A. Explicit picks   - manually select each node
@@ -1927,7 +1965,7 @@ class InceptionBuilder {
 public:
     InceptionBuilder() : manager_(nullptr), review_idx_(0) {}
     void set_manager(void* mgr) { manager_ = mgr; }
-    
+
     // Option A: Explicit picks
     void pick(const std::string& ds, const std::string& node,
               const std::string& type = "node", const std::string& summary = "") {
@@ -1936,13 +1974,13 @@ public:
         s.summary = summary; s.relevance = 1.0f; s.approved = true;
         sources_.push_back(s);
     }
-    
+
     void unpick(const std::string& ds, const std::string& node) {
         std::string t = ds + "::" + node;
         sources_.erase(std::remove_if(sources_.begin(), sources_.end(),
             [&](const InceptionSource& s) { return s.composite_id() == t; }), sources_.end());
     }
-    
+
     // Option B: Filter query suggestions
     void suggest(const std::string& ds, const std::string& node,
                  const std::string& type, const std::string& summary, float rel) {
@@ -1951,91 +1989,91 @@ public:
         s.summary = summary; s.relevance = rel; s.approved = false;
         suggestions_.push_back(s);
     }
-    
+
     std::vector<InceptionSource>& pending_suggestions() { return suggestions_; }
-    
+
     void approve(size_t i) {
         if (i >= suggestions_.size()) return;
         suggestions_[i].approved = true;
         sources_.push_back(suggestions_[i]);
         suggestions_.erase(suggestions_.begin() + i);
     }
-    
+
     void approve_by_id(const std::string& id) {
         for (size_t i = 0; i < suggestions_.size(); ++i)
             if (suggestions_[i].composite_id() == id) { approve(i); return; }
     }
-    
+
     void reject(size_t i) {
         if (i >= suggestions_.size()) return;
         suggestions_[i].rejected = true;
         rejected_.push_back(suggestions_[i]);
         suggestions_.erase(suggestions_.begin() + i);
     }
-    
+
     void reject_by_id(const std::string& id) {
         for (size_t i = 0; i < suggestions_.size(); ++i)
             if (suggestions_[i].composite_id() == id) { reject(i); return; }
     }
-    
+
     void approve_all() {
         for (auto& s : suggestions_) { s.approved = true; sources_.push_back(s); }
         suggestions_.clear();
     }
-    
+
     void reject_all() {
         for (auto& s : suggestions_) { s.rejected = true; rejected_.push_back(s); }
         suggestions_.clear();
     }
-    
+
     // Option C: Staged review
     void propose_from_datasets(const std::vector<std::string>& ds) { proposed_datasets_ = ds; }
-    
+
     InceptionSource* next_for_review() {
         return review_idx_ < suggestions_.size() ? &suggestions_[review_idx_] : nullptr;
     }
-    
+
     void approve_current() {
         if (review_idx_ < suggestions_.size()) {
             suggestions_[review_idx_].approved = true;
             sources_.push_back(suggestions_[review_idx_++]);
         }
     }
-    
+
     void reject_current() {
         if (review_idx_ < suggestions_.size()) {
             suggestions_[review_idx_].rejected = true;
             rejected_.push_back(suggestions_[review_idx_++]);
         }
     }
-    
+
     void skip_current() { if (review_idx_ < suggestions_.size()) review_idx_++; }
     void reset_review() { review_idx_ = 0; }
     bool review_complete() const { return review_idx_ >= suggestions_.size(); }
-    size_t review_remaining() const { 
+    size_t review_remaining() const {
         return review_idx_ < suggestions_.size() ? suggestions_.size() - review_idx_ : 0;
     }
-    
+
     // Synthesis
     std::vector<InceptionSource> approved_sources() const {
         std::vector<InceptionSource> r;
         for (const auto& s : sources_) if (s.approved && !s.rejected) r.push_back(s);
         return r;
     }
-    
+
     std::vector<std::string> involved_datasets() const {
         std::unordered_set<std::string> ds;
         for (const auto& s : sources_) if (s.approved && !s.rejected) ds.insert(s.dataset_id);
         return std::vector<std::string>(ds.begin(), ds.end());
     }
-    
+
     struct SynthesisContext {
         std::string query;
         std::vector<InceptionSource> sources;
         std::vector<std::string> datasets;
         size_t approved_count, rejected_count;
     };
-    
+
     SynthesisContext build_context(const std::string& q) const {
         SynthesisContext c;
         c.query = q;
@@ -2045,12 +2083,12 @@ public:
         c.rejected_count = rejected_.size();
         return c;
     }
-    
+
     void clear() {
         sources_.clear(); suggestions_.clear(); rejected_.clear();
         proposed_datasets_.clear(); review_idx_ = 0;
     }
-    
+
     size_t picked_count() const { return sources_.size(); }
     size_t suggestion_count() const { return suggestions_.size(); }
     size_t rejected_count() const { return rejected_.size(); }
@@ -2201,7 +2239,7 @@ public:
     // =========================================================================
     // CHAT MODE: Cross-Dataset Retrieval
     // =========================================================================
-    
+
     struct RetrievalResult {
         std::string dataset_id;
         std::string node_id;
@@ -2209,7 +2247,7 @@ public:
         float relevance;
         IsolatedMode source_mode;
     };
-    
+
     std::vector<RetrievalResult> query_all_datasets(const std::string& query,
                                                      int max_results = 10,
                                                      float min_rel = 0.3f) {
@@ -2231,7 +2269,7 @@ public:
         if ((int)results.size() > max_results) results.resize(max_results);
         return results;
     }
-    
+
     std::vector<RetrievalResult> query_datasets(const std::vector<std::string>& ds_ids,
                                                  const std::string& query, int max_results = 10) {
         std::vector<RetrievalResult> results;
@@ -2252,28 +2290,132 @@ public:
         if ((int)results.size() > max_results) results.resize(max_results);
         return results;
     }
-    
+
+
     // =========================================================================
-    // DREAM MODE: Scoped Dreaming
+    // IDEAS vs DREAMS: Two Distinct Creative Modes
     // =========================================================================
+    //
+    // IDEAS: User-directed, on-demand ("give me 5 ideas for X")
+    //   - Triggered by explicit user request
+    //   - Focused on specific topic/problem
+    //   - Returns structured list of actionable ideas
+    //
+    // DREAMS: Automatic, idle-triggered
+    //   - Starts after configurable idle period
+    //   - Free association across ingested knowledge
+    //   - More abstract, exploratory, serendipitous
+    //
+    // Both can be scoped to single dataset (NORMAL) or multi-dataset (INCEPTION)
     
-    enum class DreamScope { NORMAL, INCEPTION };
+    enum class CreativeMode { IDEAS, DREAMS };
+    enum class CreativeScope { NORMAL, INCEPTION };
     
-    struct DreamSession {
-        DreamScope scope = DreamScope::NORMAL;
+    struct Idea {
+        std::string id;
+        std::string title;
+        std::string description;
+        std::string rationale;
+        std::vector<std::string> source_nodes;
+        float novelty = 0.0f;
+        float feasibility = 0.0f;
+        int64_t created_at = 0;
+    };
+    
+    struct Dream {
+        std::string id;
+        std::string content;
+        std::string theme;
+        std::vector<std::string> associations;
+        std::vector<std::string> source_nodes;
+        int64_t created_at = 0;
+    };
+    
+    struct CreativeSession {
+        CreativeMode mode = CreativeMode::IDEAS;
+        CreativeScope scope = CreativeScope::NORMAL;
         std::string primary_dataset;
         std::vector<std::string> datasets;
         std::vector<RetrievalResult> context;
+        std::string prompt;
+        int target_count = 5;
         bool active = false;
+        int64_t started_at = 0;
     };
     
-    // NORMAL dream: single dataset scope
-    DreamSession begin_dream(const std::string& dataset_id) {
-        DreamSession s;
-        s.scope = DreamScope::NORMAL;
+    // =========================================================================
+    // IDEAS: User-Directed ("give me 5 ideas for optimizing X")
+    // =========================================================================
+    
+    CreativeSession request_ideas(const std::string& dataset_id, 
+                                   const std::string& prompt, int count = 5) {
+        CreativeSession s;
+        s.mode = CreativeMode::IDEAS;
+        s.scope = CreativeScope::NORMAL;
+        s.primary_dataset = dataset_id;
+        s.datasets = {dataset_id};
+        s.prompt = prompt;
+        s.target_count = count;
+        s.active = true;
+        s.started_at = now_ms_();
+        auto* ds = get_dataset(dataset_id);
+        if (ds) {
+            for (auto& [mode, graph] : ds->mode_graphs) {
+                for (const auto& nid : graph.active_ids_vec()) {
+                    auto* b = graph.get_branch(nid);
+                    if (!b) continue;
+                    float rel = compute_relevance_(prompt, b->content);
+                    if (rel > 0.1f) s.context.push_back({dataset_id, nid, b->content, rel, mode});
+                }
+            }
+        }
+        std::sort(s.context.begin(), s.context.end(),
+            [](const auto& a, const auto& b) { return a.relevance > b.relevance; });
+        active_creative_ = s;
+        return s;
+    }
+    
+    CreativeSession request_inception_ideas(const std::vector<std::string>& dataset_ids,
+                                             const std::string& prompt, int count = 5) {
+        CreativeSession s;
+        s.mode = CreativeMode::IDEAS;
+        s.scope = CreativeScope::INCEPTION;
+        s.datasets = dataset_ids;
+        if (!dataset_ids.empty()) s.primary_dataset = dataset_ids[0];
+        s.prompt = prompt;
+        s.target_count = count;
+        s.active = true;
+        s.started_at = now_ms_();
+        for (const auto& ds_id : dataset_ids) {
+            auto* ds = get_dataset(ds_id);
+            if (!ds) continue;
+            for (auto& [mode, graph] : ds->mode_graphs) {
+                for (const auto& nid : graph.active_ids_vec()) {
+                    auto* b = graph.get_branch(nid);
+                    if (!b) continue;
+                    float rel = compute_relevance_(prompt, b->content);
+                    if (rel > 0.1f) s.context.push_back({ds_id, nid, b->content, rel, mode});
+                }
+            }
+        }
+        std::sort(s.context.begin(), s.context.end(),
+            [](const auto& a, const auto& b) { return a.relevance > b.relevance; });
+        active_creative_ = s;
+        return s;
+    }
+    
+    // =========================================================================
+    // DREAMS: Idle-Triggered Free Association
+    // =========================================================================
+    
+    CreativeSession begin_dream(const std::string& dataset_id) {
+        CreativeSession s;
+        s.mode = CreativeMode::DREAMS;
+        s.scope = CreativeScope::NORMAL;
         s.primary_dataset = dataset_id;
         s.datasets = {dataset_id};
         s.active = true;
+        s.started_at = now_ms_();
         auto* ds = get_dataset(dataset_id);
         if (ds) {
             for (auto& [mode, graph] : ds->mode_graphs) {
@@ -2283,17 +2425,18 @@ public:
                 }
             }
         }
-        active_dream_ = s;
+        active_creative_ = s;
         return s;
     }
     
-    // INCEPTION dream: combine multiple datasets
-    DreamSession begin_inception_dream(const std::vector<std::string>& dataset_ids) {
-        DreamSession s;
-        s.scope = DreamScope::INCEPTION;
+    CreativeSession begin_inception_dream(const std::vector<std::string>& dataset_ids) {
+        CreativeSession s;
+        s.mode = CreativeMode::DREAMS;
+        s.scope = CreativeScope::INCEPTION;
         s.datasets = dataset_ids;
         if (!dataset_ids.empty()) s.primary_dataset = dataset_ids[0];
         s.active = true;
+        s.started_at = now_ms_();
         for (const auto& ds_id : dataset_ids) {
             auto* ds = get_dataset(ds_id);
             if (!ds) continue;
@@ -2304,17 +2447,18 @@ public:
                 }
             }
         }
-        active_dream_ = s;
+        active_creative_ = s;
         return s;
     }
     
-    // INCEPTION dream from curated InceptionBuilder
-    DreamSession begin_inception_dream(const InceptionBuilder& builder) {
+    CreativeSession begin_inception_dream(const InceptionBuilder& builder) {
         auto curated = builder.build_context("");
-        DreamSession s;
-        s.scope = DreamScope::INCEPTION;
+        CreativeSession s;
+        s.mode = CreativeMode::DREAMS;
+        s.scope = CreativeScope::INCEPTION;
         s.datasets = curated.datasets;
         s.active = true;
+        s.started_at = now_ms_();
         for (const auto& src : curated.sources) {
             if (!src.approved || src.rejected) continue;
             auto* ds = get_dataset(src.dataset_id);
@@ -2327,35 +2471,93 @@ public:
                 }
             }
         }
-        active_dream_ = s;
+        active_creative_ = s;
         return s;
     }
     
-    std::string end_dream(const std::string& content, const std::string& dtype) {
-        if (!active_dream_.active) return "";
+    // =========================================================================
+    // Idle Detection & Auto-Dream Trigger
+    // =========================================================================
+    
+    void set_idle_dream_threshold(int64_t ms) { idle_threshold_ms_ = ms; }
+    void set_idle_dream_enabled(bool v) { idle_dream_enabled_ = v; }
+    void set_idle_dream_datasets(const std::vector<std::string>& ds) { idle_dream_datasets_ = ds; }
+    void record_activity() { last_activity_ms_ = now_ms_(); }
+    
+    bool check_idle_dream_trigger() {
+        if (!idle_dream_enabled_ || is_creating()) return false;
+        if (now_ms_() - last_activity_ms_ < idle_threshold_ms_) return false;
+        if (idle_dream_datasets_.empty()) {
+            std::vector<std::string> all_ds;
+            for (const auto& [id, _] : datasets_) all_ds.push_back(id);
+            if (!all_ds.empty()) begin_inception_dream(all_ds);
+        } else if (idle_dream_datasets_.size() == 1) {
+            begin_dream(idle_dream_datasets_[0]);
+        } else {
+            begin_inception_dream(idle_dream_datasets_);
+        }
+        return true;
+    }
+    
+    // =========================================================================
+    // Save Creative Output
+    // =========================================================================
+    
+    std::string save_idea(const Idea& idea) {
         DreamOutput d;
-        d.id = "dream_" + std::to_string(++dream_counter_);
-        d.dream_type = dtype;
+        d.id = idea.id.empty() ? "idea_" + std::to_string(++dream_counter_) : idea.id;
+        d.dream_type = "idea";
+        d.content = "# " + idea.title + "\n\n" + idea.description;
+        if (!idea.rationale.empty()) d.content += "\n\n## Rationale\n" + idea.rationale;
+        d.source_nodes = idea.source_nodes;
+        d.dataset_id = active_creative_.primary_dataset;
+        d.mode = active_creative_.scope == CreativeScope::INCEPTION ? 
+                 IsolatedMode::INCEPTION : IsolatedMode::DREAM;
+        d.created_at = idea.created_at ? idea.created_at : now_ms_();
+        return save_dream(d);
+    }
+    
+    std::string save_dream_output(const Dream& dream) {
+        DreamOutput d;
+        d.id = dream.id.empty() ? "dream_" + std::to_string(++dream_counter_) : dream.id;
+        d.dream_type = "dream";
+        d.content = dream.content;
+        if (!dream.theme.empty()) d.content = "# Theme: " + dream.theme + "\n\n" + d.content;
+        d.source_nodes = dream.source_nodes;
+        d.dataset_id = active_creative_.primary_dataset;
+        d.mode = active_creative_.scope == CreativeScope::INCEPTION ? 
+                 IsolatedMode::INCEPTION : IsolatedMode::DREAM;
+        d.created_at = dream.created_at ? dream.created_at : now_ms_();
+        return save_dream(d);
+    }
+    
+    std::string end_creative_session(const std::string& content, const std::string& type) {
+        if (!active_creative_.active) return "";
+        DreamOutput d;
+        d.id = (active_creative_.mode == CreativeMode::IDEAS ? "idea_" : "dream_") 
+               + std::to_string(++dream_counter_);
+        d.dream_type = type;
         d.content = content;
-        d.created_at = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::system_clock::now().time_since_epoch()).count();
-        if (active_dream_.scope == DreamScope::NORMAL) {
-            d.dataset_id = active_dream_.primary_dataset;
+        d.created_at = now_ms_();
+        if (active_creative_.scope == CreativeScope::NORMAL) {
+            d.dataset_id = active_creative_.primary_dataset;
             d.mode = IsolatedMode::DREAM;
-            auto* ds = get_dataset(active_dream_.primary_dataset);
+            auto* ds = get_dataset(active_creative_.primary_dataset);
             if (ds) d.dataset_anchor = ds->dataset_anchor;
         } else {
             d.dataset_id = "INCEPTION";
             d.mode = IsolatedMode::INCEPTION;
-            for (const auto& r : active_dream_.context)
+            for (const auto& r : active_creative_.context)
                 d.source_nodes.push_back(r.dataset_id + "::" + r.node_id);
         }
-        active_dream_.active = false;
+        active_creative_.active = false;
         return save_dream(d);
     }
     
-    const DreamSession& current_dream() const { return active_dream_; }
-    bool is_dreaming() const { return active_dream_.active; }
+    const CreativeSession& current_creative() const { return active_creative_; }
+    bool is_creating() const { return active_creative_.active; }
+    bool is_ideating() const { return active_creative_.active && active_creative_.mode == CreativeMode::IDEAS; }
+    bool is_dreaming() const { return active_creative_.active && active_creative_.mode == CreativeMode::DREAMS; }
 
     void set_dream_output_dir(const std::string& d) { dream_dir_ = d; }
     void set_auto_switch_on_ingest(bool v) { auto_switch_ = v; }
@@ -2377,8 +2579,17 @@ private:
     int dream_counter_ = 0;
     std::string dream_dir_ = "data/dreams";
     bool auto_switch_ = true;
-    DreamSession active_dream_;
+    CreativeSession active_creative_;
+    int64_t last_activity_ms_ = 0;
+    int64_t idle_threshold_ms_ = 300000;  // 5 minutes default
+    bool idle_dream_enabled_ = false;
+    std::vector<std::string> idle_dream_datasets_;
     
+    int64_t now_ms_() const {
+        return std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+    }
+
     float compute_relevance_(const std::string& query, const std::string& content) const {
         if (query.empty() || content.empty()) return 0.0f;
         std::vector<std::string> words;
