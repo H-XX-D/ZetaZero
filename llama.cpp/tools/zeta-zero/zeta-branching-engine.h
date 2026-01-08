@@ -2197,6 +2197,166 @@ public:
         return ctx;
     }
 
+
+    // =========================================================================
+    // CHAT MODE: Cross-Dataset Retrieval
+    // =========================================================================
+    
+    struct RetrievalResult {
+        std::string dataset_id;
+        std::string node_id;
+        std::string content;
+        float relevance;
+        IsolatedMode source_mode;
+    };
+    
+    std::vector<RetrievalResult> query_all_datasets(const std::string& query,
+                                                     int max_results = 10,
+                                                     float min_rel = 0.3f) {
+        std::vector<RetrievalResult> results;
+        for (auto& [ds_id, ds] : datasets_) {
+            for (auto& [mode, graph] : ds.mode_graphs) {
+                for (const auto& nid : graph.active_ids_vec()) {
+                    auto* b = graph.get_branch(nid);
+                    if (!b) continue;
+                    float rel = compute_relevance_(query, b->content);
+                    if (rel >= min_rel) {
+                        results.push_back({ds_id, nid, b->content, rel, mode});
+                    }
+                }
+            }
+        }
+        std::sort(results.begin(), results.end(),
+            [](const auto& a, const auto& b) { return a.relevance > b.relevance; });
+        if ((int)results.size() > max_results) results.resize(max_results);
+        return results;
+    }
+    
+    std::vector<RetrievalResult> query_datasets(const std::vector<std::string>& ds_ids,
+                                                 const std::string& query, int max_results = 10) {
+        std::vector<RetrievalResult> results;
+        for (const auto& ds_id : ds_ids) {
+            auto* ds = get_dataset(ds_id);
+            if (!ds) continue;
+            for (auto& [mode, graph] : ds->mode_graphs) {
+                for (const auto& nid : graph.active_ids_vec()) {
+                    auto* b = graph.get_branch(nid);
+                    if (!b) continue;
+                    float rel = compute_relevance_(query, b->content);
+                    if (rel > 0.1f) results.push_back({ds_id, nid, b->content, rel, mode});
+                }
+            }
+        }
+        std::sort(results.begin(), results.end(),
+            [](const auto& a, const auto& b) { return a.relevance > b.relevance; });
+        if ((int)results.size() > max_results) results.resize(max_results);
+        return results;
+    }
+    
+    // =========================================================================
+    // DREAM MODE: Scoped Dreaming
+    // =========================================================================
+    
+    enum class DreamScope { NORMAL, INCEPTION };
+    
+    struct DreamSession {
+        DreamScope scope = DreamScope::NORMAL;
+        std::string primary_dataset;
+        std::vector<std::string> datasets;
+        std::vector<RetrievalResult> context;
+        bool active = false;
+    };
+    
+    // NORMAL dream: single dataset scope
+    DreamSession begin_dream(const std::string& dataset_id) {
+        DreamSession s;
+        s.scope = DreamScope::NORMAL;
+        s.primary_dataset = dataset_id;
+        s.datasets = {dataset_id};
+        s.active = true;
+        auto* ds = get_dataset(dataset_id);
+        if (ds) {
+            for (auto& [mode, graph] : ds->mode_graphs) {
+                for (const auto& nid : graph.active_ids_vec()) {
+                    auto* b = graph.get_branch(nid);
+                    if (b) s.context.push_back({dataset_id, nid, b->content, 1.0f, mode});
+                }
+            }
+        }
+        active_dream_ = s;
+        return s;
+    }
+    
+    // INCEPTION dream: combine multiple datasets
+    DreamSession begin_inception_dream(const std::vector<std::string>& dataset_ids) {
+        DreamSession s;
+        s.scope = DreamScope::INCEPTION;
+        s.datasets = dataset_ids;
+        if (!dataset_ids.empty()) s.primary_dataset = dataset_ids[0];
+        s.active = true;
+        for (const auto& ds_id : dataset_ids) {
+            auto* ds = get_dataset(ds_id);
+            if (!ds) continue;
+            for (auto& [mode, graph] : ds->mode_graphs) {
+                for (const auto& nid : graph.active_ids_vec()) {
+                    auto* b = graph.get_branch(nid);
+                    if (b) s.context.push_back({ds_id, nid, b->content, 1.0f, mode});
+                }
+            }
+        }
+        active_dream_ = s;
+        return s;
+    }
+    
+    // INCEPTION dream from curated InceptionBuilder
+    DreamSession begin_inception_dream(const InceptionBuilder& builder) {
+        auto curated = builder.build_context("");
+        DreamSession s;
+        s.scope = DreamScope::INCEPTION;
+        s.datasets = curated.datasets;
+        s.active = true;
+        for (const auto& src : curated.sources) {
+            if (!src.approved || src.rejected) continue;
+            auto* ds = get_dataset(src.dataset_id);
+            if (!ds) continue;
+            for (auto& [mode, graph] : ds->mode_graphs) {
+                auto* b = graph.get_branch(src.node_id);
+                if (b) {
+                    s.context.push_back({src.dataset_id, src.node_id, b->content, src.relevance, mode});
+                    break;
+                }
+            }
+        }
+        active_dream_ = s;
+        return s;
+    }
+    
+    std::string end_dream(const std::string& content, const std::string& dtype) {
+        if (!active_dream_.active) return "";
+        DreamOutput d;
+        d.id = "dream_" + std::to_string(++dream_counter_);
+        d.dream_type = dtype;
+        d.content = content;
+        d.created_at = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+        if (active_dream_.scope == DreamScope::NORMAL) {
+            d.dataset_id = active_dream_.primary_dataset;
+            d.mode = IsolatedMode::DREAM;
+            auto* ds = get_dataset(active_dream_.primary_dataset);
+            if (ds) d.dataset_anchor = ds->dataset_anchor;
+        } else {
+            d.dataset_id = "INCEPTION";
+            d.mode = IsolatedMode::INCEPTION;
+            for (const auto& r : active_dream_.context)
+                d.source_nodes.push_back(r.dataset_id + "::" + r.node_id);
+        }
+        active_dream_.active = false;
+        return save_dream(d);
+    }
+    
+    const DreamSession& current_dream() const { return active_dream_; }
+    bool is_dreaming() const { return active_dream_.active; }
+
     void set_dream_output_dir(const std::string& d) { dream_dir_ = d; }
     void set_auto_switch_on_ingest(bool v) { auto_switch_ = v; }
     void save_all() { for (auto& [_, ds] : datasets_) ds.save_all(); inception_graph_.save(); }
@@ -2213,10 +2373,27 @@ private:
     IsolatedMode active_mode_ = IsolatedMode::CHAT;
     BranchGraph inception_graph_;
     std::vector<CrossDatasetEdge> cross_edges_;
-    int cross_edge_counter_;
-    int dream_counter_;
-    std::string dream_dir_;
-    bool auto_switch_;
+    int cross_edge_counter_ = 0;
+    int dream_counter_ = 0;
+    std::string dream_dir_ = "data/dreams";
+    bool auto_switch_ = true;
+    DreamSession active_dream_;
+    
+    float compute_relevance_(const std::string& query, const std::string& content) const {
+        if (query.empty() || content.empty()) return 0.0f;
+        std::vector<std::string> words;
+        std::string w;
+        for (char c : query) {
+            if (std::isalnum(c)) w += std::tolower(c);
+            else if (!w.empty()) { words.push_back(w); w.clear(); }
+        }
+        if (!w.empty()) words.push_back(w);
+        std::string lc; lc.reserve(content.size());
+        for (char c : content) lc += std::tolower(c);
+        int hits = 0;
+        for (const auto& x : words) if (lc.find(x) != std::string::npos) hits++;
+        return words.empty() ? 0.0f : (float)hits / (float)words.size();
+    }
 };
 
 } // namespace zeta_branching
