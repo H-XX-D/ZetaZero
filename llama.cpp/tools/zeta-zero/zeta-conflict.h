@@ -33,9 +33,10 @@ static inline void zeta_to_lower(char* dest, const char* src, size_t max_len) {
 
 // Unified sudo password - set from config via zeta_set_sudo_password()
 // This is the ONLY password for all admin operations
-extern const char* g_zeta_sudo_password;
-static const char* g_zeta_sudo_password_storage = "zeta1234";  // Default fallback
-const char* g_zeta_sudo_password = "zeta1234";
+// Note: For header-only usage, we use static inline storage
+static const char* g_zeta_sudo_password_default = "zeta1234";
+static const char* g_zeta_sudo_password = "zeta1234";
+
 
 static inline void zeta_set_sudo_password(const char* password) {
     if (password && strlen(password) >= 4) {
