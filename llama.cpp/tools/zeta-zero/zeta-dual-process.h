@@ -1630,14 +1630,18 @@ static inline int zeta_subconscious_extract_facts(
                                 }
                             }
 
+                            if (superseded_count > 0) {
+                                fprintf(stderr, "[VERSION] Superseding %lld prior nodes for concept '%s'\n",
+                                        (long long)superseded_count, concept_key);
+                            }
+
                             int64_t new_id = zeta_commit_fact(ctx, nt, type, value, sal, SOURCE_MODEL);
 
                             // Set concept_key on new node
                             if (concept_key[0] && new_id > 0) {
                                 for (int ni = 0; ni < ctx->num_nodes; ni++) {
                                     if (ctx->nodes[ni].node_id == new_id) {
-                                        strncpy(ctx->nodes[ni].concept_key, concept_key, 63);
-                                        ctx->nodes[ni].concept_key[63] = '\0';  // Ensure null-termination
+                                        snprintf(ctx->nodes[ni].concept_key, sizeof(ctx->nodes[ni].concept_key), "%s", concept_key);
                                         break;
                                     }
                                 }
@@ -1899,7 +1903,7 @@ static inline int zeta_subconscious_extract_facts(
 
                 // Store full causal sentence for surfacing
                 char c_sent[256];
-                snprintf(c_sent, sizeof(c_sent), "%s causes %s", c_subject, c_object);
+                snprintf(c_sent, sizeof(c_sent), "%.*s causes %.*s", 120, c_subject, 120, c_object);
                 zeta_commit_fact(ctx, NODE_FACT, "causes_relation", c_sent, 0.95f, SOURCE_USER);
             }
         }
@@ -1939,7 +1943,7 @@ static inline int zeta_subconscious_extract_facts(
 
                 // Store full prevents sentence for surfacing
                 char p_sent[256];
-                snprintf(p_sent, sizeof(p_sent), "%s prevents %s", p_subject, p_object);
+                snprintf(p_sent, sizeof(p_sent), "%.*s prevents %.*s", 120, p_subject, 120, p_object);
                 zeta_commit_fact(ctx, NODE_FACT, "prevents_relation", p_sent, 0.95f, SOURCE_USER);
             }
         }

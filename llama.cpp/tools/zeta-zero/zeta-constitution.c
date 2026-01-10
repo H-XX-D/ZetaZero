@@ -519,14 +519,12 @@ static int http_get_simple(const char* url, char* response, size_t max_response)
     // Parse URL: https://raw.githubusercontent.com/H-XX-D/ZetaZero/master/CONSTITUTION_HASH
     char host[256] = {0};
     char path[512] = {0};
-    int port = 443;  // HTTPS default
 
     // Check if HTTPS (we'll fall back to HTTP for simplicity)
     if (strncmp(url, "https://", 8) == 0) {
         url += 8;
     } else if (strncmp(url, "http://", 7) == 0) {
         url += 7;
-        port = 80;
     }
 
     // Extract host and path

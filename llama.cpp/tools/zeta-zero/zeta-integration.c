@@ -642,10 +642,10 @@ void zeta_print_statistics(const zeta_context_t* ctx) {
         stats.num_active_blocks,
         (long long)stats.total_retrievals,
         (long long)stats.cache_hits,
-        stats.total_retrievals > 0 ? 100.0f * stats.cache_hits / stats.total_retrievals : 0.0f,
+        (double)(stats.total_retrievals > 0 ? (100.0f * (float)stats.cache_hits / (float)stats.total_retrievals) : 0.0f),
         (long long)stats.prefetch_hits,
-        stats.total_retrievals > 0 ? 100.0f * stats.prefetch_hits / stats.total_retrievals : 0.0f,
-        stats.avg_retrieval_score
+        (double)(stats.total_retrievals > 0 ? (100.0f * (float)stats.prefetch_hits / (float)stats.total_retrievals) : 0.0f),
+        (double)stats.avg_retrieval_score
     );
 }
 
@@ -849,7 +849,9 @@ void zeta_set_sublimate_policy(
     }
 
     fprintf(stderr, "zeta: sublimation policy set to %d (window=%d, pressure=%.2f, decay=%.2f)\n",
-            policy, ctx->sublimate_window_size, ctx->sublimate_pressure_pct, ctx->attention_decay);
+            policy, ctx->sublimate_window_size,
+            (double)ctx->sublimate_pressure_pct,
+            (double)ctx->attention_decay);
 }
 
 void zeta_update_attention_scores(

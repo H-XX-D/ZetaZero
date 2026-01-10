@@ -55,7 +55,7 @@ struct zeta_attack_anchors {
     bool initialized;
 };
 
-static zeta_attack_anchors g_attack_anchors = {0};
+static zeta_attack_anchors g_attack_anchors = {};
 
 // ============================================================================
 // Trusted Source Detection

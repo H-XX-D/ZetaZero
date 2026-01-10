@@ -12,6 +12,7 @@ ssh $SERVER "mkdir -p $REMOTE_DIR"
 # Copy all header and cpp files from tools/zeta-zero
 scp llama.cpp/tools/zeta-zero/*.h $SERVER:$REMOTE_DIR/
 scp llama.cpp/tools/zeta-zero/*.cpp $SERVER:$REMOTE_DIR/
+scp llama.cpp/tools/zeta-zero/*.c $SERVER:$REMOTE_DIR/
 
 # Copy the new scripts
 scp scripts/steer_dreams.sh $SERVER:~/ZetaZero/scripts/

@@ -35,7 +35,9 @@ enum class Mode {
     CREATIVE,   // Fiction/roleplay - divergence is the product
     RESEARCH,   // Deep exploration - disciplined branching with validation
     CODE,       // Programming - explore implementations, select best
-    DREAM       // Idle consolidation - associative exploration
+    DISCOVERY,  // Research + associative exploration loop (user-facing)
+    DREAM,      // Legacy name (kept for compatibility)
+    IDEAS       // User-triggered dreaming (renamed from DREAM)
 };
 
 inline const char* mode_name(Mode m) {
@@ -44,7 +46,9 @@ inline const char* mode_name(Mode m) {
         case Mode::CREATIVE: return "CREATIVE";
         case Mode::RESEARCH: return "RESEARCH";
         case Mode::CODE: return "CODE";
+        case Mode::DISCOVERY: return "DISCOVERY";
         case Mode::DREAM: return "DREAM";
+        case Mode::IDEAS: return "IDEAS";
     }
     return "UNKNOWN";
 }
@@ -82,26 +86,26 @@ struct ModePolicy {
     float temperature;
     float penalty_repeat;
     int penalty_last_n;
-    
+
     // === BRANCHING (NEW: first-class configuration) ===
     BranchingLevel branching_level;
     BranchBudget branch_budget;
     BranchTrigger branch_triggers;
     MergePolicy merge_policy;
     CommitEligibility default_branch_eligibility;
-    
+
     // Permitted branch kinds (bit flags would be cleaner but this is explicit)
     std::unordered_set<BranchKind> permitted_branch_kinds;
-    
+
     // === GRAPH POLICIES ===
     CommitPolicy commit_policy;
     KVInjectionPolicy kv_policy;
     bool persist_to_gitgraph;
-    
+
     // === CONTEXT POLICIES ===
     bool use_trm_context;
     bool use_hrm_decomposition;
-    
+
     // === VALIDATORS (which must pass for commits) ===
     ValidatorProfile validators;
 };
@@ -112,7 +116,7 @@ struct ModePolicy {
 
 inline ModePolicy get_policy(Mode m) {
     ModePolicy p;
-    
+
     switch (m) {
         // ====================================================================
         // CHAT: Better answers via multi-hypothesis reasoning
@@ -122,69 +126,63 @@ inline ModePolicy get_policy(Mode m) {
             p.temperature = 0.6f;
             p.penalty_repeat = 1.15f;
             p.penalty_last_n = 256;
-            
+
             p.branching_level = BranchingLevel::LIGHT;
-            p.branch_budget = {
-                .max_branches = 4,
-                .max_depth = 2,
-                .max_tension_checks = 6,
-                .max_iterations = 10,
-                .max_concepts_per_branch = 30,
-                .max_branch_time_ms = 3000,
-                .max_total_time_ms = 15000
-            };
-            p.branch_triggers = {
-                .on_ambiguity = true,
-                .on_uncertainty = true,
-                .on_contradiction = true,
-                .on_alternative_frame = false,
-                .on_design_tradeoff = false,
-                .on_implementation_choice = false,
-                .on_api_constraint = false,
-                .on_stylistic_choice = false,
-                .on_plot_branch = false,
-                .on_character_motivation = false,
-                .on_novelty = false,
-                .on_motif_recombination = false,
-                .entropy_threshold = 0.6f,
-                .confidence_threshold = 0.5f
-            };
-            p.merge_policy = {
-                .strategy = MergeStrategy::SYNTHESIS,
-                .merge_on_convergence = true,
-                .merge_on_resolution = true,
-                .merge_on_budget_hit = true,
-                .merge_on_confidence = true,
-                .validators = {},
-                .min_branches_for_merge = 2,
-                .auto_merge_confidence = 0.8f
-            };
+            p.branch_budget = BranchBudget{};
+            p.branch_budget.max_branches = 4;
+            p.branch_budget.max_depth = 2;
+            p.branch_budget.max_tension_checks = 6;
+            p.branch_budget.max_iterations = 10;
+            p.branch_budget.max_concepts_per_branch = 30;
+            p.branch_budget.max_branch_time_ms = 3000;
+            p.branch_budget.max_total_time_ms = 15000;
+
+            p.branch_triggers = BranchTrigger{};
+            p.branch_triggers.on_ambiguity = true;
+            p.branch_triggers.on_uncertainty = true;
+            p.branch_triggers.on_contradiction = true;
+            p.branch_triggers.on_alternative_frame = false;
+            p.branch_triggers.on_design_tradeoff = false;
+            p.branch_triggers.on_implementation_choice = false;
+            p.branch_triggers.on_api_constraint = false;
+            p.branch_triggers.on_stylistic_choice = false;
+            p.branch_triggers.on_plot_branch = false;
+            p.branch_triggers.on_character_motivation = false;
+            p.branch_triggers.on_novelty = false;
+            p.branch_triggers.on_motif_recombination = false;
+            p.branch_triggers.entropy_threshold = 0.6f;
+            p.branch_triggers.confidence_threshold = 0.5f;
+
+            p.merge_policy = MergePolicy{};
+            p.merge_policy.strategy = MergeStrategy::SYNTHESIS;
+            p.merge_policy.merge_on_convergence = true;
+            p.merge_policy.merge_on_resolution = true;
+            p.merge_policy.merge_on_budget_hit = true;
+            p.merge_policy.merge_on_confidence = true;
+            p.merge_policy.validators = ValidatorProfile{};
+            p.merge_policy.min_branches_for_merge = 2;
+            p.merge_policy.auto_merge_confidence = 0.8f;
             p.default_branch_eligibility = CommitEligibility::VALIDATED_ONLY;
             p.permitted_branch_kinds = {
                 BranchKind::AMBIGUITY,
                 BranchKind::UNCERTAINTY,
                 BranchKind::CONTRADICTION
             };
-            
+
             p.commit_policy = CommitPolicy::FACTS_VALIDATED;
             p.kv_policy = KVInjectionPolicy::FULL;
             p.persist_to_gitgraph = true;
             p.use_trm_context = true;
             p.use_hrm_decomposition = true;
-            
-            p.validators = {
-                .require_facts_validator = true,
-                .require_causality_check = true,
-                .require_uncertainty_preserved = true,
-                .require_compile_check = false,
-                .require_interface_check = false,
-                .require_test_check = false,
-                .require_style_check = false,
-                .require_lucid_gate = false,
-                .min_confidence = 0.7f
-            };
+
+            p.validators = ValidatorProfile{};
+            p.validators.require_facts_validator = true;
+            p.validators.require_causality_check = true;
+            p.validators.require_uncertainty_preserved = true;
+            p.validators.require_lucid_gate = false;
+            p.validators.min_confidence = 0.7f;
             break;
-            
+
         // ====================================================================
         // CREATIVE: Divergence is the product
         // Branching: FULL (creative variation), no commits
@@ -193,68 +191,60 @@ inline ModePolicy get_policy(Mode m) {
             p.temperature = 0.85f;
             p.penalty_repeat = 1.2f;
             p.penalty_last_n = 512;
-            
+
             p.branching_level = BranchingLevel::FULL;
-            p.branch_budget = {
-                .max_branches = 12,
-                .max_depth = 4,
-                .max_tension_checks = 4,  // Less focus on tensions
-                .max_iterations = 15,
-                .max_concepts_per_branch = 100,
-                .max_branch_time_ms = 5000,
-                .max_total_time_ms = 60000
-            };
-            p.branch_triggers = {
-                .on_ambiguity = false,
-                .on_uncertainty = false,
-                .on_contradiction = false,
-                .on_alternative_frame = true,
-                .on_design_tradeoff = false,
-                .on_implementation_choice = false,
-                .on_api_constraint = false,
-                .on_stylistic_choice = true,
-                .on_plot_branch = true,
-                .on_character_motivation = true,
-                .on_novelty = true,
-                .on_motif_recombination = false,
-                .entropy_threshold = 0.3f,  // Branch even at low entropy
-                .confidence_threshold = 0.9f  // Don't branch on confidence
-            };
-            p.merge_policy = {
-                .strategy = MergeStrategy::CURATED,  // Present options, don't force synthesis
-                .merge_on_convergence = false,
-                .merge_on_resolution = false,
-                .merge_on_budget_hit = true,
-                .merge_on_confidence = false,
-                .validators = {},
-                .min_branches_for_merge = 3,
-                .auto_merge_confidence = 0.95f  // Almost never auto-merge
-            };
+            p.branch_budget = BranchBudget{};
+            p.branch_budget.max_branches = 12;
+            p.branch_budget.max_depth = 4;
+            p.branch_budget.max_tension_checks = 4;
+            p.branch_budget.max_iterations = 15;
+            p.branch_budget.max_concepts_per_branch = 100;
+            p.branch_budget.max_branch_time_ms = 5000;
+            p.branch_budget.max_total_time_ms = 60000;
+
+            p.branch_triggers = BranchTrigger{};
+            p.branch_triggers.on_ambiguity = false;
+            p.branch_triggers.on_uncertainty = false;
+            p.branch_triggers.on_contradiction = false;
+            p.branch_triggers.on_alternative_frame = true;
+            p.branch_triggers.on_design_tradeoff = false;
+            p.branch_triggers.on_implementation_choice = false;
+            p.branch_triggers.on_api_constraint = false;
+            p.branch_triggers.on_stylistic_choice = true;
+            p.branch_triggers.on_plot_branch = true;
+            p.branch_triggers.on_character_motivation = true;
+            p.branch_triggers.on_novelty = true;
+            p.branch_triggers.on_motif_recombination = false;
+            p.branch_triggers.entropy_threshold = 0.3f;
+            p.branch_triggers.confidence_threshold = 0.9f;
+
+            p.merge_policy = MergePolicy{};
+            p.merge_policy.strategy = MergeStrategy::CURATED;
+            p.merge_policy.merge_on_convergence = false;
+            p.merge_policy.merge_on_resolution = false;
+            p.merge_policy.merge_on_budget_hit = true;
+            p.merge_policy.merge_on_confidence = false;
+            p.merge_policy.validators = ValidatorProfile{};
+            p.merge_policy.min_branches_for_merge = 3;
+            p.merge_policy.auto_merge_confidence = 0.95f;
             p.default_branch_eligibility = CommitEligibility::NEVER;
             p.permitted_branch_kinds = {
                 BranchKind::CREATIVE_VARIATION,
                 BranchKind::FRAME
             };
-            
+
             p.commit_policy = CommitPolicy::NEVER;
             p.kv_policy = KVInjectionPolicy::NONE;  // Don't drag facts into fiction
             p.persist_to_gitgraph = false;
             p.use_trm_context = false;
             p.use_hrm_decomposition = false;
-            
-            p.validators = {
-                .require_facts_validator = false,
-                .require_causality_check = false,
-                .require_uncertainty_preserved = false,
-                .require_compile_check = false,
-                .require_interface_check = false,
-                .require_test_check = false,
-                .require_style_check = true,  // Only style matters
-                .require_lucid_gate = false,
-                .min_confidence = 0.0f  // No confidence requirement
-            };
+
+            p.validators = ValidatorProfile{};
+            p.validators.require_style_check = true;
+            p.validators.require_lucid_gate = false;
+            p.validators.min_confidence = 0.0f;
             break;
-            
+
         // ====================================================================
         // RESEARCH: Highest rigor mode with disciplined branching
         // Branching: FULL (frames), commit validated only
@@ -263,48 +253,46 @@ inline ModePolicy get_policy(Mode m) {
             p.temperature = 0.7f;
             p.penalty_repeat = 1.1f;
             p.penalty_last_n = 256;
-            
+
             p.branching_level = BranchingLevel::FULL;
-            p.branch_budget = {
-                .max_branches = 8,
-                .max_depth = 5,
-                .max_tension_checks = 20,
-                .max_iterations = 30,
-                .max_concepts_per_branch = 50,
-                .max_branch_time_ms = 10000,
-                .max_total_time_ms = 120000  // 2 minutes for deep research
-            };
-            p.branch_triggers = {
-                .on_ambiguity = true,
-                .on_uncertainty = true,
-                .on_contradiction = true,
-                .on_alternative_frame = true,
-                .on_design_tradeoff = true,
-                .on_implementation_choice = false,
-                .on_api_constraint = false,
-                .on_stylistic_choice = false,
-                .on_plot_branch = false,
-                .on_character_motivation = false,
-                .on_novelty = false,
-                .on_motif_recombination = false,
-                .entropy_threshold = 0.5f,
-                .confidence_threshold = 0.6f
-            };
-            p.merge_policy = {
-                .strategy = MergeStrategy::SYNTHESIS,
-                .merge_on_convergence = true,
-                .merge_on_resolution = true,
-                .merge_on_budget_hit = true,
-                .merge_on_confidence = true,
-                .validators = {
-                    .require_facts_validator = true,
-                    .require_causality_check = true,
-                    .require_uncertainty_preserved = true,
-                    .min_confidence = 0.75f
-                },
-                .min_branches_for_merge = 2,
-                .auto_merge_confidence = 0.85f
-            };
+            p.branch_budget = BranchBudget{};
+            p.branch_budget.max_branches = 8;
+            p.branch_budget.max_depth = 5;
+            p.branch_budget.max_tension_checks = 20;
+            p.branch_budget.max_iterations = 30;
+            p.branch_budget.max_concepts_per_branch = 50;
+            p.branch_budget.max_branch_time_ms = 10000;
+            p.branch_budget.max_total_time_ms = 120000;
+
+            p.branch_triggers = BranchTrigger{};
+            p.branch_triggers.on_ambiguity = true;
+            p.branch_triggers.on_uncertainty = true;
+            p.branch_triggers.on_contradiction = true;
+            p.branch_triggers.on_alternative_frame = true;
+            p.branch_triggers.on_design_tradeoff = true;
+            p.branch_triggers.on_implementation_choice = false;
+            p.branch_triggers.on_api_constraint = false;
+            p.branch_triggers.on_stylistic_choice = false;
+            p.branch_triggers.on_plot_branch = false;
+            p.branch_triggers.on_character_motivation = false;
+            p.branch_triggers.on_novelty = false;
+            p.branch_triggers.on_motif_recombination = false;
+            p.branch_triggers.entropy_threshold = 0.5f;
+            p.branch_triggers.confidence_threshold = 0.6f;
+
+            p.merge_policy = MergePolicy{};
+            p.merge_policy.strategy = MergeStrategy::SYNTHESIS;
+            p.merge_policy.merge_on_convergence = true;
+            p.merge_policy.merge_on_resolution = true;
+            p.merge_policy.merge_on_budget_hit = true;
+            p.merge_policy.merge_on_confidence = true;
+            p.merge_policy.validators = ValidatorProfile{};
+            p.merge_policy.validators.require_facts_validator = true;
+            p.merge_policy.validators.require_causality_check = true;
+            p.merge_policy.validators.require_uncertainty_preserved = true;
+            p.merge_policy.validators.min_confidence = 0.75f;
+            p.merge_policy.min_branches_for_merge = 2;
+            p.merge_policy.auto_merge_confidence = 0.85f;
             p.default_branch_eligibility = CommitEligibility::VALIDATED_ONLY;
             p.permitted_branch_kinds = {
                 BranchKind::AMBIGUITY,
@@ -313,26 +301,92 @@ inline ModePolicy get_policy(Mode m) {
                 BranchKind::CONTRADICTION,
                 BranchKind::TRADE_OFF
             };
-            
+
             p.commit_policy = CommitPolicy::SUMMARIES_VALIDATED;
             p.kv_policy = KVInjectionPolicy::VALIDATED_ONLY;
             p.persist_to_gitgraph = true;
             p.use_trm_context = true;
             p.use_hrm_decomposition = false;  // Research has its own decomposition
-            
-            p.validators = {
-                .require_facts_validator = true,
-                .require_causality_check = true,
-                .require_uncertainty_preserved = true,
-                .require_compile_check = false,
-                .require_interface_check = false,
-                .require_test_check = false,
-                .require_style_check = false,
-                .require_lucid_gate = false,
-                .min_confidence = 0.75f
-            };
+
+            p.validators = ValidatorProfile{};
+            p.validators.require_facts_validator = true;
+            p.validators.require_causality_check = true;
+            p.validators.require_uncertainty_preserved = true;
+            p.validators.require_lucid_gate = false;
+            p.validators.min_confidence = 0.75f;
             break;
-            
+
+        // ====================================================================
+        // DISCOVERY: Research + Dream loop (exploratory but still grounded)
+        // Branching: FULL (tensions + frames), commit validated summaries only
+        // ====================================================================
+        case Mode::DISCOVERY:
+            p.temperature = 0.75f;
+            p.penalty_repeat = 1.1f;
+            p.penalty_last_n = 256;
+
+            p.branching_level = BranchingLevel::FULL;
+            p.branch_budget = BranchBudget{};
+            p.branch_budget.max_branches = 8;
+            p.branch_budget.max_depth = 4;
+            p.branch_budget.max_tension_checks = 8;
+            p.branch_budget.max_iterations = 16;
+            p.branch_budget.max_concepts_per_branch = 80;
+            p.branch_budget.max_branch_time_ms = 5000;
+            p.branch_budget.max_total_time_ms = 45000;
+
+            p.branch_triggers = BranchTrigger{};
+            p.branch_triggers.on_ambiguity = true;
+            p.branch_triggers.on_uncertainty = true;
+            p.branch_triggers.on_contradiction = true;
+            p.branch_triggers.on_alternative_frame = true;
+            p.branch_triggers.on_design_tradeoff = true;
+            p.branch_triggers.on_implementation_choice = false;
+            p.branch_triggers.on_api_constraint = false;
+            p.branch_triggers.on_stylistic_choice = false;
+            p.branch_triggers.on_plot_branch = false;
+            p.branch_triggers.on_character_motivation = false;
+            p.branch_triggers.on_novelty = true;
+            p.branch_triggers.on_motif_recombination = true;
+            p.branch_triggers.entropy_threshold = 0.5f;
+            p.branch_triggers.confidence_threshold = 0.5f;
+
+            p.merge_policy = MergePolicy{};
+            p.merge_policy.strategy = MergeStrategy::SYNTHESIS;
+            p.merge_policy.merge_on_convergence = true;
+            p.merge_policy.merge_on_resolution = true;
+            p.merge_policy.merge_on_budget_hit = true;
+            p.merge_policy.merge_on_confidence = true;
+            p.merge_policy.validators = ValidatorProfile{};
+            p.merge_policy.validators.require_facts_validator = true;
+            p.merge_policy.validators.require_causality_check = true;
+            p.merge_policy.validators.require_uncertainty_preserved = true;
+            p.merge_policy.validators.min_confidence = 0.75f;
+            p.merge_policy.min_branches_for_merge = 2;
+            p.merge_policy.auto_merge_confidence = 0.85f;
+            p.default_branch_eligibility = CommitEligibility::VALIDATED_ONLY;
+            p.permitted_branch_kinds = {
+                BranchKind::AMBIGUITY,
+                BranchKind::UNCERTAINTY,
+                BranchKind::CONTRADICTION,
+                BranchKind::FRAME,
+                BranchKind::ASSOCIATION
+            };
+
+            p.commit_policy = CommitPolicy::SUMMARIES_VALIDATED;
+            p.kv_policy = KVInjectionPolicy::FULL;
+            p.persist_to_gitgraph = true;
+            p.use_trm_context = true;
+            p.use_hrm_decomposition = true;
+
+            p.validators = ValidatorProfile{};
+            p.validators.require_facts_validator = true;
+            p.validators.require_causality_check = true;
+            p.validators.require_uncertainty_preserved = true;
+            p.validators.require_lucid_gate = false;
+            p.validators.min_confidence = 0.75f;
+            break;
+
         // ====================================================================
         // CODE: Explore implementations, select best
         // Branching: LIGHT to FULL (implementation), commit chosen solution
@@ -341,147 +395,130 @@ inline ModePolicy get_policy(Mode m) {
             p.temperature = 0.2f;
             p.penalty_repeat = 1.05f;
             p.penalty_last_n = 128;
-            
+
             p.branching_level = BranchingLevel::LIGHT;  // User can override to FULL
-            p.branch_budget = {
-                .max_branches = 6,
-                .max_depth = 3,
-                .max_tension_checks = 8,
-                .max_iterations = 12,
-                .max_concepts_per_branch = 40,
-                .max_branch_time_ms = 8000,
-                .max_total_time_ms = 45000
-            };
-            p.branch_triggers = {
-                .on_ambiguity = false,
-                .on_uncertainty = false,
-                .on_contradiction = false,
-                .on_alternative_frame = false,
-                .on_design_tradeoff = true,
-                .on_implementation_choice = true,
-                .on_api_constraint = true,
-                .on_stylistic_choice = false,
-                .on_plot_branch = false,
-                .on_character_motivation = false,
-                .on_novelty = false,
-                .on_motif_recombination = false,
-                .entropy_threshold = 0.7f,
-                .confidence_threshold = 0.4f
-            };
-            p.merge_policy = {
-                .strategy = MergeStrategy::SELECTION,  // Pick best, not synthesize
-                .merge_on_convergence = true,
-                .merge_on_resolution = true,
-                .merge_on_budget_hit = true,
-                .merge_on_confidence = true,
-                .validators = {
-                    .require_compile_check = true,
-                    .require_interface_check = true,
-                    .min_confidence = 0.8f
-                },
-                .min_branches_for_merge = 2,
-                .auto_merge_confidence = 0.9f
-            };
+            p.branch_budget = BranchBudget{};
+            p.branch_budget.max_branches = 6;
+            p.branch_budget.max_depth = 3;
+            p.branch_budget.max_tension_checks = 8;
+            p.branch_budget.max_iterations = 12;
+            p.branch_budget.max_concepts_per_branch = 40;
+            p.branch_budget.max_branch_time_ms = 8000;
+            p.branch_budget.max_total_time_ms = 45000;
+
+            p.branch_triggers = BranchTrigger{};
+            p.branch_triggers.on_ambiguity = false;
+            p.branch_triggers.on_uncertainty = false;
+            p.branch_triggers.on_contradiction = false;
+            p.branch_triggers.on_alternative_frame = false;
+            p.branch_triggers.on_design_tradeoff = true;
+            p.branch_triggers.on_implementation_choice = true;
+            p.branch_triggers.on_api_constraint = true;
+            p.branch_triggers.on_stylistic_choice = false;
+            p.branch_triggers.on_plot_branch = false;
+            p.branch_triggers.on_character_motivation = false;
+            p.branch_triggers.on_novelty = false;
+            p.branch_triggers.on_motif_recombination = false;
+            p.branch_triggers.entropy_threshold = 0.7f;
+            p.branch_triggers.confidence_threshold = 0.4f;
+
+            p.merge_policy = MergePolicy{};
+            p.merge_policy.strategy = MergeStrategy::SELECTION;
+            p.merge_policy.merge_on_convergence = true;
+            p.merge_policy.merge_on_resolution = true;
+            p.merge_policy.merge_on_budget_hit = true;
+            p.merge_policy.merge_on_confidence = true;
+            p.merge_policy.validators = ValidatorProfile{};
+            p.merge_policy.validators.require_compile_check = true;
+            p.merge_policy.validators.require_interface_check = true;
+            p.merge_policy.validators.min_confidence = 0.8f;
+            p.merge_policy.min_branches_for_merge = 2;
+            p.merge_policy.auto_merge_confidence = 0.9f;
             p.default_branch_eligibility = CommitEligibility::SELECTED_ONLY;
             p.permitted_branch_kinds = {
                 BranchKind::IMPLEMENTATION,
                 BranchKind::TRADE_OFF
             };
-            
+
             p.commit_policy = CommitPolicy::SELECTED_SOLUTION;
             p.kv_policy = KVInjectionPolicy::FULL;
             p.persist_to_gitgraph = true;
             p.use_trm_context = true;
             p.use_hrm_decomposition = false;
-            
-            p.validators = {
-                .require_facts_validator = false,
-                .require_causality_check = false,
-                .require_uncertainty_preserved = false,
-                .require_compile_check = true,
-                .require_interface_check = true,
-                .require_test_check = true,
-                .require_style_check = false,
-                .require_lucid_gate = false,
-                .min_confidence = 0.85f
-            };
+
+            p.validators = ValidatorProfile{};
+            p.validators.require_compile_check = true;
+            p.validators.require_interface_check = true;
+            p.validators.require_test_check = true;
+            p.validators.require_lucid_gate = false;
+            p.validators.min_confidence = 0.85f;
             break;
-            
+
         // ====================================================================
         // DREAM: Associative exploration with strong guardrails
         // Branching: FULL but gated, lucid-gated persistence only
         // ====================================================================
-        case Mode::DREAM:
+        case Mode::DREAM:  // Legacy name
+        case Mode::IDEAS:  // User-triggered dreaming
             p.temperature = 0.9f;
             p.penalty_repeat = 1.0f;
             p.penalty_last_n = 64;
-            
+
             p.branching_level = BranchingLevel::FULL;
-            p.branch_budget = {
-                .max_branches = 10,
-                .max_depth = 6,
-                .max_tension_checks = 3,  // Preserve contradictions as creative tension
-                .max_iterations = 20,
-                .max_concepts_per_branch = 80,
-                .max_branch_time_ms = 5000,
-                .max_total_time_ms = 90000
-            };
-            p.branch_triggers = {
-                .on_ambiguity = false,
-                .on_uncertainty = false,
-                .on_contradiction = false,  // Don't resolve in dream state
-                .on_alternative_frame = true,
-                .on_design_tradeoff = false,
-                .on_implementation_choice = false,
-                .on_api_constraint = false,
-                .on_stylistic_choice = true,
-                .on_plot_branch = true,
-                .on_character_motivation = true,
-                .on_novelty = true,
-                .on_motif_recombination = true,
-                .entropy_threshold = 0.2f,  // Branch freely
-                .confidence_threshold = 0.95f  // Never on confidence
-            };
-            p.merge_policy = {
-                .strategy = MergeStrategy::CURATED,  // Keep options, don't force
-                .merge_on_convergence = false,
-                .merge_on_resolution = false,
-                .merge_on_budget_hit = true,
-                .merge_on_confidence = false,
-                .validators = {
-                    .require_lucid_gate = true,  // KEY: Lucid gate for any persistence
-                    .min_confidence = 0.0f
-                },
-                .min_branches_for_merge = 4,
-                .auto_merge_confidence = 1.0f  // Never auto-merge
-            };
+            p.branch_budget = BranchBudget{};
+            p.branch_budget.max_branches = 10;
+            p.branch_budget.max_depth = 6;
+            p.branch_budget.max_tension_checks = 3;
+            p.branch_budget.max_iterations = 20;
+            p.branch_budget.max_concepts_per_branch = 80;
+            p.branch_budget.max_branch_time_ms = 5000;
+            p.branch_budget.max_total_time_ms = 90000;
+
+            p.branch_triggers = BranchTrigger{};
+            p.branch_triggers.on_ambiguity = false;
+            p.branch_triggers.on_uncertainty = false;
+            p.branch_triggers.on_contradiction = false;
+            p.branch_triggers.on_alternative_frame = true;
+            p.branch_triggers.on_design_tradeoff = false;
+            p.branch_triggers.on_implementation_choice = false;
+            p.branch_triggers.on_api_constraint = false;
+            p.branch_triggers.on_stylistic_choice = true;
+            p.branch_triggers.on_plot_branch = true;
+            p.branch_triggers.on_character_motivation = true;
+            p.branch_triggers.on_novelty = true;
+            p.branch_triggers.on_motif_recombination = true;
+            p.branch_triggers.entropy_threshold = 0.2f;
+            p.branch_triggers.confidence_threshold = 0.95f;
+            p.merge_policy = MergePolicy{};
+            p.merge_policy.strategy = MergeStrategy::CURATED;  // Keep options, don't force
+            p.merge_policy.merge_on_convergence = false;
+            p.merge_policy.merge_on_resolution = false;
+            p.merge_policy.merge_on_budget_hit = true;
+            p.merge_policy.merge_on_confidence = false;
+            p.merge_policy.validators = ValidatorProfile{};
+            p.merge_policy.validators.require_lucid_gate = true;  // KEY: Lucid gate for any persistence
+            p.merge_policy.validators.min_confidence = 0.0f;
+            p.merge_policy.min_branches_for_merge = 4;
+            p.merge_policy.auto_merge_confidence = 1.0f;  // Never auto-merge
             p.default_branch_eligibility = CommitEligibility::NEVER;
             p.permitted_branch_kinds = {
                 BranchKind::ASSOCIATION,
                 BranchKind::CREATIVE_VARIATION,
                 BranchKind::FRAME
             };
-            
+
             p.commit_policy = CommitPolicy::LUCID_GATED;
             p.kv_policy = KVInjectionPolicy::NONE;  // Dream from scratch
             p.persist_to_gitgraph = true;  // Persist dreams for review
             p.use_trm_context = true;  // Replay memories
             p.use_hrm_decomposition = false;
-            
-            p.validators = {
-                .require_facts_validator = false,
-                .require_causality_check = false,
-                .require_uncertainty_preserved = false,
-                .require_compile_check = false,
-                .require_interface_check = false,
-                .require_test_check = false,
-                .require_style_check = false,
-                .require_lucid_gate = true,
-                .min_confidence = 0.0f
-            };
+
+            p.validators = ValidatorProfile{};
+            p.validators.require_lucid_gate = true;
+            p.validators.min_confidence = 0.0f;
             break;
     }
-    
+
     return p;
 }
 
@@ -494,12 +531,12 @@ struct BranchingSession {
     std::string session_id;
     Mode mode;
     BranchingEngine engine;
-    
+
     std::chrono::steady_clock::time_point started;
     std::chrono::steady_clock::time_point last_activity;
     int iteration_count = 0;
     bool active = false;
-    
+
     // GitGraph persistence
     std::string gitgraph_branch;
     std::string session_file;
@@ -513,17 +550,17 @@ struct BranchingSession {
 struct RuntimeOverrides {
     bool has_branching_level = false;
     BranchingLevel branching_level;
-    
+
     bool has_budget = false;
     BranchBudget budget;
-    
+
     // Per-field overrides
     bool override_max_branches = false;
     int max_branches;
-    
+
     bool override_max_depth = false;
     int max_depth;
-    
+
     bool override_max_iterations = false;
     int max_iterations;
 };
@@ -539,67 +576,67 @@ private:
     ModePolicy current_policy_;
     RuntimeOverrides overrides_;
     std::mutex mode_mutex_;
-    
+
     // Branching session
     BranchingSession session_;
-    
+
     // Configuration
     std::string gitgraph_root_ = "/mnt/GitGraph";
-    
+
     // Generation callback
     std::function<std::string(const std::string&, float temp, int max_tokens)> generate_fn_;
-    
+
     // Validation callback
     std::function<bool(const std::string&, const std::string&)> validate_fn_;
-    
+
     // Mode transition hooks
     std::function<void(Mode, Mode)> on_mode_change_;
 
 public:
     ModeController() : current_policy_(get_policy(Mode::CHAT)) {}
-    
+
     // ========================================================================
     // MODE QUERIES
     // ========================================================================
-    
+
     Mode current_mode() const { return current_mode_; }
     const ModePolicy& policy() const { return current_policy_; }
-    
+
     bool is_branching_active() const {
-        return session_.active && 
+        return session_.active &&
                current_policy_.branching_level != BranchingLevel::NONE;
     }
-    
+
     // ========================================================================
     // INITIALIZATION
     // ========================================================================
-    
+
     void set_generate_fn(std::function<std::string(const std::string&, float, int)> fn) {
         generate_fn_ = fn;
     }
-    
+
     void set_validate_fn(std::function<bool(const std::string&, const std::string&)> fn) {
         validate_fn_ = fn;
     }
-    
+
     void set_gitgraph_root(const std::string& root) {
         gitgraph_root_ = root;
     }
-    
+
     void set_mode_change_callback(std::function<void(Mode, Mode)> cb) {
         on_mode_change_ = cb;
     }
-    
+
     // ========================================================================
     // RUNTIME OVERRIDES (for live tuning)
     // ========================================================================
-    
+
     void set_branching_level_override(BranchingLevel level) {
         overrides_.has_branching_level = true;
         overrides_.branching_level = level;
         apply_overrides();
     }
-    
+
     void set_budget_override(int max_branches, int max_depth, int max_iterations) {
         if (max_branches > 0) {
             overrides_.override_max_branches = true;
@@ -615,26 +652,26 @@ public:
         }
         apply_overrides();
     }
-    
+
     // Convenience overload for single-field override from JSON API
     void set_budget_override(const std::string& field, int value) {
         if (field == "max_branches") set_budget_override(value, -1, -1);
         else if (field == "max_depth") set_budget_override(-1, value, -1);
         else if (field == "max_iterations") set_budget_override(-1, -1, value);
     }
-    
+
     // Simple set_mode alias for initialization
     void set_mode(Mode mode) {
         switch_mode(mode, "");
     }
-    
+
     const ModePolicy& current_policy() const { return current_policy_; }
-    
+
     void clear_overrides() {
         overrides_ = RuntimeOverrides();
         current_policy_ = get_policy(current_mode_);
     }
-    
+
 private:
     void apply_overrides() {
         if (overrides_.has_branching_level) {
@@ -649,108 +686,124 @@ private:
         if (overrides_.override_max_iterations) {
             current_policy_.branch_budget.max_iterations = overrides_.max_iterations;
         }
-        
+
         // Reconfigure engine if active
         if (session_.active) {
             configure_engine();
         }
     }
-    
+
 public:
     // ========================================================================
     // MODE DETECTION
     // ========================================================================
-    
+
     Mode detect_mode(const std::string& query, const std::string& query_class) {
         std::string lower = query;
         std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
-        
+
         // Explicit mode commands (highest priority)
+        if (lower.find("/discovery") != std::string::npos ||
+            lower.find("enter discovery mode") != std::string::npos ||
+            lower.find("let's discover") != std::string::npos ||
+            lower.find("lets discover") != std::string::npos) {
+            return Mode::DISCOVERY;
+        }
+
         if (lower.find("/research") != std::string::npos ||
             lower.find("enter research mode") != std::string::npos ||
             lower.find("let's research") != std::string::npos ||
             lower.find("deep dive into") != std::string::npos) {
             return Mode::RESEARCH;
         }
-        
+
+        if (lower.find("/ideas") != std::string::npos ||
+            lower.find("enter ideas mode") != std::string::npos ||
+            lower.find("give me ideas") != std::string::npos ||
+            lower.find("brainstorm") != std::string::npos) {
+            return Mode::IDEAS;
+        }
+
         if (lower.find("/creative") != std::string::npos ||
             lower.find("/story") != std::string::npos ||
             lower.find("enter creative mode") != std::string::npos) {
             return Mode::CREATIVE;
         }
-        
+
         if (lower.find("/code") != std::string::npos ||
             lower.find("enter code mode") != std::string::npos) {
             return Mode::CODE;
         }
-        
+
         if (lower.find("/chat") != std::string::npos ||
             lower.find("exit research") != std::string::npos ||
             lower.find("back to chat") != std::string::npos) {
             return Mode::CHAT;
         }
-        
+
         // Use query_class from router
         if (query_class == "CREATIVE") return Mode::CREATIVE;
         if (query_class == "CODE" || query_class == "MATH") return Mode::CODE;
         if (query_class == "RESEARCH") return Mode::RESEARCH;
-        
+
         return current_mode_;
     }
-    
+
     // ========================================================================
     // MODE TRANSITIONS
     // ========================================================================
-    
+
     bool switch_mode(Mode new_mode, const std::string& context = "") {
         std::lock_guard<std::mutex> lock(mode_mutex_);
-        
+
         if (new_mode == current_mode_) {
             return true;
         }
-        
+
         Mode old_mode = current_mode_;
-        
+
         // Exit current mode
         exit_mode(old_mode);
-        
+
         // Enter new mode
         enter_mode(new_mode, context);
-        
+
         current_mode_ = new_mode;
         current_policy_ = get_policy(new_mode);
         apply_overrides();  // Re-apply any runtime overrides
-        
+
         if (on_mode_change_) {
             on_mode_change_(old_mode, new_mode);
         }
-        
-        fprintf(stderr, "[MODE] Switched: %s -> %s (branching=%s)\n", 
+
+        fprintf(stderr, "[MODE] Switched: %s -> %s (branching=%s)\n",
                 mode_name(old_mode), mode_name(new_mode),
                 current_policy_.branching_level == BranchingLevel::NONE ? "NONE" :
                 current_policy_.branching_level == BranchingLevel::LIGHT ? "LIGHT" : "FULL");
-        
+
         return true;
     }
-    
+
 private:
     void exit_mode(Mode mode) {
+        (void)mode;
         if (session_.active) {
             save_session();
             session_.active = false;
         }
     }
-    
+
     void enter_mode(Mode mode, const std::string& context) {
+        (void)mode;
         if (current_policy_.branching_level != BranchingLevel::NONE || !context.empty()) {
             init_session(context);
         }
     }
-    
+
     // ========================================================================
     // SESSION MANAGEMENT
     // ========================================================================
-    
+
     void init_session(const std::string& topic) {
         session_.session_id = generate_session_id();
         session_.mode = current_mode_;
@@ -758,29 +811,29 @@ private:
         session_.last_activity = session_.started;
         session_.iteration_count = 0;
         session_.active = true;
-        
+
         configure_engine();
-        
+
         // Seed with topic if provided
         if (!topic.empty()) {
             BranchKind initial_kind = BranchKind::UNCERTAINTY;
             if (current_mode_ == Mode::CREATIVE) initial_kind = BranchKind::CREATIVE_VARIATION;
             else if (current_mode_ == Mode::CODE) initial_kind = BranchKind::IMPLEMENTATION;
-            
+
             session_.engine.seed(topic, initial_kind);
         }
-        
+
         // Create GitGraph branch
         if (current_policy_.persist_to_gitgraph) {
             session_.gitgraph_branch = create_gitgraph_branch(topic);
-            session_.session_file = gitgraph_root_ + "/sessions/" + 
+            session_.session_file = gitgraph_root_ + "/sessions/" +
                                    session_.session_id + ".json";
         }
-        
-        fprintf(stderr, "[SESSION] Started: %s (mode=%s)\n", 
+
+        fprintf(stderr, "[SESSION] Started: %s (mode=%s)\n",
                 session_.session_id.c_str(), mode_name(current_mode_));
     }
-    
+
     void configure_engine() {
         session_.engine.configure(
             current_policy_.branching_level,
@@ -789,7 +842,7 @@ private:
             current_policy_.merge_policy,
             current_policy_.default_branch_eligibility
         );
-        
+
         if (generate_fn_) {
             session_.engine.set_generate_fn(generate_fn_);
         }
@@ -797,7 +850,7 @@ private:
             session_.engine.set_validate_fn(validate_fn_);
         }
     }
-    
+
     std::string generate_session_id() {
         auto now = std::chrono::system_clock::now();
         auto time = std::chrono::system_clock::to_time_t(now);
@@ -805,28 +858,28 @@ private:
         strftime(buf, sizeof(buf), "%Y%m%d_%H%M%S", localtime(&time));
         return std::string(mode_name(current_mode_)) + "_" + buf;
     }
-    
+
     std::string create_gitgraph_branch(const std::string& topic) {
         std::string branch = std::string(mode_name(current_mode_)) + "/";
         for (char c : topic) {
             if (isalnum(c)) branch += tolower(c);
             else if (c == ' ') branch += '_';
         }
-        
+
         auto now = std::chrono::system_clock::now();
         auto time = std::chrono::system_clock::to_time_t(now);
         char buf[32];
         strftime(buf, sizeof(buf), "_%Y%m%d", localtime(&time));
         branch += buf;
-        
+
         return branch;
     }
-    
+
     void save_session() {
         if (!session_.active || !current_policy_.persist_to_gitgraph) return;
-        
+
         std::string json = serialize_session();
-        
+
         std::ofstream f(session_.session_file);
         if (f.is_open()) {
             f << json;
@@ -834,7 +887,7 @@ private:
             fprintf(stderr, "[SESSION] Saved: %s\n", session_.session_file.c_str());
         }
     }
-    
+
     std::string serialize_session() {
         std::string json = "{\n";
         json += "  \"session_id\": \"" + session_.session_id + "\",\n";
@@ -846,12 +899,12 @@ private:
         json += "}\n";
         return json;
     }
-    
+
 public:
     // ========================================================================
     // BRANCHING API
     // ========================================================================
-    
+
     // Seed a new exploration
     void seed_exploration(const std::string& content, BranchKind kind = BranchKind::UNCERTAINTY) {
         if (!session_.active) {
@@ -859,67 +912,67 @@ public:
         }
         session_.engine.seed(content, kind);
     }
-    
+
     // Run one iteration of exploration
     std::string iterate() {
         if (!session_.active) {
             return "Error: No active session";
         }
-        
+
         session_.last_activity = std::chrono::steady_clock::now();
         session_.iteration_count++;
-        
+
         // Run engine phases
         session_.engine.explore();
         session_.engine.detect_tensions();
         session_.engine.compress();
         session_.engine.merge();
-        
+
         // Build status
         std::string status = "**Iteration " + std::to_string(session_.iteration_count) + "**\n";
         status += "Mode: " + std::string(mode_name(current_mode_)) + "\n";
         status += "Branches: " + std::to_string(session_.engine.branch_count()) + "\n";
         status += "Entropy: " + std::to_string(session_.engine.global_entropy()) + "\n";
         status += "Tensions: " + std::to_string(session_.engine.tension_count()) + "\n";
-        
+
         return status;
     }
-    
+
     // Produce final output
     std::string conclude() {
         if (!session_.active) {
             return "Error: No active session";
         }
-        
+
         std::string output = session_.engine.produce_output();
-        
+
         // Commit if policy allows
         if (should_commit()) {
             commit_results();
         }
-        
+
         save_session();
-        
+
         return output;
     }
-    
+
     // Get current status
     std::string status() {
         if (!session_.active) {
-            return "{\"active\": false, \"mode\": \"" + 
+            return "{\"active\": false, \"mode\": \"" +
                    std::string(mode_name(current_mode_)) + "\"}";
         }
         return serialize_session();
     }
-    
+
     // Access engine directly (for advanced use)
     BranchingEngine& engine() { return session_.engine; }
     const BranchingEngine& engine() const { return session_.engine; }
-    
+
     // ========================================================================
     // COMMIT CONTROL
     // ========================================================================
-    
+
     bool should_commit() const {
         switch (current_policy_.commit_policy) {
             case CommitPolicy::NEVER:
@@ -933,39 +986,39 @@ public:
         }
         return false;
     }
-    
+
     bool should_inject_kv() const {
         return current_policy_.kv_policy != KVInjectionPolicy::NONE;
     }
-    
+
     bool should_persist() const {
         return current_policy_.persist_to_gitgraph;
     }
-    
+
 private:
     void commit_results() {
         auto committable = session_.engine.get_committable_branches();
-        
+
         for (const auto* branch : committable) {
             // Apply validators
             if (!validate_for_commit(*branch)) continue;
-            
+
             // Commit based on policy
             fprintf(stderr, "[COMMIT] Branch %s -> graph\n", branch->id.c_str());
             // TODO: Actual GitGraph commit
         }
     }
-    
+
     bool validate_for_commit(const Branch& branch) const {
         const auto& v = current_policy_.validators;
-        
+
         // Check required validators
         // In real implementation, these would call actual validation functions
         if (v.require_facts_validator && !branch.validated) return false;
         if (v.require_compile_check && !branch.validated) return false;
         if (v.require_lucid_gate && !branch.validated) return false;
         if (branch.confidence < v.min_confidence) return false;
-        
+
         return true;
     }
 };
@@ -974,7 +1027,7 @@ private:
 // GLOBAL INSTANCE
 // ============================================================================
 
-static ModeController g_mode_controller;
+extern ModeController g_mode_controller;
 
 // ============================================================================
 // CONVENIENCE MACROS

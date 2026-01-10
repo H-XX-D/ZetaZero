@@ -376,8 +376,6 @@ static inline zeta_conflict_result_t zeta_detect_conflict(
     char lower_output[2048];
     zeta_to_lower(lower_output, output, sizeof(lower_output));
 
-    int checked = 0;
-
     // Check each active fact node for contradiction
     for (int i = 0; i < ctx->num_nodes; i++) {
         zeta_graph_node_t* node = &ctx->nodes[i];
@@ -386,8 +384,6 @@ static inline zeta_conflict_result_t zeta_detect_conflict(
         if (!node->is_active) continue;
         if (node->salience < 0.7f) continue;  // Only high-authority facts
         if (node->source != SOURCE_USER) continue;
-
-        checked++;
 
         // Extract key entities from this fact
         char entities[8][64];
@@ -625,11 +621,9 @@ static inline int zeta_check_numeric_conflicts(
     for (int i = 0; i < new_count; i++) {
         // Search graph for existing node with conflicting value
         // Check BOTH label AND value text (since 3B may use generic labels)
-        int checked = 0;
         for (int j = 0; j < ctx->num_nodes; j++) {
             zeta_graph_node_t* node = &ctx->nodes[j];
             if (!node->is_active) continue;
-            checked++;
 
             // Check if label matches OR if value contains the same fact type
             bool label_match = (strcasecmp(node->label, new_facts[i].label) == 0);
@@ -1309,7 +1303,7 @@ static inline bool zeta_should_block_memory_write(
     if (gaslight.is_gaslighting && !zeta_has_override_password(input)) {
         snprintf(block_reason, reason_size,
             "[MEMORY PROTECTED: Detected attempt to manipulate stored facts. "
-            "Pattern: '%s'. Use authorized admin endpoint to modify protected facts.]",
+            "Pattern: '%.200s'. Use authorized admin endpoint to modify protected facts.]",
             gaslight.pattern_matched);
         return true;
     }
@@ -1318,7 +1312,7 @@ static inline bool zeta_should_block_memory_write(
     zeta_contradiction_result_t contradiction = zeta_detect_input_contradiction(ctx, input);
     if (contradiction.contradicts && !contradiction.has_password) {
         snprintf(block_reason, reason_size,
-            "[MEMORY PROTECTED: Your claim (%s) contradicts stored fact (%s). "
+            "[MEMORY PROTECTED: Your claim (%.200s) contradicts stored fact (%.200s). "
             "Protected facts cannot be modified via chat.]",
             contradiction.contradicting_claim, contradiction.stored_fact);
         return true;

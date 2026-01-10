@@ -64,6 +64,7 @@ static float compute_summary_distance(const float* a, const float* b, int dim) {
 // ============================================================================
 
 zeta_gitgraph_t* zeta_gitgraph_init(int max_blocks, int summary_dim) {
+    (void)summary_dim;
     zeta_gitgraph_t* hg = (zeta_gitgraph_t*)calloc(1, sizeof(zeta_gitgraph_t));
     if (!hg) return NULL;
 
@@ -583,12 +584,12 @@ void zeta_gitgraph_print_block(const zeta_gitgraph_t* hg, int64_t block_id) {
         m->num_versions, m->current_version,
         m->num_edges,
         m->is_stable ? "yes" : "no",
-        m->summary_drift
+        (double)m->summary_drift
     );
 
     for (int e = 0; e < m->num_edges; e++) {
         fprintf(stderr, "    -> %lld (w=%.3f)\n",
-                (long long)m->edge_targets[e], m->edge_weights[e]);
+                (long long)m->edge_targets[e], (double)m->edge_weights[e]);
     }
 }
 
@@ -624,7 +625,7 @@ void zeta_gitgraph_print_top_edges(const zeta_gitgraph_t* hg, int n) {
         const zeta_edge_t* e = &hg->edges[max_idx];
         fprintf(stderr, "  %lld <-> %lld: %.3f (co-retrieved %lld times)\n",
                 (long long)e->block_a, (long long)e->block_b,
-                e->weight, (long long)e->co_retrieval_count);
+            (double)e->weight, (long long)e->co_retrieval_count);
     }
 
     free(used);

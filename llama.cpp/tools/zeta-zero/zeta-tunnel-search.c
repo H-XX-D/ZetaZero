@@ -426,12 +426,12 @@ void zeta_tunnel_print_stats(const zeta_tunnel_state_t* state) {
     fprintf(stderr, "  Total hops: %d\n", state->total_hops);
     fprintf(stderr, "  Local steps: %d\n", state->local_steps);
     fprintf(stderr, "  Tunnel jumps: %d\n", state->tunnel_jumps);
-    fprintf(stderr, "  Final momentum: %.3f\n", state->momentum);
+    fprintf(stderr, "  Final momentum: %.3f\n", (double)state->momentum);
 
     if (state->num_results > 0) {
         fprintf(stderr, "  Top result: node=%lld, relevance=%.3f, sim=%.3f\n",
                 (long long)state->results[0].node_id,
-                state->results[0].relevance,
-                state->results[0].similarity);
+                (double)state->results[0].relevance,
+                (double)state->results[0].similarity);
     }
 }

@@ -200,7 +200,7 @@ zeta_dedup_ctx_t* zeta_dedup_init(int embd_dim, float similarity_threshold) {
     }
 
     fprintf(stderr, "[DEDUP] Initialized: %d tables, %d bits/hash, threshold=%.2f\n",
-            ZETA_DEDUP_LSH_TABLES, ZETA_DEDUP_LSH_BITS, ctx->similarity_threshold);
+            ZETA_DEDUP_LSH_TABLES, ZETA_DEDUP_LSH_BITS, (double)ctx->similarity_threshold);
 
     return ctx;
 }
@@ -278,6 +278,7 @@ void zeta_dedup_remove(
     const char* concept_key
 ) {
     if (!ctx || !concept_key) return;
+    (void)node_id;
 
     // Remove from hash table
     uint32_t bucket = fnv1a_hash(concept_key) % ZETA_DEDUP_HASH_BUCKETS;
@@ -370,7 +371,6 @@ int zeta_dedup_find_similar(
     // Verify candidates with actual cosine similarity
     // Sort by similarity (simple insertion sort for small N)
     int num_results = 0;
-    float result_sims[64];
 
     for (int i = 0; i < num_candidates && num_results < max_results; i++) {
         // Need to get embedding for this node (caller must provide lookup function)
@@ -472,7 +472,7 @@ void zeta_dedup_print_stats(const zeta_dedup_ctx_t* ctx) {
     fprintf(stderr, "  Entries: %lld\n", (long long)stats.num_entries);
     fprintf(stderr, "  Lookups: %lld\n", (long long)stats.num_lookups);
     fprintf(stderr, "  Hits: %lld (%.1f%%)\n",
-            (long long)stats.num_hits, stats.hit_rate * 100.0f);
+            (long long)stats.num_hits, (double)(stats.hit_rate * 100.0f));
     fprintf(stderr, "  LSH candidates: %lld\n", (long long)stats.num_lsh_candidates);
-    fprintf(stderr, "  Avg bucket depth: %.2f\n", stats.avg_bucket_depth);
+    fprintf(stderr, "  Avg bucket depth: %.2f\n", (double)stats.avg_bucket_depth);
 }

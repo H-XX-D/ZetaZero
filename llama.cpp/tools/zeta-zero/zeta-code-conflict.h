@@ -27,6 +27,9 @@
 #include "zeta-code-mode.h"
 
 // Code-specific negation patterns
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((unused))
+#endif
 static const char* CODE_NEGATION_PATTERNS[] = {
     "doesn't exist", "does not exist", "not found",
     "removed", "deleted", "deprecated",

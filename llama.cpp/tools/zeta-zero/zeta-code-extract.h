@@ -156,7 +156,6 @@ static inline int zeta_extract_functions_regex(
         if (!*p) break;
 
         // Look for function pattern: word word(
-        const char* start = p;
 
         // Skip modifiers
         if (strncmp(p, "static ", 7) == 0) p += 7;
@@ -209,9 +208,9 @@ static inline int zeta_extract_functions_regex(
                         memset(e, 0, sizeof(*e));
                         e->id = result->num_entities;
                         e->type = CODE_ENTITY_FUNCTION;
-                        strncpy(e->name, name, sizeof(e->name) - 1);
-                        strncpy(e->filepath, filename, sizeof(e->filepath) - 1);
-                        strncpy(e->return_type, ret_type, sizeof(e->return_type) - 1);
+                        snprintf(e->name, sizeof(e->name), "%s", name);
+                        snprintf(e->filepath, sizeof(e->filepath), "%s", filename ? filename : "");
+                        snprintf(e->return_type, sizeof(e->return_type), "%s", ret_type);
                         e->line_start = line;
                         e->line_end = line;
                         added++;
@@ -349,8 +348,12 @@ static inline int zeta_commit_code_to_graph(
     // to committed graph node IDs. We also need the *graph* file node ID to create
     // file -> entity edges; the incoming file_node_id is the extraction ID.
     int n = result->num_entities;
-    int64_t* orig_ids = (int64_t*)calloc((size_t)n, sizeof(int64_t));
-    int64_t* graph_ids = (int64_t*)calloc((size_t)n, sizeof(int64_t));
+    if (n <= 0) return 0;
+    if (n > result->max_entities) n = result->max_entities;
+    if (n <= 0) return 0;
+    size_t nn = (size_t)n;
+    int64_t* orig_ids = (int64_t*)calloc(nn, sizeof(int64_t));
+    int64_t* graph_ids = (int64_t*)calloc(nn, sizeof(int64_t));
     if (!orig_ids || !graph_ids) {
         if (orig_ids) free(orig_ids);
         if (graph_ids) free(graph_ids);

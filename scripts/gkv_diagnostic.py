@@ -13,7 +13,7 @@ import json
 import subprocess
 import sys
 
-SERVER = "http://192.168.0.165:9000"
+SERVER = "http://192.168.0.165:8080"
 REMOTE_HOST = "xx@192.168.0.165"
 GKV_DIR = "/mnt/GitGraph/graph_kv"
 

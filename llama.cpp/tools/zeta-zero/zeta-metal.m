@@ -123,7 +123,10 @@ zeta_metal_ctx_t* zeta_metal_init(void) {
                                                                 error:&error];
                 if (source) {
                     MTLCompileOptions* options = [[MTLCompileOptions alloc] init];
+                    #pragma clang diagnostic push
+                    #pragma clang diagnostic ignored "-Wdeprecated-declarations"
                     options.fastMathEnabled = YES;
+                    #pragma clang diagnostic pop
 
                     ctx->library = [ctx->device newLibraryWithSource:source options:options error:&error];
 
@@ -210,11 +213,9 @@ int zeta_metal_temporal_decay(
         [enc setBytes:&lambda length:sizeof(float) atIndex:4];
 
         MTLSize grid = MTLSizeMake(kv_len, seq_len, 1);
-        MTLSize threadgroup = MTLSizeMake(
-            MIN(16, kv_len),
-            MIN(16, seq_len),
-            1
-        );
+        const int tg_x = kv_len < 16 ? kv_len : 16;
+        const int tg_y = seq_len < 16 ? seq_len : 16;
+        MTLSize threadgroup = MTLSizeMake(tg_x, tg_y, 1);
 
         [enc dispatchThreads:grid threadsPerThreadgroup:threadgroup];
         [enc endEncoding];

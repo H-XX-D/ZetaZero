@@ -140,7 +140,7 @@ static inline int zeta_gkv_inject_for_stream(
                         injected, (long long)node_id, current_pos);
             }
         }
-        
+
         // 2. Fall back to file-based v2 API if no in-memory segment
         if (injected == 0) {
             injected = zeta_gkv_inject_v2(g_gkv_ctx, llama_ctx, node_id, seq_id, current_pos);
@@ -149,7 +149,7 @@ static inline int zeta_gkv_inject_for_stream(
                         injected, (long long)node_id, current_pos);
             }
         }
-        
+
         if (injected > 0) {
             // Mark node as having injected KV (skip text prefill)
             stream_state->active[i].served = true;
@@ -290,7 +290,7 @@ static inline int zeta_gkv_lazy_capture(
                 break;
             }
         }
-        if (!node || !node->value || strlen(node->value) < 10) continue;
+        if (!node || node->value[0] == '\0' || strlen(node->value) < 10) continue;
 
         // Tokenize node content
         const llama_vocab* vocab = llama_model_get_vocab(model);

@@ -554,5 +554,5 @@ void zeta_version_print_stats(const zeta_version_ctx_t* ctx) {
     fprintf(stderr, "  Active: %lld\n", (long long)stats.active_versions);
     fprintf(stderr, "  Superseded: %lld\n", (long long)stats.superseded_versions);
     fprintf(stderr, "  Retracted: %lld\n", (long long)stats.retracted_versions);
-    fprintf(stderr, "  Avg versions/concept: %.2f\n", stats.avg_versions_per_concept);
+    fprintf(stderr, "  Avg versions/concept: %.2f\n", (double)stats.avg_versions_per_concept);
 }

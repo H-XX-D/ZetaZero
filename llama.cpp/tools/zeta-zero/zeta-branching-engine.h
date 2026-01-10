@@ -2222,6 +2222,7 @@ public:
     DreamOutput create_inception_dream(const std::string& content,
                                         const std::vector<std::string>& datasets,
                                         const std::vector<CrossDatasetEdge>& links) {
+        (void)datasets;
         DreamOutput d;
         d.id = "inception_" + std::to_string(++dream_counter_);
         d.dataset_id = "INCEPTION";
@@ -2337,10 +2338,10 @@ public:
     //   - More abstract, exploratory, serendipitous
     //
     // Both can be scoped to single dataset (NORMAL) or multi-dataset (INCEPTION)
-    
+
     enum class CreativeMode { IDEAS, DREAMS };
     enum class CreativeScope { NORMAL, INCEPTION };
-    
+
     struct Idea {
         std::string id;
         std::string title;
@@ -2351,7 +2352,7 @@ public:
         float feasibility = 0.0f;
         int64_t created_at = 0;
     };
-    
+
     struct Dream {
         std::string id;
         std::string content;
@@ -2360,7 +2361,7 @@ public:
         std::vector<std::string> source_nodes;
         int64_t created_at = 0;
     };
-    
+
     struct CreativeSession {
         CreativeMode mode = CreativeMode::IDEAS;
         CreativeScope scope = CreativeScope::NORMAL;
@@ -2372,12 +2373,12 @@ public:
         bool active = false;
         int64_t started_at = 0;
     };
-    
+
     // =========================================================================
     // IDEAS: User-Directed ("give me 5 ideas for optimizing X")
     // =========================================================================
-    
-    CreativeSession request_ideas(const std::string& dataset_id, 
+
+    CreativeSession request_ideas(const std::string& dataset_id,
                                    const std::string& prompt, int count = 5) {
         CreativeSession s;
         s.mode = CreativeMode::IDEAS;
@@ -2404,7 +2405,7 @@ public:
         active_creative_ = s;
         return s;
     }
-    
+
     CreativeSession request_inception_ideas(const std::vector<std::string>& dataset_ids,
                                              const std::string& prompt, int count = 5) {
         CreativeSession s;
@@ -2433,11 +2434,11 @@ public:
         active_creative_ = s;
         return s;
     }
-    
+
     // =========================================================================
     // DREAMS: Idle-Triggered Free Association
     // =========================================================================
-    
+
     CreativeSession begin_dream(const std::string& dataset_id) {
         CreativeSession s;
         s.mode = CreativeMode::DREAMS;
@@ -2458,7 +2459,7 @@ public:
         active_creative_ = s;
         return s;
     }
-    
+
     CreativeSession begin_inception_dream(const std::vector<std::string>& dataset_ids) {
         CreativeSession s;
         s.mode = CreativeMode::DREAMS;
@@ -2480,7 +2481,7 @@ public:
         active_creative_ = s;
         return s;
     }
-    
+
     CreativeSession begin_inception_dream(const InceptionBuilder& builder) {
         auto curated = builder.build_context("");
         CreativeSession s;
@@ -2504,16 +2505,16 @@ public:
         active_creative_ = s;
         return s;
     }
-    
+
     // =========================================================================
     // Idle Detection & Auto-Dream Trigger
     // =========================================================================
-    
+
     void set_idle_dream_threshold(int64_t ms) { idle_threshold_ms_ = ms; }
     void set_idle_dream_enabled(bool v) { idle_dream_enabled_ = v; }
     void set_idle_dream_datasets(const std::vector<std::string>& ds) { idle_dream_datasets_ = ds; }
     void record_activity() { last_activity_ms_ = now_ms_(); }
-    
+
     bool check_idle_dream_trigger() {
         if (!idle_dream_enabled_ || is_creating()) return false;
         if (now_ms_() - last_activity_ms_ < idle_threshold_ms_) return false;
@@ -2528,11 +2529,11 @@ public:
         }
         return true;
     }
-    
+
     // =========================================================================
     // Save Creative Output
     // =========================================================================
-    
+
     std::string save_idea(const Idea& idea) {
         DreamOutput d;
         d.id = idea.id.empty() ? "idea_" + std::to_string(++dream_counter_) : idea.id;
@@ -2541,12 +2542,12 @@ public:
         if (!idea.rationale.empty()) d.content += "\n\n## Rationale\n" + idea.rationale;
         d.source_nodes = idea.source_nodes;
         d.dataset_id = active_creative_.primary_dataset;
-        d.mode = active_creative_.scope == CreativeScope::INCEPTION ? 
+        d.mode = active_creative_.scope == CreativeScope::INCEPTION ?
                  IsolatedMode::INCEPTION : IsolatedMode::DREAM;
         d.created_at = idea.created_at ? idea.created_at : now_ms_();
         return save_dream(d);
     }
-    
+
     std::string save_dream_output(const Dream& dream) {
         DreamOutput d;
         d.id = dream.id.empty() ? "dream_" + std::to_string(++dream_counter_) : dream.id;
@@ -2555,16 +2556,16 @@ public:
         if (!dream.theme.empty()) d.content = "# Theme: " + dream.theme + "\n\n" + d.content;
         d.source_nodes = dream.source_nodes;
         d.dataset_id = active_creative_.primary_dataset;
-        d.mode = active_creative_.scope == CreativeScope::INCEPTION ? 
+        d.mode = active_creative_.scope == CreativeScope::INCEPTION ?
                  IsolatedMode::INCEPTION : IsolatedMode::DREAM;
         d.created_at = dream.created_at ? dream.created_at : now_ms_();
         return save_dream(d);
     }
-    
+
     std::string end_creative_session(const std::string& content, const std::string& type) {
         if (!active_creative_.active) return "";
         DreamOutput d;
-        d.id = (active_creative_.mode == CreativeMode::IDEAS ? "idea_" : "dream_") 
+        d.id = (active_creative_.mode == CreativeMode::IDEAS ? "idea_" : "dream_")
                + std::to_string(++dream_counter_);
         d.dream_type = type;
         d.content = content;
@@ -2583,7 +2584,7 @@ public:
         active_creative_.active = false;
         return save_dream(d);
     }
-    
+
     const CreativeSession& current_creative() const { return active_creative_; }
     bool is_creating() const { return active_creative_.active; }
     bool is_ideating() const { return active_creative_.active && active_creative_.mode == CreativeMode::IDEAS; }
@@ -2614,7 +2615,7 @@ private:
     int64_t idle_threshold_ms_ = 300000;  // 5 minutes default
     bool idle_dream_enabled_ = false;
     std::vector<std::string> idle_dream_datasets_;
-    
+
     int64_t now_ms_() const {
         return std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::system_clock::now().time_since_epoch()).count();
@@ -2657,27 +2658,27 @@ public:
         mgr_.set_idle_dream_threshold(300000);  // 5 min default
         mgr_.set_dream_output_dir("data/dreams");
     }
-    
+
     // =========================================================================
     // SINGLE ENTRY POINT: Just talk naturally
     // =========================================================================
-    
+
     struct Response {
         std::string content;
         std::string mode;           // "chat", "ideas", "dream", "code", "research"
         std::vector<std::string> sources;
         bool has_ideas = false;
-        std::vector<Idea> ideas;
+        std::vector<BranchGraphManager::Idea> ideas;
         bool is_dreaming = false;
     };
-    
+
     Response process(const std::string& input) {
         mgr_.record_activity();
         Response r;
-        
+
         // Detect intent from natural language
         auto intent = detect_intent_(input);
-        
+
         switch (intent) {
             case Intent::INGEST:
                 r = handle_ingest_(input);
@@ -2697,24 +2698,24 @@ public:
             default:
                 r = handle_chat_(input);
         }
-        
+
         return r;
     }
-    
+
     // =========================================================================
     // AUTO-INGEST: Point at a directory, we handle the rest
     // =========================================================================
-    
+
     bool open(const std::string& path, const std::string& name = "") {
         mgr_.record_activity();
         std::string id = name.empty() ? extract_name_(path) : name;
         return mgr_.ingest_dataset(id, path, compute_anchor_(path), "data/graphs/" + id);
     }
-    
+
     // =========================================================================
     // BACKGROUND: Call periodically (e.g., every 30s)
     // =========================================================================
-    
+
     void tick() {
         if (mgr_.check_idle_dream_trigger()) {
             // Dream started automatically - output will be saved
@@ -2722,43 +2723,43 @@ public:
             on_dream_started_();
         }
     }
-    
+
     // =========================================================================
     // SIMPLE GETTERS
     // =========================================================================
-    
+
     bool is_dreaming() const { return mgr_.is_dreaming(); }
     bool is_ideating() const { return mgr_.is_ideating(); }
     std::vector<std::string> datasets() const { return mgr_.list_datasets(); }
-    
+
     // =========================================================================
     // CONFIGURATION (optional - sensible defaults)
     // =========================================================================
-    
+
     void set_idle_timeout(int seconds) { mgr_.set_idle_dream_threshold(seconds * 1000); }
     void set_dream_enabled(bool v) { mgr_.set_idle_dream_enabled(v); }
     void set_output_dir(const std::string& d) { mgr_.set_dream_output_dir(d); }
-    
+
     // Access underlying manager if needed
     BranchGraphManager& manager() { return mgr_; }
 
 private:
     BranchGraphManager mgr_;
-    
+
     enum class Intent { CHAT, INGEST, IDEAS, QUESTION, CODE, RESEARCH };
-    
+
     Intent detect_intent_(const std::string& input) {
         std::string lower;
         for (char c : input) lower += std::tolower(c);
-        
+
         // Ingest patterns
-        if (lower.find("analyze") != std::string::npos && 
-            (lower.find("codebase") != std::string::npos || 
+        if (lower.find("analyze") != std::string::npos &&
+            (lower.find("codebase") != std::string::npos ||
              lower.find("project") != std::string::npos ||
              lower.find("repo") != std::string::npos)) {
             return Intent::INGEST;
         }
-        
+
         // Ideas patterns
         if (lower.find("idea") != std::string::npos ||
             lower.find("suggest") != std::string::npos ||
@@ -2767,7 +2768,7 @@ private:
             lower.find("give me") != std::string::npos) {
             return Intent::IDEAS;
         }
-        
+
         // Research patterns
         if (lower.find("research") != std::string::npos ||
             lower.find("investigate") != std::string::npos ||
@@ -2775,7 +2776,7 @@ private:
             lower.find("what if") != std::string::npos) {
             return Intent::RESEARCH;
         }
-        
+
         // Code patterns
         if (lower.find("implement") != std::string::npos ||
             lower.find("write code") != std::string::npos ||
@@ -2784,7 +2785,7 @@ private:
             lower.find("refactor") != std::string::npos) {
             return Intent::CODE;
         }
-        
+
         // Question patterns (retrieval)
         if (lower.find("?") != std::string::npos ||
             lower.find("how") != std::string::npos ||
@@ -2793,11 +2794,12 @@ private:
             lower.find("explain") != std::string::npos) {
             return Intent::QUESTION;
         }
-        
+
         return Intent::CHAT;
     }
-    
+
     Response handle_ingest_(const std::string& input) {
+        (void)input;
         Response r;
         r.mode = "ingest";
         // Extract path from input - simplified
@@ -2805,12 +2807,12 @@ private:
         r.content = "Ready to analyze. Use zeta.open(\"/path/to/project\") to ingest.";
         return r;
     }
-    
+
     Response handle_ideas_(const std::string& input) {
         Response r;
         r.mode = "ideas";
         r.has_ideas = true;
-        
+
         // Extract count if specified ("give me 5 ideas")
         int count = 5;
         for (int i = 1; i <= 10; i++) {
@@ -2819,39 +2821,39 @@ private:
                 break;
             }
         }
-        
+
         // Start ideas session across all datasets
         auto ds = mgr_.list_datasets();
         if (ds.empty()) {
             r.content = "No datasets ingested yet. Use zeta.open() first.";
             return r;
         }
-        
+
         if (ds.size() == 1) {
             mgr_.request_ideas(ds[0], input, count);
         } else {
             mgr_.request_inception_ideas(ds, input, count);
         }
-        
+
         // Context is now in current_creative().context
-        r.content = "Generating " + std::to_string(count) + " ideas based on " + 
+        r.content = "Generating " + std::to_string(count) + " ideas based on " +
                     std::to_string(mgr_.current_creative().context.size()) + " relevant sources...";
-        
+
         // Caller will use context to generate actual ideas
         for (const auto& ctx : mgr_.current_creative().context) {
             r.sources.push_back(ctx.dataset_id + "::" + ctx.node_id);
         }
-        
+
         return r;
     }
-    
+
     Response handle_question_(const std::string& input) {
         Response r;
         r.mode = "chat";
-        
+
         // Query all datasets for relevant context
         auto results = mgr_.query_all_datasets(input, 10, 0.2f);
-        
+
         if (results.empty()) {
             r.content = "I don't have relevant context for that question yet.";
         } else {
@@ -2860,55 +2862,55 @@ private:
                 r.sources.push_back(res.dataset_id + "::" + res.node_id);
             }
         }
-        
+
         return r;
     }
-    
+
     Response handle_code_(const std::string& input) {
         Response r;
         r.mode = "code";
-        
+
         // Get code-related context
         auto results = mgr_.query_all_datasets(input, 10, 0.2f);
         for (const auto& res : results) {
             r.sources.push_back(res.dataset_id + "::" + res.node_id);
         }
-        
+
         r.content = "Code mode. " + std::to_string(r.sources.size()) + " relevant sources available.";
         return r;
     }
-    
+
     Response handle_research_(const std::string& input) {
         Response r;
         r.mode = "research";
-        
+
         auto results = mgr_.query_all_datasets(input, 15, 0.15f);
         for (const auto& res : results) {
             r.sources.push_back(res.dataset_id + "::" + res.node_id);
         }
-        
+
         r.content = "Research mode. Exploring " + std::to_string(r.sources.size()) + " sources.";
         return r;
     }
-    
+
     Response handle_chat_(const std::string& input) {
         Response r;
         r.mode = "chat";
-        
+
         // Light retrieval for general chat
         auto results = mgr_.query_all_datasets(input, 5, 0.3f);
         for (const auto& res : results) {
             r.sources.push_back(res.dataset_id + "::" + res.node_id);
         }
-        
+
         return r;
     }
-    
+
     void on_dream_started_() {
         // Hook for UI notification
         // Could emit event, write to log, etc.
     }
-    
+
     std::string extract_name_(const std::string& path) {
         size_t pos = path.rfind('/');
         if (pos != std::string::npos && pos < path.size() - 1) {
@@ -2916,7 +2918,7 @@ private:
         }
         return path;
     }
-    
+
     std::string compute_anchor_(const std::string& path) {
         // Simple hash of path for anchor
         size_t h = std::hash<std::string>{}(path);

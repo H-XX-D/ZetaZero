@@ -25,7 +25,9 @@ static inline bool zeta_cuda_constitution_ready(void) { return false; }
 // GPU Binding
 // ============================================================================
 
+#if ZETA_HAS_CUDA
 static bool s_gpu_bound = false;
+#endif
 
 int zeta_constitution_bind_gpu(const zeta_constitution_t* ctx) {
     if (!ctx) {

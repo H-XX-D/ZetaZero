@@ -29,9 +29,9 @@ services:
       - ZETA_HOST=0.0.0.0
       - ZETA_PORT=8080
       # 14B + 7B Production Models (16GB VRAM)
-      - MODEL_MAIN=/models/qwen2.5-14b-instruct-q4_k_m-00001-of-00003.gguf
-      - MODEL_CODER=/models/qwen2.5-coder-7b-instruct-q4_k_m.gguf
-      - MODEL_EMBED=/models/nomic-embed-text-v1.5.f16.gguf
+      - MODEL_MAIN=/models/qwen2.5-14b-instruct-q4.gguf
+      - MODEL_CODER=/models/qwen2.5-7b-instruct-q4_k_m-00002-of-00002.gguf
+      - MODEL_EMBED=/models/nomic-embed-text-v1.5-q4_k_m.gguf
       - GPU_LAYERS_MAIN=49
       - GPU_LAYERS_CODER=35
       - ZETA_DREAM_INTERVAL=300

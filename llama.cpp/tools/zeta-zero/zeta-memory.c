@@ -459,7 +459,8 @@ int zeta_load_existing_blocks(zeta_memory_ctx_t* ctx) {
         }
 
         // Build full path
-        char filepath[700];
+        // storage_dir is bounded and filenames are bounded; keep buffer >= 768 to avoid truncation
+        char filepath[800];
         snprintf(filepath, sizeof(filepath), "%s/%s", ctx->storage_dir, name);
 
         // Load block
@@ -818,7 +819,7 @@ void zeta_debug_print_block(
         (long long)b->block_id,
         (long long)b->token_start,
         (long long)(b->token_start + b->token_count),
-        b->zeta_potential,
+        (double)b->zeta_potential,
         b->is_warm,
         b->is_active,
         b->disk_path

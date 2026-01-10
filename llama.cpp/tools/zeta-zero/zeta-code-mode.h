@@ -291,13 +291,13 @@ static inline zeta_project_t* zeta_project_open(zeta_code_ctx_t* ctx, const char
     if (ctx->project_count >= ZETA_MAX_PROJECTS) return NULL;
     zeta_project_t* proj = &ctx->projects[ctx->project_count++];
     memset(proj, 0, sizeof(zeta_project_t));
-    strncpy(proj->project_id, project_id, 63);
-    strncpy(proj->root_path, root_path, 511);
-    if (name) strncpy(proj->project_name, name, 127);
-    if (desc) strncpy(proj->description, desc, 1023);
+    snprintf(proj->project_id, sizeof(proj->project_id), "%s", project_id);
+    snprintf(proj->root_path, sizeof(proj->root_path), "%s", root_path);
+    if (name) snprintf(proj->project_name, sizeof(proj->project_name), "%s", name);
+    if (desc) snprintf(proj->description, sizeof(proj->description), "%s", desc);
     proj->created_at = proj->last_accessed = (int64_t)time(NULL);
     proj->is_open = true;
-    strncpy(proj->status, "active", 63);
+    snprintf(proj->status, sizeof(proj->status), "%s", "active");
     ctx->active_project = proj;
 
     char proj_dir[1024];
@@ -463,7 +463,10 @@ static inline int zeta_parse_code_json(zeta_code_ctx_t* ctx, const char* json) {
         const char* q = strchr(p + 7, '"');
         if (q) {
             const char* end = strchr(q + 1, '"');
-            if (end && (end - q - 1) < 31) strncpy(type_str, q + 1, end - q - 1);
+            if (end && (end - q - 1) < 31) {
+                int len = (int)(end - q - 1);
+                if (len > 0) snprintf(type_str, sizeof(type_str), "%.*s", len, q + 1);
+            }
         }
 
         // Extract name
@@ -472,7 +475,10 @@ static inline int zeta_parse_code_json(zeta_code_ctx_t* ctx, const char* json) {
             q = strchr(np + 7, '"');
             if (q) {
                 const char* end = strchr(q + 1, '"');
-                if (end && (end - q - 1) < 127) strncpy(name, q + 1, end - q - 1);
+                if (end && (end - q - 1) < 127) {
+                    int len = (int)(end - q - 1);
+                    if (len > 0) snprintf(name, sizeof(name), "%.*s", len, q + 1);
+                }
             }
         }
 
@@ -482,7 +488,10 @@ static inline int zeta_parse_code_json(zeta_code_ctx_t* ctx, const char* json) {
             q = strchr(fp + 6, '"');
             if (q) {
                 const char* end = strchr(q + 1, '"');
-                if (end && (end - q - 1) < 511) strncpy(file, q + 1, end - q - 1);
+                if (end && (end - q - 1) < 511) {
+                    int len = (int)(end - q - 1);
+                    if (len > 0) snprintf(file, sizeof(file), "%.*s", len, q + 1);
+                }
             }
         }
 
@@ -500,10 +509,10 @@ static inline int zeta_parse_code_json(zeta_code_ctx_t* ctx, const char* json) {
         if (name[0] && ctx->code_node_count < ZETA_MAX_CODE_NODES) {
             zeta_code_node_t* node = &ctx->code_nodes[ctx->code_node_count++];
             memset(node, 0, sizeof(zeta_code_node_t));
-            strncpy(node->project_id, ctx->active_project->project_id, 63);
+            snprintf(node->project_id, sizeof(node->project_id), "%s", ctx->active_project->project_id);
             node->type = node_type;
-            strncpy(node->name, name, 127);
-            if (file[0]) strncpy(node->file_path, file, 511);
+            snprintf(node->name, sizeof(node->name), "%s", name);
+            if (file[0]) snprintf(node->file_path, sizeof(node->file_path), "%s", file);
             node->line_start = line_start;
             node->created_at = (int64_t)time(NULL);
             added++;

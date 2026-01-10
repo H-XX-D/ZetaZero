@@ -2,17 +2,22 @@
 # =============================================================================
 # Z.E.T.A. Server Startup Script
 # =============================================================================
-# Reads configuration from ../zeta.conf (relative to this script)
+# Starts the server *from zeta.conf*.
+#
+# The C++ server reads zeta.conf automatically (./zeta.conf in repo root is
+# highest priority). This script intentionally avoids passing CLI flags that
+# would override config values.
 # =============================================================================
 
-set -e
+set -euo pipefail
 
 # Find config file
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 CONFIG_FILE="${REPO_ROOT}/zeta.conf"
 
-# Load config (export all variables so child processes inherit them)
+# Load config (export all variables so child processes inherit them).
+# zeta.conf is intentionally shell-compatible (KEY="value"), so `source` is OK.
 if [[ -f "$CONFIG_FILE" ]]; then
     echo "Loading config from: $CONFIG_FILE"
     set -a  # Export all variables
@@ -24,22 +29,43 @@ else
     exit 1
 fi
 
-# Validate required settings
-if [[ -z "$MODEL_14B" ]] && [[ -z "$MODEL_7B_CODER" ]]; then
-    echo "ERROR: No models configured. Set MODEL_14B or MODEL_7B_CODER in zeta.conf"
-    exit 1
-fi
+# Ensure we run from repo root so ./zeta.conf wins in the server's search order.
+cd "$REPO_ROOT"
 
-if [[ -z "$ZETA_SERVER_BIN" ]]; then
-    ZETA_SERVER_BIN="${ZETA_BUILD_DIR}/bin/zeta-server"
+expand_path() {
+    local p="$1"
+    if [[ "$p" == "~" ]]; then
+        echo "$HOME"
+    elif [[ "$p" == ~/* ]]; then
+        echo "$HOME/${p:2}"
+    else
+        echo "$p"
+    fi
+}
+
+# Determine server binary path (prefer zeta-zero-server).
+ZETA_SERVER_BIN="${ZETA_SERVER_BIN:-${ZETA_BUILD_DIR:-./llama.cpp/build}/bin/zeta-zero-server}"
+ZETA_SERVER_BIN="$(expand_path "$ZETA_SERVER_BIN")"
+
+if [[ ! -x "$ZETA_SERVER_BIN" ]]; then
+    # Back-compat fallback
+    local_fallback="${ZETA_BUILD_DIR:-./llama.cpp/build}/bin/zeta-server"
+    local_fallback="$(expand_path "$local_fallback")"
+    if [[ -x "$local_fallback" ]]; then
+        ZETA_SERVER_BIN="$local_fallback"
+    else
+        echo "ERROR: Server binary not found or not executable."
+        echo "Tried: $ZETA_SERVER_BIN"
+        echo "Also tried: $local_fallback"
+        exit 1
+    fi
 fi
 
 # Check if running locally or remotely
+# If ZETA_SSH_* is set, assume remote deployment unless we're already on an SSH session.
 IS_REMOTE=false
-if [[ -n "$ZETA_SSH_USER" ]] && [[ -n "$ZETA_SSH_HOST" ]]; then
-    # Check if we're on the remote host already
-    CURRENT_HOST=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "localhost")
-    if [[ "$CURRENT_HOST" != "$ZETA_SSH_HOST" ]] && [[ "$ZETA_SSH_HOST" != "localhost" ]]; then
+if [[ -n "${ZETA_SSH_USER:-}" ]] && [[ -n "${ZETA_SSH_HOST:-}" ]]; then
+    if [[ -z "${SSH_CONNECTION:-}" ]] && [[ "$ZETA_SSH_HOST" != "localhost" ]]; then
         IS_REMOTE=true
     fi
 fi
@@ -48,48 +74,31 @@ start_server() {
     echo "=============================================="
     echo "Starting Z.E.T.A. Server"
     echo "=============================================="
-    echo "  Host: ${ZETA_HOST}:${ZETA_PORT}"
-    echo "  14B Model: ${MODEL_14B:-'(none)'}"
-    echo "  7B Coder:  ${MODEL_7B_CODER:-'(none)'}"
-    echo "  Embed:     ${MODEL_EMBED:-'(none)'}"
-    echo "  GPU Layers: $GPU_LAYERS"
-    echo "  Context: $CTX_14B"
+    echo "  Host: ${ZETA_HOST:-0.0.0.0}:${ZETA_PORT:-8080}"
+    echo "  Config: $CONFIG_FILE"
+    echo "  Binary: $ZETA_SERVER_BIN"
     echo "=============================================="
 
-    # Check if server already running
-    if pgrep -x zeta-server > /dev/null 2>&1; then
-        echo "WARNING: Server already running. Killing it..."
-        pkill -9 zeta-server || true
-        sleep 2
-    fi
+    # Best-effort stop of any prior instance.
+    pkill -x zeta-zero-server 2>/dev/null || true
+    pkill -x zeta-server 2>/dev/null || true
+    pkill -x llama-zeta-zero 2>/dev/null || true
+    pkill -x llama-zeta-server 2>/dev/null || true
+    sleep 2
 
-    # Build command
-    CMD="$ZETA_SERVER_BIN --host 0.0.0.0 --port $ZETA_PORT"
-    
-    if [[ -n "$MODEL_14B" ]] && [[ -f "$MODEL_14B" ]]; then
-        CMD="$CMD -m $MODEL_14B"
-    fi
-    
-    if [[ -n "$MODEL_7B_CODER" ]] && [[ -f "$MODEL_7B_CODER" ]]; then
-        CMD="$CMD --model-7b-coder $MODEL_7B_CODER"
-    fi
-    
-    if [[ -n "$MODEL_EMBED" ]] && [[ -f "$MODEL_EMBED" ]]; then
-        CMD="$CMD --embed-model $MODEL_EMBED"
-    fi
-    
-    CMD="$CMD --gpu-layers $GPU_LAYERS"
-    CMD="$CMD --ctx-size $CTX_14B"
-    
-    if [[ -n "$ZETA_STORAGE" ]]; then
-        CMD="$CMD --zeta-storage $ZETA_STORAGE"
-    fi
+    # Ensure default directories exist (relative to repo root by default).
+    ZETA_STORAGE_DIR="$(expand_path "${ZETA_STORAGE:-./storage/graph}")"
+    ZETA_LOG_FILE="$(expand_path "${ZETA_LOG:-./logs/zeta.log}")"
+    mkdir -p "$ZETA_STORAGE_DIR"
+    mkdir -p "$(dirname "$ZETA_LOG_FILE")"
+    mkdir -p "$(expand_path "${ZETA_GKV_DIR:-./storage/graph_kv}")" || true
+    mkdir -p "$(expand_path "${ZETA_DREAM_DIR:-./storage/dreams}")" || true
 
-    echo "Command: $CMD"
+    echo "Command: $ZETA_SERVER_BIN $*"
     echo ""
 
     # Start server
-    nohup $CMD > "${ZETA_LOG:-/tmp/zeta.log}" 2>&1 &
+    nohup "$ZETA_SERVER_BIN" "$@" > "$ZETA_LOG_FILE" 2>&1 &
     SERVER_PID=$!
     echo "Server PID: $SERVER_PID"
     
@@ -97,9 +106,9 @@ start_server() {
     echo "Waiting for server to start..."
     for i in {1..30}; do
         sleep 1
-        if curl -s "http://localhost:${ZETA_PORT}/health" > /dev/null 2>&1; then
+        if curl -s "http://localhost:${ZETA_PORT:-8080}/health" > /dev/null 2>&1; then
             echo "✓ Server is UP!"
-            curl -s "http://localhost:${ZETA_PORT}/health" | head -c 200
+            curl -s "http://localhost:${ZETA_PORT:-8080}/health" | head -c 200
             echo ""
             exit 0
         fi
@@ -107,8 +116,8 @@ start_server() {
     done
 
     echo ""
-    echo "ERROR: Server failed to start. Check ${ZETA_LOG:-/tmp/zeta.log}"
-    tail -50 "${ZETA_LOG:-/tmp/zeta.log}"
+    echo "ERROR: Server failed to start. Check $ZETA_LOG_FILE"
+    tail -50 "$ZETA_LOG_FILE"
     exit 1
 }
 

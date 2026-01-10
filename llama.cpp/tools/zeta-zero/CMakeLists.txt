@@ -6,6 +6,7 @@ add_executable(${TARGET} zeta-demo.cpp)
 
 # Include Z.E.T.A. sources directly (all sources now local)
 target_sources(${TARGET} PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/zeta-mode-controller.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/zeta-memory.c
     ${CMAKE_CURRENT_SOURCE_DIR}/zeta-integration.c
     ${CMAKE_CURRENT_SOURCE_DIR}/zeta-kv-extract.c
@@ -59,6 +60,7 @@ set(SERVER_TARGET zeta-zero-server)
 add_executable(${SERVER_TARGET} zeta-server.cpp)
 
 target_sources(${SERVER_TARGET} PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/zeta-mode-controller.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/zeta-memory.c
     ${CMAKE_CURRENT_SOURCE_DIR}/zeta-integration.c
     ${CMAKE_CURRENT_SOURCE_DIR}/zeta-kv-extract.c

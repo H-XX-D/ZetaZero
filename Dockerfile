@@ -15,8 +15,8 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 
 # Copy source code
-COPY llama.cpp /app/llama.cpp
 COPY zeta-integration /app/zeta-integration
+COPY llama.cpp /app/llama.cpp
 
 # Build zeta-server with CUDA support
 WORKDIR /app/llama.cpp
@@ -49,9 +49,11 @@ RUN mkdir -p /models /storage /storage/dreams/pending /storage/dreams/archive /s
 # Environment variables (defaults - 14B + 7B production config)
 ENV ZETA_HOST="0.0.0.0"
 ENV ZETA_PORT="8080"
-ENV MODEL_MAIN="/models/qwen2.5-14b-instruct-q4_k_m-00001-of-00003.gguf"
-ENV MODEL_CODER="/models/qwen2.5-coder-7b-instruct-q4_k_m.gguf"
-ENV MODEL_EMBED="/models/nomic-embed-text-v1.5.f16.gguf"
+# Defaults are overridable via docker-compose.yml or a mounted zeta.conf.
+# Keep these filenames aligned with common single-file GGUF downloads.
+ENV MODEL_MAIN="/models/qwen2.5-14b-instruct-q4.gguf"
+ENV MODEL_CODER="/models/qwen2.5-7b-instruct-q4_k_m-00002-of-00002.gguf"
+ENV MODEL_EMBED="/models/nomic-embed-text-v1.5-q4_k_m.gguf"
 ENV ZETA_STORAGE="/storage"
 ENV ZETA_DREAM_INTERVAL="300"
 ENV ZETA_DREAM_DIR="/storage/dreams"

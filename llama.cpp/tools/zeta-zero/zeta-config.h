@@ -360,10 +360,8 @@ static inline bool zeta_load_config() {
     if (config.count("ZETA_GKV_MAX_LAYERS")) g_config.gkv_max_layers = atoi(config["ZETA_GKV_MAX_LAYERS"].c_str());
 
     // Log advanced config if any were set
-    bool advanced_loaded = false;
     if (config.count("ZETA_COLD_MOMENTUM") || config.count("ZETA_MAX_GRAPH_NODES") ||
         config.count("ZETA_TUNNEL_THRESHOLD") || config.count("ZETA_STREAM_TOKEN_BUDGET")) {
-        advanced_loaded = true;
         fprintf(stderr, "[CONFIG] Advanced parameters loaded from config file\n");
     }
 
