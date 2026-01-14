@@ -43,8 +43,10 @@
 #include "llama.h"
 #include "sampling.h"
 #include <cstdio>
+#include <cstdlib>
 #include <string>
 #include <mutex>
+#include <cstring>
 #include <vector>
 #include <algorithm>
 #include <future>
@@ -52,7 +54,10 @@
 #include <atomic>
 #include <cctype>
 #include <regex>
+#include <unordered_map>
+#include <unordered_set>
 #include <chrono>
+#include <ctime>
 #include <fstream>
 #include <sstream>
 #include <sys/stat.h>
@@ -71,19 +76,24 @@ extern "C" {
 #include "zeta-streaming.h"
 #include "zeta-conflict.h"
 #include "zeta-graph-kv.h"
+#include "zeta-gitgraph.h"
+#include "zeta-tunnel-search.h"
 //MOVED: zeta-tools.h, zeta-code-mode.h, zeta-code-conflict.h, zeta-embed-integration.h
 }
 
 // C++ headers (cannot be in extern "C")
 #include "zeta-dual-process.h"  // Contains std::vector/string, must be outside extern C
 #include "zeta-embed-integration.h"  // Has std::mutex, uses zeta_set_embed_fn from dual-process
+#include "zeta-embed-memory.h"  // Semantic dedup/consolidation helpers
 #include "zeta-code-mode.h"  // Uses zeta_embed_* from embed-integration
 #include "zeta-code-conflict.h"  // Has C++ code
 #include "zeta-code-extract.h"  // 7B code entity extraction
+#include "zeta-token-storage.h"  // Persistent token cache for snippets
 #include "zeta-proactive-memory.h"
 #include "zeta-graph-manager.h"
 #include "zeta-semantic-attacks.h"
 #include "zeta-critic.h"
+#include "zeta-dedup.h"
 #include "zeta-trm.h"
 #include "zeta-hrm.h"
 #include "zeta-pruning.h"
@@ -103,12 +113,15 @@ extern "C" {
 #include "zeta-mcp.h"
 #include "zeta-graph-smart.h"
 #include "zeta-graph-git.h"
+#include "zeta-git-traversal.h"
 #include "zeta-dream.h"         // Dream State: idle consolidation cycle
 #include "zeta-cloud.h"         // Cloud routing: optional escalation to OpenAI/Anthropic
+#include "zeta-ternary.h"
 
 // Mode Controller + Branching Engine: Multi-hypothesis exploration across all modes
 #include "zeta-branching-engine.h"
 #include "zeta-mode-controller.h"
+#include "zeta-deliberation.h"
 
 // ============================================================================
 // SPEED RECEIPT: High-resolution timing for the "Zero-Latency" lifecycle
@@ -151,6 +164,33 @@ static thread_local ZetaSpeedReceipt g_speed_receipt;
 
 // GitGraph context (git-style branching for knowledge graph)
 static zeta_git_ctx_t* g_git = nullptr;
+// GitGraph co-retrieval graph (blocks/edges persisted separately)
+static zeta_gitgraph_t* g_gitgraph = nullptr;
+static std::unordered_set<long long> g_gitgraph_registered_blocks;
+static std::atomic<int64_t> g_gitgraph_step{0};
+static void save_gitgraph_ctx();
+static void save_gitgraph_state();
+
+// Dedup context (LSH + bloom)
+static zeta_dedup_ctx_t* g_dedup = nullptr;
+static bool g_dedup_ingest_enabled = true;
+static float g_dedup_threshold_cfg = 0.86f;
+
+// Tunnel search (momentum-driven retrieval) toggle
+static bool g_tunnel_enabled = true;
+
+// Embed-memory maintenance counters
+static std::atomic<int> g_embed_memory_consolidations{0};
+static std::atomic<int> g_embed_memory_prunes{0};
+static bool g_embed_memory_hook_enabled = true;
+static bool g_embed_cache_enabled = true;
+static int g_embed_cache_max_entries_override = 0;
+static int g_embed_cache_ttl_override = 0;
+static int g_embed_cache_min_len_override = 0;
+
+// GitGraph persistence controls
+static bool g_git_autosave_enabled = true;
+static const int GITGRAPH_SUMMARY_DIM = 2048;  // match node embedding dim
 
 // Temporal Recursive Memory (TRM)
 static ZetaTRM g_trm;
@@ -201,9 +241,296 @@ static std::string g_embed_model_path, g_embed_model_code_path;
 static std::string g_storage_dir = "/storage";  // Docker default, override with --zeta-storage
 static int g_n_embd = 0;
 
+// Token cache (persistent) to avoid repeated tokenization of hot snippets/nodes
+static bool g_token_cache_enabled = false;
+static size_t g_token_cache_cap_tokens = 200000;   // total tokens across entries
+static size_t g_token_cache_cap_entries = 4096;    // entry cap
+
+// Research mode (stubbed, off by default) with conservative budgets
+static bool g_research_mode_enabled = false;
+static int g_research_budget_max_branches = 4;
+static int g_research_budget_max_depth = 3;
+static int g_research_budget_time_ms = 750;
+static std::atomic<int64_t> g_research_branches_spawned{0};
+static std::atomic<int64_t> g_research_branches_pruned{0};
+static std::atomic<int64_t> g_research_tensions_recorded{0};
+static std::atomic<int64_t> g_research_facts_committed{0};
+static std::atomic<int64_t> g_research_auto_switch_attempts{0};
+static std::atomic<int64_t> g_research_auto_switch_denied_flag{0};
+static std::atomic<int64_t> g_research_auto_switch_denied_budget{0};
+static std::atomic<int64_t> g_research_auto_switch_success{0};
+
+// Deliberation engine toggle (off by default)
+static bool g_deliberation_enabled = false;
+
+// Research budget helpers (conservative, stub-safe)
+static inline bool zeta_research_budget_allows() {
+    if (!g_research_mode_enabled) return false;
+    const auto spawned = g_research_branches_spawned.load();
+    if (spawned >= g_research_budget_max_branches) return false;
+    return true;
+}
+
+// Per-request (ephemeral) budget check to avoid global exhaustion
+static inline bool zeta_research_budget_allows_local(int used_in_request) {
+    if (!g_research_mode_enabled) return false;
+    return used_in_request < g_research_budget_max_branches;
+}
+
+static inline bool zeta_research_time_allows(const std::chrono::steady_clock::time_point& start) {
+    if (g_research_budget_time_ms <= 0) return false;
+    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
+    return elapsed < g_research_budget_time_ms;
+}
+
+static inline void zeta_research_note_spawn() {
+    g_research_branches_spawned.fetch_add(1);
+}
+
+static inline void zeta_research_note_spawn_local(int& used_in_request) {
+    used_in_request++;
+    zeta_research_note_spawn();
+}
+
+static inline void zeta_research_note_prune() {
+    g_research_branches_pruned.fetch_add(1);
+}
+
+static inline void zeta_research_note_prune_local(int& /*used_in_request*/) {
+    zeta_research_note_prune();
+}
+
+// Tokenize with optional persistent cache (identified by node/fact id)
+static int zeta_tokenize_cached(
+    const llama_vocab* vocab,
+    const char* text,
+    int64_t id,
+    std::vector<llama_token>& out,
+    bool add_special = true,
+    bool parse_special = true
+) {
+    if (!text || !vocab) return 0;
+
+    if (g_token_cache_enabled) {
+        int n = zeta_token_cache::get_or_tokenize(
+            const_cast<llama_vocab*>(vocab), text, id, out, add_special, parse_special);
+        if (n > 0) return n;
+    }
+
+    out.resize(strlen(text) + 16);
+    int n = llama_tokenize(vocab, text, strlen(text), out.data(), out.size(), add_special, parse_special);
+    if (n > 0) {
+        out.resize(n);
+    } else {
+        out.clear();
+    }
+    return n;
+}
+
 // 3B worker thread
 static pthread_t g_subconscious_worker_tid;
 static bool g_subconscious_worker_running = false;
+// Utility: capture KV for high-salience nodes not yet cached (branch-scoped via node_id)
+static int zeta_gkv_capture_high_salience(
+    zeta_dual_ctx_t* dual_ctx,
+    struct llama_context* llama_ctx,
+    const struct llama_model* model,
+    float salience_threshold,
+    int max_captures
+) {
+    if (!g_gkv_ctx || !dual_ctx || !llama_ctx || !model) return 0;
+
+    int captured = 0;
+
+    const llama_vocab* vocab = llama_model_get_vocab(model);
+    llama_memory_t mem = llama_get_memory(llama_ctx);
+
+    for (int i = 0; i < dual_ctx->num_nodes && captured < max_captures; i++) {
+        zeta_graph_node_t* node = &dual_ctx->nodes[i];
+        if (!node->is_active) continue;
+        if (node->salience < salience_threshold) continue;
+        if (node->value[0] == '\0' || strlen(node->value) < 10) continue;
+
+        // Skip if already cached
+        if (zeta_gkv_find(g_gkv_ctx, node->node_id)) continue;
+
+        // Tokenize node content
+        std::vector<llama_token> tokens;
+        int n_tokens = zeta_tokenize_cached(
+            vocab,
+            node->value,
+            node->node_id,
+            tokens,
+            false,  // add_special
+            true    // parse_special
+        );
+
+        if (n_tokens <= 0 || n_tokens >= 512) continue;
+        tokens.resize(n_tokens);
+
+        // Clear KV and decode to fill it
+        llama_memory_clear(mem, false);
+
+        llama_batch batch = llama_batch_init(n_tokens, 0, 1);
+        for (int t = 0; t < n_tokens; t++) {
+            batch.token[t] = tokens[t];
+            batch.pos[t] = t;
+            batch.n_seq_id[t] = 1;
+            batch.seq_id[t][0] = 0;
+            batch.logits[t] = (t == n_tokens - 1);
+        }
+        batch.n_tokens = n_tokens;
+
+        if (llama_decode(llama_ctx, batch) == 0) {
+            int cap_result = zeta_gkv_capture_v2(
+                g_gkv_ctx, llama_ctx, 0, node->node_id, tokens.data(), n_tokens
+            );
+            if (cap_result > 0) {
+                captured++;
+                fprintf(stderr, "[GKV-CAPTURE] %d tokens for node %lld (sal=%.2f)\n",
+                        n_tokens, (long long)node->node_id, node->salience);
+            }
+        }
+        llama_batch_free(batch);
+    }
+
+    return captured;
+}
+
+// Rebuild dedup index from in-memory graph (label + normalized hash as concept key)
+static void zeta_rebuild_dedup_index() {
+    if (!g_dual || !g_dedup) return;
+
+    std::vector<zeta_dedup_node_info_t> nodes;
+    nodes.reserve(g_dual->num_nodes);
+
+    for (int i = 0; i < g_dual->num_nodes; i++) {
+        zeta_graph_node_t* node = &g_dual->nodes[i];
+        if (!node->is_active || node->value[0] == '\0') continue;
+
+        zeta_dedup_node_info_t info{};
+        info.node_id = node->node_id;
+        if (node->concept_key[0]) {
+            strncpy(info.concept_key, node->concept_key, sizeof(info.concept_key) - 1);
+            info.concept_key[sizeof(info.concept_key) - 1] = '\0';
+        } else {
+            uint32_t h32 = (uint32_t)(fnv1a64(zeta_norm(node->value)) & 0xffffffffu);
+            snprintf(info.concept_key, sizeof(info.concept_key), "%.40s#%08x", node->label, h32);
+        }
+        info.embedding = node->embedding;
+        nodes.push_back(info);
+    }
+
+    if (!nodes.empty()) {
+        zeta_dedup_build_index(g_dedup, nodes.data(), (int)nodes.size());
+    }
+}
+
+static std::string zeta_dedup_stats_json() {
+    if (!g_dedup) {
+        return std::string("{\"enabled\":false,\"ingest\":") + (g_dedup_ingest_enabled ? "true" : "false") + "}";
+    }
+
+    zeta_dedup_stats_t stats{};
+    zeta_dedup_get_stats(g_dedup, &stats);
+
+    char json[512];
+    snprintf(json, sizeof(json),
+        "{\"enabled\":true,\"ingest\":%s,\"threshold\":%.3f,\"entries\":%lld,\"lookups\":%lld,\"hits\":%lld,\"hit_rate\":%.3f,\"avg_bucket_depth\":%.2f}",
+        g_dedup_ingest_enabled ? "true" : "false",
+        (double)g_dedup_threshold_cfg,
+        (long long)stats.num_entries,
+        (long long)stats.num_lookups,
+        (long long)stats.num_hits,
+        (double)stats.hit_rate,
+        (double)stats.avg_bucket_depth);
+    return std::string(json);
+}
+
+// ============================================================================
+// Tunnel Search Adapters (momentum-driven retrieval)
+// =========================================================================
+
+static zeta_graph_node_t* tunnel_find_node(int64_t node_id) {
+    return g_dual ? zeta_find_node_by_id(g_dual, node_id) : nullptr;
+}
+
+static const float* tunnel_get_embedding(int64_t node_id, void* /*ctx*/) {
+    zeta_graph_node_t* n = tunnel_find_node(node_id);
+    return (n && n->is_active) ? n->embedding : nullptr;
+}
+
+static float tunnel_get_edge_weight(int64_t from, int64_t to, void* /*ctx*/) {
+    if (!g_dual) return 0.0f;
+    float best = 0.0f;
+    for (int i = 0; i < g_dual->num_edges; i++) {
+        const zeta_graph_edge_t& e = g_dual->edges[i];
+        if ((e.source_id == from && e.target_id == to) || (e.source_id == to && e.target_id == from)) {
+            if (e.weight > best) best = e.weight;
+        }
+    }
+    return best;
+}
+
+static int tunnel_get_neighbors(int64_t node_id, int64_t* neighbors, float* weights, int max_neighbors, void* /*ctx*/) {
+    if (!g_dual || !neighbors || max_neighbors <= 0) return 0;
+    int count = 0;
+    for (int i = 0; i < g_dual->num_edges && count < max_neighbors; i++) {
+        const zeta_graph_edge_t& e = g_dual->edges[i];
+        int64_t target = -1;
+        if (e.source_id == node_id) target = e.target_id;
+        else if (e.target_id == node_id) target = e.source_id;
+        if (target < 0) continue;
+
+        zeta_graph_node_t* n = tunnel_find_node(target);
+        if (!n || !n->is_active) continue;
+
+        // Deduplicate within this neighbor list
+        bool dup = false;
+        for (int j = 0; j < count; j++) {
+            if (neighbors[j] == target) { dup = true; break; }
+        }
+        if (dup) continue;
+
+        neighbors[count] = target;
+        if (weights) weights[count] = (e.weight > 0.0f) ? e.weight : 0.1f;
+        count++;
+    }
+    return count;
+}
+
+static int64_t tunnel_get_random_node(void* /*ctx*/) {
+    if (!g_dual || g_dual->num_nodes <= 0) return -1;
+    static bool seeded = false;
+    if (!seeded) {
+        seeded = true;
+        srand((unsigned int)time(NULL));
+    }
+
+    for (int tries = 0; tries < 8; tries++) {
+        int idx = rand() % g_dual->num_nodes;
+        if (!g_dual->nodes[idx].is_active) continue;
+        return g_dual->nodes[idx].node_id;
+    }
+    return -1;
+}
+
+static bool tunnel_is_active(int64_t node_id, void* /*ctx*/) {
+    zeta_graph_node_t* n = tunnel_find_node(node_id);
+    return n && n->is_active;
+}
+
+static zeta_tunnel_graph_t build_tunnel_graph() {
+    zeta_tunnel_graph_t graph{};
+    graph.get_embedding = tunnel_get_embedding;
+    graph.get_edge_weight = tunnel_get_edge_weight;
+    graph.get_neighbors = tunnel_get_neighbors;
+    graph.get_random_node = tunnel_get_random_node;
+    graph.is_active = tunnel_is_active;
+    graph.ctx = g_dual;
+    graph.embd_dim = 2048;
+    return graph;
+}
 
 // Streaming memory state - reactive context management
 static zeta_stream_state_t g_stream_state;
@@ -221,6 +548,539 @@ static int g_ctx_size_3b  = ZETA_CTX_SIZE_3B;   // Default 1K for extraction
 static std::atomic<bool> g_shutdown_requested{false};
 static std::atomic<time_t> g_last_activity{0};
 static std::thread g_idle_watchdog;
+
+// =========================================================================
+// EMBEDDING + GIT HELPERS
+// =========================================================================
+
+static bool build_query_embedding(const std::string& text, std::vector<float>& emb_out) {
+    if (g_embed_ctx && g_embed_ctx->initialized) {
+        int dim = g_embed_ctx->embed_dim;
+        emb_out.assign(dim, 0.0f);
+        int result_dim = zeta_embed_text(text.c_str(), emb_out.data(), dim);
+        if (result_dim > 0) {
+            emb_out.resize(result_dim);
+            return true;
+        }
+    }
+
+    if (g_dual) {
+        const int dim = 256;  // Hash embedding fallback
+        emb_out.assign(dim, 0.0f);
+        zeta_subconscious_embed(g_dual, text.c_str(), emb_out.data(), dim);
+        return true;
+    }
+
+    return false;
+}
+
+static const char* git_branch_name_safe(int idx) {
+    if (!g_git) return "";
+    if (idx < 0 || idx >= g_git->num_branches) return "";
+    if (!g_git->branches[idx].is_active) return "";
+    return g_git->branches[idx].name;
+}
+
+// Embed-memory hook: consolidate near-duplicate facts and prune cold redundancies
+static bool zeta_embed_memory_label_allows(const char* label) {
+    if (!label) return true;
+    if (strstr(label, "fact")) return true;
+    if (strcmp(label, "raw_memory") == 0 || strcmp(label, "memory") == 0) return true;
+    if (strcmp(label, "idea") == 0 || strcmp(label, "user_fact") == 0) return true;
+    if (strncmp(label, "wiki_", 5) == 0) return true;
+    return false;
+}
+
+static void zeta_embed_memory_hook(zeta_dual_ctx_t* ctx, const std::string& clean_norm, int64_t node_id, const char* label) {
+    if (!ctx || node_id < 0) return;
+    if (!g_embed_memory_hook_enabled) return;
+    if (!g_embed_ctx || !g_embed_ctx->initialized) return;
+    if (!zeta_embed_memory_label_allows(label)) return;
+
+    int64_t similar_ids[8];
+    float sims[8];
+    int similar = zeta_find_similar_facts(ctx, clean_norm.c_str(), ZETA_EMBED_MERGE_THRESHOLD, similar_ids, sims, 8);
+
+    bool has_new = false;
+    for (int i = 0; i < similar; i++) {
+        if (similar_ids[i] == node_id) {
+            has_new = true;
+            break;
+        }
+    }
+    if (!has_new && similar < 8) {
+        similar_ids[similar++] = node_id;
+    }
+
+    if (similar >= 2) {
+        int64_t merged = zeta_consolidate_similar(ctx, similar_ids, similar);
+        if (merged >= 0) {
+            g_embed_memory_consolidations.fetch_add(1);
+        }
+    }
+
+    static int prune_tick = 0;
+    prune_tick++;
+    if ((prune_tick % 12) == 0) {
+        int pruned = zeta_prune_redundant(ctx, ZETA_COLD_MOMENTUM, ZETA_EMBED_DEDUP_THRESHOLD);
+        if (pruned > 0) {
+            g_embed_memory_prunes.fetch_add(pruned);
+        }
+    }
+}
+
+// ============================================================================
+// STRICT RESEARCH GROUNDING HELPERS
+// Used by both /generate and /v1/chat/completions
+// ============================================================================
+
+struct zeta_retrieved_snippet_t {
+    long long node_id;
+    std::string label;
+    std::string value;
+    float similarity;
+};
+
+static std::string zeta_escape_json_string(const std::string & in) {
+    std::string out;
+    out.reserve(in.size() + 16);
+    for (char c : in) {
+        switch (c) {
+            case '"': out += "\\\""; break;
+            case '\\': out += "\\\\"; break;
+            case '\n': out += "\\n"; break;
+            case '\r': out += "\\r"; break;
+            case '\t': out += "\\t"; break;
+            default: out += c; break;
+        }
+    }
+    return out;
+}
+
+static std::string zeta_unescape_json_string(const std::string & in) {
+    std::string out;
+    out.reserve(in.size());
+    for (size_t i = 0; i < in.size(); i++) {
+        if (in[i] == '\\' && i + 1 < in.size()) {
+            char next = in[i + 1];
+            if (next == 'n') { out += '\n'; i++; continue; }
+            if (next == 'r') { out += '\r'; i++; continue; }
+            if (next == 't') { out += '\t'; i++; continue; }
+            if (next == '"') { out += '"'; i++; continue; }
+            if (next == '\\') { out += '\\'; i++; continue; }
+        }
+        out += in[i];
+    }
+    return out;
+}
+
+static std::vector<zeta_retrieved_snippet_t> zeta_retrieve_snippets(const std::string & query, int top_k) {
+    std::vector<zeta_retrieved_snippet_t> out;
+    if (!g_dual) return out;
+    if (top_k <= 0) return out;
+    if (top_k > 20) top_k = 20;
+
+    // Must match node embedding dimension
+    const int EMBED_DIM = 2048;
+    std::vector<float> q_emb(EMBED_DIM, 0.0f);
+    zeta_subconscious_embed(g_dual, query.c_str(), q_emb.data(), EMBED_DIM);
+
+    struct scored_node_t { int idx; float sim; };
+    std::vector<scored_node_t> candidates;
+    candidates.reserve(g_dual->num_nodes);
+
+    for (int i = 0; i < g_dual->num_nodes; i++) {
+        zeta_graph_node_t * node = &g_dual->nodes[i];
+        if (!node->is_active) continue;
+        float sim = zeta_cosine_sim(q_emb.data(), node->embedding, EMBED_DIM);
+        if (sim > 0.20f) {
+            candidates.push_back({i, sim});
+        }
+    }
+
+    std::sort(candidates.begin(), candidates.end(),
+        [](const scored_node_t & a, const scored_node_t & b) { return a.sim > b.sim; });
+
+    // Base retrieval (embedding similarity)
+    std::unordered_set<int64_t> seen;
+    for (size_t j = 0; j < candidates.size() && (int)out.size() < top_k; j++) {
+        zeta_graph_node_t * node = &g_dual->nodes[candidates[j].idx];
+        zeta_retrieved_snippet_t sn;
+        sn.node_id = (long long) node->node_id;
+        sn.label = std::string(node->label);
+        sn.value = std::string(node->value);
+        sn.similarity = candidates[j].sim;
+        seen.insert(sn.node_id);
+        if (g_token_cache_enabled) {
+            std::vector<llama_token> tmp;
+            zeta_tokenize_cached(g_vocab, sn.value.c_str(), sn.node_id, tmp, true, true);
+        }
+        out.push_back(std::move(sn));
+    }
+
+    // Momentum-driven tunnel search to surface associative neighbors
+    if (g_tunnel_enabled && !candidates.empty()) {
+        zeta_tunnel_graph_t tgraph = build_tunnel_graph();
+        zeta_tunnel_state_t tstate;
+        zeta_tunnel_init(&tstate, 0.85f, 0.88f, 0.65f);
+
+        // Seed with top base hits and optional LSH candidates from dedup
+        int64_t seeds[ZETA_TUNNEL_BEAM_WIDTH];
+        int seed_count = 0;
+        for (size_t j = 0; j < candidates.size() && seed_count < ZETA_TUNNEL_BEAM_WIDTH; j++) {
+            seeds[seed_count++] = g_dual->nodes[candidates[j].idx].node_id;
+        }
+        if (g_dedup && seed_count < ZETA_TUNNEL_BEAM_WIDTH) {
+            int64_t lsh_ids[ZETA_TUNNEL_BEAM_WIDTH];
+            int n_lsh = zeta_dedup_find_similar(g_dedup, q_emb.data(), lsh_ids, nullptr, ZETA_TUNNEL_BEAM_WIDTH);
+            for (int i = 0; i < n_lsh && seed_count < ZETA_TUNNEL_BEAM_WIDTH; i++) {
+                bool dup = false;
+                for (int k = 0; k < seed_count; k++) {
+                    if (seeds[k] == lsh_ids[i]) { dup = true; break; }
+                }
+                if (!dup) seeds[seed_count++] = lsh_ids[i];
+            }
+        }
+
+        int max_hops = 4;
+        zeta_tunnel_search_lsh(&tstate, &tgraph, q_emb.data(), seeds, seed_count, max_hops);
+
+        for (int i = 0; i < tstate.num_results; i++) {
+            int64_t nid = tstate.results[i].node_id;
+            if (seen.find(nid) != seen.end()) continue;
+            zeta_graph_node_t* node = zeta_find_node_by_id(g_dual, nid);
+            if (!node || !node->is_active) continue;
+
+            zeta_retrieved_snippet_t sn;
+            sn.node_id = nid;
+            sn.label = std::string(node->label);
+            sn.value = std::string(node->value);
+            sn.similarity = tstate.results[i].similarity;  // similarity to query
+            if (g_token_cache_enabled) {
+                std::vector<llama_token> tmp;
+                zeta_tokenize_cached(g_vocab, sn.value.c_str(), sn.node_id, tmp, true, true);
+            }
+            out.push_back(std::move(sn));
+            seen.insert(nid);
+        }
+    }
+
+    // Re-rank combined results by similarity and trim to top_k
+    std::sort(out.begin(), out.end(), [](const zeta_retrieved_snippet_t& a, const zeta_retrieved_snippet_t& b) {
+        return a.similarity > b.similarity;
+    });
+    if ((int)out.size() > top_k) {
+        out.resize(top_k);
+    }
+
+    return out;
+}
+
+// Lightweight bridge to the active scratch buffer (if initialized)
+static zeta_scratch_buffer_t* zeta_get_scratch_buffer() {
+    auto* hook = zeta_get_decode_hook();
+    return hook ? hook->scratch : nullptr;
+}
+
+// Deliberation callbacks (heuristic, graph-backed)
+static std::vector<int64_t> zeta_delib_navigate(const std::string& query, int /*max_depth*/, float min_salience) {
+    std::vector<int64_t> ids;
+    auto snippets = zeta_retrieve_snippets(query, 8);
+    for (const auto& sn : snippets) {
+        if (sn.similarity >= min_salience) ids.push_back(sn.node_id);
+    }
+    return ids;
+}
+
+static zeta_consistency_t zeta_delib_verify(const std::string& proposed_claim, const std::vector<zeta_evidence_t>& evidence) {
+    (void)proposed_claim;
+    zeta_consistency_t out = {};
+    out.is_self_consistent = true;
+    out.is_temporally_valid = true;
+    out.is_causally_valid = true;
+    out.num_conflicts = 0;
+    out.conflict_severity = 0.0f;
+
+    if (evidence.empty()) {
+        out.is_self_consistent = false;
+        out.is_temporally_valid = false;
+        out.conflict_severity = 1.0f;
+        snprintf(out.conflicts[0], sizeof(out.conflicts[0]), "No evidence available");
+        out.num_conflicts = 1;
+    }
+
+    return out;
+}
+
+static zeta_confidence_t zeta_delib_gate(const std::vector<zeta_evidence_t>& evidence) {
+    zeta_confidence_t out = {};
+    if (evidence.empty()) {
+        out.raw_confidence = 0.0f;
+        out.calibrated_confidence = 0.0f;
+        out.evidence_count = 0;
+        return out;
+    }
+
+    float trust_sum = 0.0f, sal_sum = 0.0f, rec_sum = 0.0f;
+    for (const auto& ev : evidence) {
+        trust_sum += ev.trust;
+        sal_sum += ev.salience;
+        rec_sum += ev.recency;
+    }
+
+    out.evidence_count = (int)evidence.size();
+    out.avg_trust = trust_sum / std::max(1, out.evidence_count);
+    out.avg_salience = sal_sum / std::max(1, out.evidence_count);
+    out.avg_recency = rec_sum / std::max(1, out.evidence_count);
+    out.raw_confidence = 0.5f * out.avg_trust + 0.5f * out.avg_salience;
+    out.calibrated_confidence = std::min(1.0f, out.raw_confidence + 0.1f * out.avg_recency);
+    out.passes_threshold = (out.calibrated_confidence >= DELIB_CONFIDENCE_THRESHOLD);
+    return out;
+}
+
+static zeta_veto_result_t zeta_delib_veto(const std::string& proposed_output, const zeta_consistency_t& consistency, const zeta_confidence_t& confidence) {
+    (void)proposed_output;
+    zeta_veto_result_t out = {};
+    out.reason = VETO_NONE;
+    out.is_blocked = false;
+    out.severity = 0.0f;
+
+    if (!consistency.is_self_consistent || consistency.num_conflicts > 0) {
+        out.reason = VETO_FACTUAL_CONFLICT;
+        out.is_blocked = true;
+        out.severity = std::max(0.5f, consistency.conflict_severity);
+        snprintf(out.explanation, sizeof(out.explanation), "Detected %d conflicts", consistency.num_conflicts);
+        return out;
+    }
+
+    if (!confidence.passes_threshold || confidence.calibrated_confidence < 0.6f) {
+        out.reason = VETO_CONFIDENCE_TOO_LOW;
+        out.is_blocked = true;
+        out.severity = 0.4f;
+        snprintf(out.explanation, sizeof(out.explanation), "Low confidence: %.3f", confidence.calibrated_confidence);
+    }
+
+    return out;
+}
+
+static std::string zeta_delib_synthesize(const std::string& query, const std::vector<zeta_evidence_t>& evidence, const zeta_confidence_t& confidence) {
+    (void)confidence;
+    if (evidence.empty()) return "UNKNOWN";
+
+    std::string out = "";
+    out += "Question: " + query + "\n";
+    out += "Evidence:";
+    int count = 0;
+    for (const auto& ev : evidence) {
+        if (count++ >= 4) break;
+        out += "\n[#" + std::to_string(ev.node_id) + "] " + std::string(ev.content);
+    }
+    return out;
+}
+
+static zeta_reflection_t zeta_delib_reflect(const std::string& query, const std::string& draft, const std::vector<zeta_evidence_t>& evidence) {
+    (void)query;
+    (void)evidence;
+    zeta_reflection_t out = {};
+    out.is_satisfactory = !draft.empty();
+    out.meta_confidence = 0.72f;
+    out.needs_more_evidence = evidence.empty();
+    if (out.needs_more_evidence) {
+        snprintf(out.revision_suggestion, sizeof(out.revision_suggestion), "Add grounded evidence before finalizing.");
+    }
+    return out;
+}
+
+// Run deliberation within research guardrails; returns overlay text (may be empty)
+static bool zeta_run_deliberation(const std::string& query,
+                                  const std::chrono::steady_clock::time_point& start,
+                                  int& research_used_local,
+                                  std::string& overlay_out) {
+    overlay_out.clear();
+    if (!g_deliberation_enabled) return false;
+    if (!g_research_mode_enabled) return false;
+    if (!zeta_research_time_allows(start)) return false;
+    if (!zeta_deliberation_ready()) return false;
+
+    auto result = zeta_deliberate(query);
+
+    if (!result.output_is_verified || result.output_states_uncertainty || result.veto.is_blocked) {
+        overlay_out = "[DELIBRATION] Unverified or blocked; respond with UNKNOWN unless evidence is cited.";
+    } else {
+        overlay_out = "[DELIBRATION] Verified summary available.";
+    }
+
+    // Count the deliberation step against local research budget to avoid runaway
+    zeta_research_note_spawn_local(research_used_local);
+    return true;
+}
+
+static void zeta_initialize_deliberation() {
+    if (!g_deliberation_enabled) return;
+
+    zeta_scratch_buffer_t* scratch = zeta_get_scratch_buffer();
+    if (!g_dual || !scratch) {
+        fprintf(stderr, "[DELIB] Skipped init (missing context or scratch)\n");
+        return;
+    }
+
+    if (!zeta_deliberation_init(g_dual, scratch, g_gkv_ctx)) {
+        fprintf(stderr, "[DELIB] Init failed\n");
+        return;
+    }
+
+    g_deliberation.set_callbacks(
+        zeta_delib_navigate,
+        zeta_delib_verify,
+        zeta_delib_gate,
+        zeta_delib_veto,
+        zeta_delib_synthesize,
+        zeta_delib_reflect
+    );
+
+    fprintf(stderr, "[DELIB] Callbacks wired and ready\n");
+}
+
+// Register retrieved nodes in co-retrieval graph and record correlations
+static void gitgraph_record_retrieval(const std::vector<zeta_retrieved_snippet_t>& snippets) {
+    if (!g_gitgraph || snippets.empty() || !g_dual) return;
+
+    // Register blocks for any unseen node ids using stored embeddings
+    for (const auto& sn : snippets) {
+        if (g_gitgraph_registered_blocks.find(sn.node_id) != g_gitgraph_registered_blocks.end()) continue;
+        zeta_graph_node_t* node = zeta_find_node_by_id(g_dual, sn.node_id);
+        if (!node || !node->is_active) continue;
+        zeta_gitgraph_register_block(g_gitgraph, node->node_id, node->embedding, GITGRAPH_SUMMARY_DIM);
+        g_gitgraph_registered_blocks.insert(sn.node_id);
+    }
+
+    if (snippets.size() < 2) return;  // Need at least a pair to form an edge
+
+    int64_t ids[32];
+    int count = 0;
+    for (const auto& sn : snippets) {
+        if (count >= (int)(sizeof(ids)/sizeof(ids[0]))) break;
+        ids[count++] = sn.node_id;
+    }
+
+    zeta_gitgraph_record_co_retrieval(g_gitgraph, ids, count, g_gitgraph_step.fetch_add(1) + 1);
+}
+
+static std::unordered_map<std::string, std::pair<std::string, long long>> zeta_extract_defines(const std::vector<zeta_retrieved_snippet_t> & snippets) {
+    std::unordered_map<std::string, std::pair<std::string, long long>> out;
+
+    // #define NAME 123
+    static const std::regex re_define(R"(#\s*define\s+([A-Za-z_][A-Za-z0-9_]*)\s+([0-9]+)\b)");
+    // constexpr int NAME = 123; / const int NAME = 123; / static const int NAME = 123;
+    static const std::regex re_constexpr(R"(\b(?:static\s+)?(?:constexpr|const)\s+\w+\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([0-9]+)\b)");
+
+    for (const auto & sn : snippets) {
+        {
+            std::sregex_iterator it(sn.value.begin(), sn.value.end(), re_define);
+            std::sregex_iterator end;
+            for (; it != end; ++it) {
+                const std::string name = (*it)[1].str();
+                const std::string val = (*it)[2].str();
+                if (!name.empty() && !val.empty()) {
+                    out[name] = {val, sn.node_id};
+                }
+            }
+        }
+        {
+            std::sregex_iterator it(sn.value.begin(), sn.value.end(), re_constexpr);
+            std::sregex_iterator end;
+            for (; it != end; ++it) {
+                const std::string name = (*it)[1].str();
+                const std::string val = (*it)[2].str();
+                if (!name.empty() && !val.empty()) {
+                    out[name] = {val, sn.node_id};
+                }
+            }
+        }
+    }
+
+    return out;
+}
+
+static std::vector<std::string> zeta_extract_requested_symbols(const std::string & user_text, size_t max_syms = 10) {
+    std::vector<std::string> out;
+    out.reserve(8);
+
+    // Prefer ZETA_* identifiers; keep order of first appearance.
+    static const std::regex re_sym(R"(\b(ZETA_[A-Z0-9_]{2,})\b)");
+    std::unordered_set<std::string> seen;
+    for (std::sregex_iterator it(user_text.begin(), user_text.end(), re_sym), end; it != end; ++it) {
+        std::string sym = (*it)[1].str();
+        if (sym.empty()) continue;
+        if (seen.insert(sym).second) {
+            out.push_back(std::move(sym));
+            if (out.size() >= max_syms) break;
+        }
+    }
+    return out;
+}
+
+static bool zeta_is_grounded_research_answer(const std::string & plain_answer, const std::string & evidence) {
+    // Allow UNKNOWN unconditionally
+    {
+        std::string trimmed = plain_answer;
+        trimmed.erase(0, trimmed.find_first_not_of(" \t\r\n"));
+        trimmed.erase(trimmed.find_last_not_of(" \t\r\n") + 1);
+        if (trimmed == "UNKNOWN" || trimmed.rfind("UNKNOWN", 0) == 0) return true;
+    }
+
+    // Require at least one citation marker [#<node_id>] for any non-UNKNOWN answer.
+    if (plain_answer.find("[#") == std::string::npos) {
+        return false;
+    }
+
+    // If the answer contains explicit integers, require those integers appear in evidence.
+    static const std::regex re_int(R"(\b([0-9]{1,10})\b)");
+    for (std::sregex_iterator it(plain_answer.begin(), plain_answer.end(), re_int), end; it != end; ++it) {
+        const std::string num = (*it)[1].str();
+        if (!num.empty() && evidence.find(num) == std::string::npos) {
+            return false;
+        }
+    }
+
+    // If the answer mentions ZETA_* symbols, require those symbols appear in evidence.
+    static const std::regex re_sym(R"(\b(ZETA_[A-Z0-9_]{2,})\b)");
+    for (std::sregex_iterator it(plain_answer.begin(), plain_answer.end(), re_sym), end; it != end; ++it) {
+        const std::string sym = (*it)[1].str();
+        if (!sym.empty() && evidence.find(sym) == std::string::npos) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static bool zeta_try_answer_constants_from_evidence(
+    const std::string & user_text,
+    const std::vector<zeta_retrieved_snippet_t> & snippets,
+    std::string & out_plain_answer) {
+
+    auto requested = zeta_extract_requested_symbols(user_text);
+    if (requested.empty()) return false;
+
+    auto defs = zeta_extract_defines(snippets);
+    bool any_known = false;
+
+    std::string answer;
+    for (const auto & sym : requested) {
+        auto it = defs.find(sym);
+        if (it != defs.end()) {
+            any_known = true;
+            answer += sym + " = " + it->second.first + " [#" + std::to_string(it->second.second) + "]\n";
+        } else {
+            answer += sym + " = UNKNOWN\n";
+        }
+    }
+
+    if (!any_known) return false;
+    out_plain_answer = answer;
+    return true;
+}
 
 // Tier based on RECENCY (importance affects retrieval, not storage)
 static void zeta_apply_temporal_decay(zeta_dual_ctx_t* ctx) {
@@ -1190,6 +2050,77 @@ static std::string critic_check(const std::string& query, const std::string& res
     return result;
 }
 
+// Branching engine generation helper (14B). Caller is expected to hold g_mutex when needed.
+static std::string zeta_branching_generate(const std::string& prompt, float temp, int max_tokens) {
+    if (!g_ctx_conscious || !g_vocab) return "";
+
+    // Cap to a safe range to avoid runaway branch exploration
+    int capped_tokens = std::max(32, std::min(max_tokens, 256));
+
+    // Use current sampling params but allow a per-call temperature override
+    common_params_sampling sampling = g_params.sampling;
+    if (temp > 0.0f) sampling.temp = temp;
+
+    // Keep the standard identity/system framing for branch expansions
+    std::string wrapped = make_qwen_prompt(prompt);
+
+    std::vector<llama_token> tokens(4096);
+    int n_tokens = llama_tokenize(g_vocab, wrapped.c_str(), wrapped.length(),
+                                   tokens.data(), tokens.size(), true, true);
+    if (n_tokens <= 0 || n_tokens > 3800) return "";
+    tokens.resize(n_tokens);
+
+    llama_memory_clear(llama_get_memory(g_ctx_conscious), true);
+
+    llama_batch batch = llama_batch_init(n_tokens + capped_tokens + 8, 0, 1);
+    for (int i = 0; i < n_tokens; i++) {
+        common_batch_add(batch, tokens[i], i, {0}, i == n_tokens - 1);
+    }
+
+    if (llama_decode(g_ctx_conscious, batch) != 0) {
+        llama_batch_free(batch);
+        return "";
+    }
+
+    std::string output;
+    auto* sampler = common_sampler_init(g_model_conscious, sampling);
+    int kv_pos = n_tokens;
+
+    for (int i = 0; i < capped_tokens; i++) {
+        llama_token tok = common_sampler_sample(sampler, g_ctx_conscious, -1);
+        common_sampler_accept(sampler, tok, true);
+
+        char piece[64] = {0};
+        llama_token_to_piece(g_vocab, tok, piece, sizeof(piece), 0, true);
+
+        if (llama_vocab_is_eog(g_vocab, tok) || strstr(piece, "<|im_end|>")) break;
+
+        output += piece;
+
+        common_batch_clear(batch);
+        common_batch_add(batch, tok, kv_pos++, {0}, true);
+        if (llama_decode(g_ctx_conscious, batch) != 0) break;
+    }
+
+    common_sampler_free(sampler);
+    llama_batch_free(batch);
+
+    return output;
+}
+
+// Branching engine validation helper (lightweight semantic check)
+static bool zeta_branching_validate(const std::string& content, const std::string& criteria) {
+    if (content.empty()) return false;
+
+    // Use critic when available; otherwise fall back to non-empty check
+    if (g_model_critic && g_ctx_critic) {
+        std::string verdict = critic_check(criteria.empty() ? "branch" : criteria, content);
+        return verdict.find("PASS") != std::string::npos;
+    }
+
+    return true;
+}
+
 // ============================================================================
 // CHUNKED LONG OUTPUT GENERATION
 // Enables outputs beyond context window by generating in chunks with plan
@@ -2011,6 +2942,11 @@ static std::string generate(const std::string& prompt, int max_tokens) {
     auto user_active_guard = [](void*) { g_user_active = false; };
     std::unique_ptr<void, decltype(user_active_guard)> guard((void*)1, user_active_guard);
 
+    auto research_start = std::chrono::steady_clock::now();
+    int research_used_local = 0;
+    std::string deliberation_overlay;
+    std::string branching_overlay;
+
     fprintf(stderr, "[GENERATE] Received prompt (len=%zu): %.60s...\n", prompt.size(), prompt.c_str());
 
     // MODE CONTROLLER: Decide effective mode and apply sampling policy.
@@ -2018,6 +2954,21 @@ static std::string generate(const std::string& prompt, int max_tokens) {
     {
         std::string query_class = route_query(prompt);
         zeta_modes::Mode detected = zeta_modes::g_mode_controller.detect_mode(prompt, query_class);
+
+        // Auto-switch gating for RESEARCH: require flag + budget
+        if (detected == zeta_modes::Mode::RESEARCH) {
+            g_research_auto_switch_attempts.fetch_add(1);
+            if (!g_research_mode_enabled) {
+                g_research_auto_switch_denied_flag.fetch_add(1);
+                detected = zeta_modes::g_mode_controller.current_mode();
+            } else if (!zeta_research_budget_allows()) {
+                g_research_auto_switch_denied_budget.fetch_add(1);
+                detected = zeta_modes::g_mode_controller.current_mode();
+            } else {
+                g_research_auto_switch_success.fetch_add(1);
+            }
+        }
+
         zeta_modes::g_mode_controller.switch_mode(detected, prompt);
 
         const auto & policy = zeta_modes::g_mode_controller.current_policy();
@@ -2031,6 +2982,40 @@ static std::string generate(const std::string& prompt, int max_tokens) {
                 g_params.sampling.temp,
                 g_params.sampling.penalty_repeat,
                 g_params.sampling.penalty_last_n);
+    }
+
+    // Optional deliberation pre-pass for RESEARCH mode (budget + time gated)
+    if (zeta_modes::g_mode_controller.current_mode() == zeta_modes::Mode::RESEARCH) {
+        (void)zeta_run_deliberation(prompt, research_start, research_used_local, deliberation_overlay);
+    }
+
+    // Optional branching pre-pass (mode-policy driven, lightweight)
+    {
+        const auto& policy = zeta_modes::g_mode_controller.current_policy();
+        if (policy.branching_level != zeta_branching::BranchingLevel::NONE) {
+            auto branch_start = std::chrono::steady_clock::now();
+            zeta_modes::g_mode_controller.seed_exploration(prompt);
+
+            int max_iters = std::min(policy.branch_budget.max_iterations, 2);  // keep pre-pass cheap
+            for (int i = 0; i < max_iters; i++) {
+                // Respect strict research wall-clock budget when in RESEARCH
+                if (zeta_modes::g_mode_controller.current_mode() == zeta_modes::Mode::RESEARCH &&
+                    !zeta_research_time_allows(branch_start)) {
+                    break;
+                }
+
+                std::string status = zeta_modes::g_mode_controller.iterate();
+                (void)status;  // status emitted internally via stderr
+
+                // Early stop on convergence
+                if (zeta_modes::g_mode_controller.engine().global_entropy() < 0.2f) break;
+            }
+
+            std::string branched = zeta_modes::g_mode_controller.conclude();
+            if (!branched.empty()) {
+                branching_overlay = "[BRANCHED EXPLORATION]\n" + branched + "\n[/BRANCHED EXPLORATION]\n";
+            }
+        }
     }
 
     // === CLOUD ROUTING: Optionally escalate complex queries to cloud APIs ===
@@ -2261,6 +3246,13 @@ static std::string generate(const std::string& prompt, int max_tokens) {
     // Add components in priority order, respecting size limit
     if (strlen(gaslight_warning) > 0) {
         augmented_prompt += gaslight_warning;
+    }
+    if (!deliberation_overlay.empty() && augmented_prompt.size() + deliberation_overlay.size() < (size_t)max_context_chars) {
+        augmented_prompt += deliberation_overlay;
+        augmented_prompt += "\n";
+    }
+    if (!branching_overlay.empty() && augmented_prompt.size() + branching_overlay.size() < (size_t)max_context_chars) {
+        augmented_prompt += branching_overlay;
     }
     if (strlen(conflict_warning) > 0 && augmented_prompt.size() + strlen(conflict_warning) < (size_t)max_context_chars) {
         augmented_prompt += conflict_warning;
@@ -2995,6 +3987,144 @@ static void save_graph() {
     }
 }
 
+static void persist_git_state(bool force, const char* reason) {
+    (void)reason;
+    if (!force && !g_git_autosave_enabled) return;
+    save_graph();
+    save_gitgraph_ctx();
+    save_gitgraph_state();
+    if (reason) {
+        fprintf(stderr, "[GIT-AUTOSAVE] %s\n", reason);
+    }
+}
+
+// Persist GitGraph branch metadata (lightweight state, not full graph)
+static void save_gitgraph_ctx() {
+    if (!g_git) return;
+
+    char path[1024];
+    snprintf(path, sizeof(path), "%s/gitgraph.bin", g_storage_dir.c_str());
+    FILE* f = fopen(path, "wb");
+    if (!f) {
+        fprintf(stderr, "[GITGRAPH] ERROR: Could not open %s for write\n", path);
+        return;
+    }
+
+    const uint32_t magic = 0x47495443; // "GITC"
+    const uint32_t version = 1;
+    fwrite(&magic, sizeof(magic), 1, f);
+    fwrite(&version, sizeof(version), 1, f);
+
+    fwrite(&g_git->num_branches, sizeof(g_git->num_branches), 1, f);
+    fwrite(&g_git->current_branch_idx, sizeof(g_git->current_branch_idx), 1, f);
+
+    for (int i = 0; i < g_git->num_branches; i++) {
+        zeta_branch_t* b = &g_git->branches[i];
+        fwrite(b->name, sizeof(b->name), 1, f);
+        fwrite(&b->head_node_id, sizeof(b->head_node_id), 1, f);
+        fwrite(&b->parent_branch_id, sizeof(b->parent_branch_id), 1, f);
+        fwrite(&b->fork_point_node_id, sizeof(b->fork_point_node_id), 1, f);
+        fwrite(&b->created_at, sizeof(b->created_at), 1, f);
+        fwrite(&b->last_commit_at, sizeof(b->last_commit_at), 1, f);
+        fwrite(&b->commit_count, sizeof(b->commit_count), 1, f);
+        uint8_t flags = (b->is_active ? 1 : 0) | (b->is_protected ? 2 : 0);
+        fwrite(&flags, sizeof(flags), 1, f);
+    }
+
+    fclose(f);
+    fprintf(stderr, "[GITGRAPH] Saved %d branches to %s\n", g_git->num_branches, path);
+}
+
+// Persist co-retrieval GitGraph
+static void save_gitgraph_state() {
+    if (!g_gitgraph) return;
+
+    char path[1024];
+    snprintf(path, sizeof(path), "%s/gitgraph_state.bin", g_storage_dir.c_str());
+    int rc = zeta_gitgraph_save(g_gitgraph, path);
+    if (rc == 0) {
+        fprintf(stderr, "[GITGRAPH] Saved co-retrieval graph to %s (blocks=%d edges=%d)\n",
+                path, g_gitgraph->num_blocks, g_gitgraph->num_edges);
+    } else {
+        fprintf(stderr, "[GITGRAPH] ERROR: Failed to save co-retrieval graph to %s\n", path);
+    }
+}
+
+// Restore GitGraph branch metadata
+static void load_gitgraph_ctx() {
+    if (!g_git) return;
+
+    char path[1024];
+    snprintf(path, sizeof(path), "%s/gitgraph.bin", g_storage_dir.c_str());
+    FILE* f = fopen(path, "rb");
+    if (!f) return;  // No persisted state yet
+
+    uint32_t magic = 0, version = 0;
+    if (fread(&magic, sizeof(magic), 1, f) != 1 || fread(&version, sizeof(version), 1, f) != 1 ||
+        magic != 0x47495443 || version != 1) {
+        fclose(f);
+        fprintf(stderr, "[GITGRAPH] Invalid gitgraph.bin header\n");
+        return;
+    }
+
+    int num_branches = 0;
+    int current_idx = 0;
+    if (fread(&num_branches, sizeof(num_branches), 1, f) != 1 ||
+        fread(&current_idx, sizeof(current_idx), 1, f) != 1 ||
+        num_branches < 0 || num_branches > ZETA_MAX_BRANCHES) {
+        fclose(f);
+        fprintf(stderr, "[GITGRAPH] Invalid branch counts in gitgraph.bin\n");
+        return;
+    }
+
+    memset(g_git->branches, 0, sizeof(g_git->branches));
+    g_git->num_branches = num_branches;
+    g_git->current_branch_idx = (current_idx >= 0 && current_idx < num_branches) ? current_idx : 0;
+
+    for (int i = 0; i < num_branches; i++) {
+        zeta_branch_t* b = &g_git->branches[i];
+        fread(b->name, sizeof(b->name), 1, f);
+        fread(&b->head_node_id, sizeof(b->head_node_id), 1, f);
+        fread(&b->parent_branch_id, sizeof(b->parent_branch_id), 1, f);
+        fread(&b->fork_point_node_id, sizeof(b->fork_point_node_id), 1, f);
+        fread(&b->created_at, sizeof(b->created_at), 1, f);
+        fread(&b->last_commit_at, sizeof(b->last_commit_at), 1, f);
+        fread(&b->commit_count, sizeof(b->commit_count), 1, f);
+        uint8_t flags = 0;
+        fread(&flags, sizeof(flags), 1, f);
+        b->is_active = (flags & 1) != 0;
+        b->is_protected = (flags & 2) != 0;
+    }
+    fclose(f);
+    fprintf(stderr, "[GITGRAPH] Loaded %d branches (HEAD=%s)\n", g_git->num_branches,
+            zeta_git_current_branch(g_git));
+}
+
+static void load_gitgraph_state() {
+    char path[1024];
+    snprintf(path, sizeof(path), "%s/gitgraph_state.bin", g_storage_dir.c_str());
+
+    zeta_gitgraph_t* loaded = zeta_gitgraph_load(path);
+    if (loaded) {
+        g_gitgraph = loaded;
+        g_gitgraph_registered_blocks.clear();
+        for (int i = 0; i < g_gitgraph->num_blocks; i++) {
+            g_gitgraph_registered_blocks.insert(g_gitgraph->block_meta[i].block_id);
+        }
+        fprintf(stderr, "[GITGRAPH] Loaded co-retrieval graph (blocks=%d edges=%d)\n",
+                g_gitgraph->num_blocks, g_gitgraph->num_edges);
+        return;
+    }
+
+    // Initialize empty graph if no persisted state
+    g_gitgraph = zeta_gitgraph_init(ZETA_MAX_GRAPH_NODES, GITGRAPH_SUMMARY_DIM);
+    if (g_gitgraph) {
+        fprintf(stderr, "[GITGRAPH] Initialized empty co-retrieval graph (capacity=%d)\n", ZETA_MAX_GRAPH_NODES);
+    } else {
+        fprintf(stderr, "[GITGRAPH] ERROR: Failed to initialize co-retrieval graph\n");
+    }
+}
+
 static void load_graph() {
     if (!g_dual) return;
 
@@ -3108,6 +4238,22 @@ int main(int argc, char** argv) {
         fprintf(stderr, "  --ctx-3b <N>            Context size for 7B/3B\n");
         fprintf(stderr, "  --zeta-storage <path>   Storage directory\n");
         fprintf(stderr, "  --memory-password <pw>  Memory protection password\n");
+        fprintf(stderr, "  --dedup-threshold <F>   Override dedup similarity (default config: %.2f)\n", g_dedup_threshold_cfg);
+        fprintf(stderr, "  --dedup-disable         Disable ingest dedup (stats still available)\n");
+        fprintf(stderr, "  --embed-memory-disable  Disable embed-memory maintenance hook\n");
+        fprintf(stderr, "  --embed-cache-disable   Disable embedding cache (clears existing entries)\n");
+        fprintf(stderr, "  --embed-cache-enable    Enable embedding cache\n");
+        fprintf(stderr, "  --embed-cache-max <N>   Max embedding cache entries (default 500)\n");
+        fprintf(stderr, "  --embed-cache-ttl <N>   TTL seconds for embedding cache (default 600)\n");
+        fprintf(stderr, "  --embed-cache-minlen <N> Min text length to cache (default 10)\n");
+        fprintf(stderr, "  --git-autosave-disable  Disable autosave of graph/git branches on writes\n");
+        fprintf(stderr, "  --causal-embeddings-disable Disable embedding-based causal edge extraction (fallback to verb patterns)\n");
+        fprintf(stderr, "  --tunnel-disable        Disable momentum tunneling retrieval\n");
+        fprintf(stderr, "  --tunnel-enable         Enable momentum tunneling retrieval\n");
+        fprintf(stderr, "  --token-cache-enable    Enable persistent token cache for snippets\n");
+        fprintf(stderr, "  --token-cache-cap <N>   Max cached tokens (default 200000)\n");
+        fprintf(stderr, "  --token-cache-entries <N> Max cached entries (default 4096)\n");
+        fprintf(stderr, "  --deliberation-enable   Enable deliberation pre-pass in research mode\n");
         fprintf(stderr, "\nDefaults (if no config):\n");
         fprintf(stderr, "  14B:  %s\n", Z6_MODEL_14B);
         fprintf(stderr, "  7B:   %s\n", Z6_MODEL_7B);
@@ -3130,6 +4276,7 @@ int main(int argc, char** argv) {
     g_storage_dir = g_config.storage_dir.empty() ? "/storage" : g_config.storage_dir;
     g_ctx_size_14b = g_config.ctx_14b > 0 ? g_config.ctx_14b : ZETA_CTX_SIZE;
     g_ctx_size_3b = g_config.ctx_7b > 0 ? g_config.ctx_7b : ZETA_CTX_SIZE_3B;
+    g_dedup_threshold_cfg = (g_config.dedup_threshold > 0.0f) ? g_config.dedup_threshold : 0.86f;
 
     // Default sampling params (overwritten per-request by apply_task_sampling())
     // See apply_task_sampling() for task-aware adjustments (CODE/MATH/CREATIVE)
@@ -3155,6 +4302,27 @@ int main(int argc, char** argv) {
         else if (strcmp(argv[i], "--stream-nodes") == 0 && i+1 < argc) g_stream_max_nodes = atoi(argv[++i]);
         else if (strcmp(argv[i], "--code-tokens") == 0 && i+1 < argc) g_code_token_budget = atoi(argv[++i]);
         else if (strcmp(argv[i], "--code-nodes") == 0 && i+1 < argc) g_code_max_nodes = atoi(argv[++i]);
+        else if (strcmp(argv[i], "--dedup-threshold") == 0 && i+1 < argc) g_dedup_threshold_cfg = (float)atof(argv[++i]);
+        else if (strcmp(argv[i], "--dedup-disable") == 0) g_dedup_ingest_enabled = false;
+        else if (strcmp(argv[i], "--dedup-enable") == 0) g_dedup_ingest_enabled = true;
+        else if (strcmp(argv[i], "--embed-memory-disable") == 0) g_embed_memory_hook_enabled = false;
+        else if (strcmp(argv[i], "--embed-memory-enable") == 0) g_embed_memory_hook_enabled = true;
+        else if (strcmp(argv[i], "--embed-cache-disable") == 0) g_embed_cache_enabled = false;
+        else if (strcmp(argv[i], "--embed-cache-enable") == 0) g_embed_cache_enabled = true;
+        else if (strcmp(argv[i], "--embed-cache-max") == 0 && i+1 < argc) g_embed_cache_max_entries_override = std::max(0, atoi(argv[++i]));
+        else if (strcmp(argv[i], "--embed-cache-ttl") == 0 && i+1 < argc) g_embed_cache_ttl_override = std::max(0, atoi(argv[++i]));
+        else if (strcmp(argv[i], "--embed-cache-minlen") == 0 && i+1 < argc) g_embed_cache_min_len_override = std::max(0, atoi(argv[++i]));
+        else if (strcmp(argv[i], "--git-autosave-disable") == 0) g_git_autosave_enabled = false;
+        else if (strcmp(argv[i], "--git-autosave-enable") == 0) g_git_autosave_enabled = true;
+        else if (strcmp(argv[i], "--causal-embeddings-disable") == 0) zeta_set_causal_embeddings_enabled(false);
+        else if (strcmp(argv[i], "--causal-embeddings-enable") == 0) zeta_set_causal_embeddings_enabled(true);
+        else if (strcmp(argv[i], "--tunnel-disable") == 0) g_tunnel_enabled = false;
+        else if (strcmp(argv[i], "--tunnel-enable") == 0) g_tunnel_enabled = true;
+        else if (strcmp(argv[i], "--token-cache-enable") == 0) g_token_cache_enabled = true;
+        else if (strcmp(argv[i], "--token-cache-cap") == 0 && i+1 < argc) g_token_cache_cap_tokens = (size_t)std::max(0, atoi(argv[++i]));
+        else if (strcmp(argv[i], "--token-cache-entries") == 0 && i+1 < argc) g_token_cache_cap_entries = (size_t)std::max(0, atoi(argv[++i]));
+        else if (strcmp(argv[i], "--research-enable") == 0 || strcmp(argv[i], "--enable-research") == 0) g_research_mode_enabled = true;
+        else if (strcmp(argv[i], "--deliberation-enable") == 0) g_deliberation_enabled = true;
         // Context size flags
         else if (strcmp(argv[i], "--ctx-14b") == 0 && i+1 < argc) g_ctx_size_14b = atoi(argv[++i]);
         else if (strcmp(argv[i], "--ctx-3b") == 0 && i+1 < argc) g_ctx_size_3b = atoi(argv[++i]);
@@ -3165,6 +4333,15 @@ int main(int argc, char** argv) {
         else if (strcmp(argv[i], "--semantic-password") == 0 && i+1 < argc) zeta_set_sudo_password(argv[++i]);
     }
 
+    // Apply embed cache config overrides before initialization/logging
+    g_embed_cache.set_enabled(g_embed_cache_enabled);
+    g_embed_cache.configure(g_embed_cache_max_entries_override,
+                            g_embed_cache_ttl_override,
+                            g_embed_cache_min_len_override);
+    if (!g_embed_cache_enabled) {
+        g_embed_cache.clear();
+    }
+
     fprintf(stderr, "Z.E.T.A. Server v5.1 (Conscious Scratch Buffer)\n");
     fprintf(stderr, "Sudo:      Unified password (set via ZETA_SUDO_PASSWORD in config or --sudo-password)\n");
     fprintf(stderr, "Context:   14B=%d, 7B/3B=%d tokens\n", g_ctx_size_14b, g_ctx_size_3b);
@@ -3173,6 +4350,25 @@ int main(int argc, char** argv) {
     fprintf(stderr, "14B Conscious: %s\n", model_conscious_path.c_str());
     fprintf(stderr, "7B Coder: %s\n", model_7b_coder_path.empty() ? "(not loaded)" : model_7b_coder_path.c_str());
     fprintf(stderr, "Embed: %s\n", g_embed_model_path.empty() ? "(not loaded)" : g_embed_model_path.c_str());
+    fprintf(stderr, "Dedup ingest: %s (thr=%.2f)\n", g_dedup_ingest_enabled ? "on" : "off", g_dedup_threshold_cfg);
+    fprintf(stderr, "Embed-memory hook: %s\n", g_embed_memory_hook_enabled ? "on" : "off");
+        fprintf(stderr, "Embed cache: %s (max=%d, ttl=%d, minlen=%d)\n",
+            g_embed_cache.is_enabled() ? "on" : "off",
+            g_embed_cache.max_entries,
+            g_embed_cache.ttl_seconds,
+            g_embed_cache.min_text_len);
+    fprintf(stderr, "Tunnel search: %s\n", g_tunnel_enabled ? "on" : "off");
+    fprintf(stderr, "Token cache: %s (cap=%zu tokens, %zu entries)\n",
+            g_token_cache_enabled ? "on" : "off", g_token_cache_cap_tokens, g_token_cache_cap_entries);
+    fprintf(stderr, "Research mode: %s (branches=%d, depth=%d, time_ms=%d)\n",
+            g_research_mode_enabled ? "on" : "off",
+            g_research_budget_max_branches,
+            g_research_budget_max_depth,
+            g_research_budget_time_ms);
+        fprintf(stderr, "Deliberation: %s (pre-pass in research mode)\n",
+            g_deliberation_enabled ? "on" : "off");
+    fprintf(stderr, "Git autosave: %s\n", g_git_autosave_enabled ? "on" : "off");
+    fprintf(stderr, "Causal embeddings: %s (fallback to verb patterns if off)\n", g_zeta_causal_embeddings_enabled ? "on" : "off");
     fprintf(stderr, "Port: %d (GPU layers: %d)\n", port, gpu_layers);
 
     // Load 14B model
@@ -3282,6 +4478,14 @@ int main(int argc, char** argv) {
     zeta_set_vocab(g_vocab);  // Enable tokenization at storage
     g_n_embd = llama_model_n_embd(g_model_conscious);
 
+    if (g_token_cache_enabled) {
+        zeta_token_cache::init(g_storage_dir, g_token_cache_cap_tokens, g_token_cache_cap_entries);
+        size_t st_entries = 0, st_tokens = 0, st_max_tokens = 0, st_max_entries = 0;
+        zeta_token_cache::stats(st_entries, st_tokens, st_max_tokens, st_max_entries);
+        fprintf(stderr, "[TOKEN-CACHE] Initialized at %s (entries=%zu, tokens=%zu / %zu, cap=%zu)\n",
+                g_storage_dir.c_str(), st_entries, st_tokens, st_max_tokens, st_max_entries);
+    }
+
     // Init ZETA memory
     // Relaxed retrieval threshold to improve recall/paraphrase tolerance
     // Use lock level from config (default: 3 = remote verification)
@@ -3296,6 +4500,23 @@ int main(int argc, char** argv) {
 
     // Init dual-process engine
     g_dual = zeta_dual_init(g_model_subconscious ? g_model_subconscious : g_model_conscious, g_storage_dir.c_str());
+
+    // Init dedup engine (concept-key exact + LSH similar lookups)
+    if (g_dual) {
+        g_dedup = zeta_dedup_init(2048, g_dedup_threshold_cfg);
+        if (g_dedup) {
+            zeta_set_dedup_ctx(g_dedup);
+            zeta_set_dedup_enabled(g_dedup_ingest_enabled);
+            fprintf(stderr, "[DEDUP] Initialized (dim=2048, thr=%.3f, ingest=%s)\n",
+                    (double)g_dedup_threshold_cfg, g_dedup_ingest_enabled ? "on" : "off");
+        } else {
+            fprintf(stderr, "[DEDUP] Initialization failed\n");
+        }
+
+        // Wire embed-memory maintenance hook (requires embed model to be effective)
+        zeta_set_fact_commit_hook(zeta_embed_memory_hook);
+        zeta_set_fact_hook_enabled(g_embed_memory_hook_enabled);
+    }
 
     // Init GitGraph (git-style branching for knowledge graph)
     if (g_dual) {
@@ -3353,6 +4574,18 @@ int main(int argc, char** argv) {
     if (g_dual) {
         load_graph();  // Restore previous graph
 
+        if (g_git) {
+            load_gitgraph_ctx();
+        }
+
+        // Load co-retrieval graph (or initialize empty)
+        load_gitgraph_state();
+
+        if (g_dedup) {
+            zeta_rebuild_dedup_index();
+            fprintf(stderr, "[DEDUP] Rebuilt index from %d nodes\n", g_dual->num_nodes);
+        }
+
         // Initialize core identity with pinned high-salience facts
         zeta_init_core_identity(g_dual);
         zeta_boost_identity_salience(g_dual);
@@ -3400,6 +4633,22 @@ int main(int argc, char** argv) {
     } else {
         fprintf(stderr, "[OUTPUT] WARNING: Failed to initialize output buffer\n");
     }
+
+    // Initialize deliberation engine (guarded by flag)
+    zeta_initialize_deliberation();
+
+    // Wire Mode Controller callbacks (branching engine)
+    zeta_modes::g_mode_controller.set_generate_fn([](const std::string& prompt, float temp, int max_tokens) {
+        return zeta_branching_generate(prompt, temp, max_tokens);
+    });
+    zeta_modes::g_mode_controller.set_validate_fn([](const std::string& content, const std::string& criteria) {
+        return zeta_branching_validate(content, criteria);
+    });
+    zeta_modes::g_mode_controller.set_gitgraph_root(g_storage_dir);
+    zeta_modes::g_mode_controller.set_mode_change_callback([](zeta_modes::Mode old_mode, zeta_modes::Mode new_mode) {
+        fprintf(stderr, "[MODE] Callback: %s -> %s\n",
+                zeta_modes::mode_name(old_mode), zeta_modes::mode_name(new_mode));
+    });
 
     // Initialize Mode Controller (multi-hypothesis branching)
     zeta_modes::g_mode_controller.set_mode(zeta_modes::Mode::CHAT);  // Default to CHAT
@@ -3974,9 +5223,120 @@ int main(int argc, char** argv) {
             }
         }
 
+        // === RESEARCH MODE STRICT GROUNDING for /generate ===
+        int research_used_local = 0;
+        auto research_start = std::chrono::steady_clock::now();
+        bool strict_research = (zeta_modes::g_mode_controller.current_mode() == zeta_modes::Mode::RESEARCH);
+        if (strict_research && !g_research_mode_enabled) {
+            strict_research = false;  // Require explicit flag
+        }
+        if (strict_research) {
+            if (!zeta_research_budget_allows_local(research_used_local)) {
+                strict_research = false;
+                zeta_research_note_prune_local(research_used_local);
+            } else {
+                zeta_research_note_spawn_local(research_used_local);
+            }
+        }
+        std::string research_evidence;
+        if (strict_research) {
+            if (!zeta_research_time_allows(research_start)) {
+                strict_research = false;
+                zeta_research_note_prune_local(research_used_local);
+            }
+        }
+        if (strict_research) {
+            auto snippets = zeta_retrieve_snippets(prompt, 8);
+            gitgraph_record_retrieval(snippets);
+
+            if (snippets.empty()) {
+                const int graph_nodes = g_dual ? g_dual->num_nodes : 0;
+                const int graph_edges = g_dual ? g_dual->num_edges : 0;
+                const std::string unknown = zeta_escape_json_string("UNKNOWN");
+                char json[2048];
+                snprintf(json, sizeof(json),
+                    "{\"output\":\"%s\",\"tokens\":0,\"momentum\":0.0,\"graph_nodes\":%d,\"graph_edges\":%d}",
+                    unknown.c_str(), graph_nodes, graph_edges);
+                res.set_header("Connection", "close");
+                res.set_content(json, "application/json");
+                return;
+            }
+
+            // Build evidence block
+            std::string evidence;
+            evidence.reserve(8192);
+            evidence += "EVIDENCE:\n";
+            for (const auto & sn : snippets) {
+                evidence += "[#" + std::to_string(sn.node_id) + "] label=" + sn.label + " sim=" + std::to_string(sn.similarity) + "\n";
+                evidence += sn.value;
+                if (!evidence.empty() && evidence.back() != '\n') evidence += "\n";
+                evidence += "\n";
+                if (evidence.size() > 24000) break;
+            }
+            research_evidence = evidence;
+
+            // Deterministic short-circuit for simple constant extraction
+            std::string deterministic;
+            if (zeta_try_answer_constants_from_evidence(prompt, snippets, deterministic)) {
+                const int graph_nodes = g_dual ? g_dual->num_nodes : 0;
+                const int graph_edges = g_dual ? g_dual->num_edges : 0;
+                const std::string escaped = zeta_escape_json_string(deterministic);
+                char json[8192];
+                snprintf(json, sizeof(json),
+                    "{\"output\":\"%s\",\"tokens\":0,\"momentum\":0.0,\"graph_nodes\":%d,\"graph_edges\":%d}",
+                    escaped.c_str(), graph_nodes, graph_edges);
+                res.set_header("Connection", "close");
+                res.set_content(json, "application/json");
+                return;
+            }
+
+            // Override enhanced prompt with strict evidence-gated prompt
+            std::string strict_system =
+                "[SYSTEM]\n"
+                "RESEARCH MODE (STRICT)\n"
+                "- Use ONLY the EVIDENCE block.\n"
+                "- If not explicitly supported by evidence, output UNKNOWN.\n"
+                "- For every supported claim, cite at least one evidence item as [#<node_id>].\n"
+                "[/SYSTEM]\n\n";
+            enhanced_prompt = tool_context_gen + strict_system + research_evidence + "\n" + prompt;
+        }
+
         std::string result = generate(enhanced_prompt, max_tokens);
         fprintf(stderr, "[HTTP] generate() returned, result size=%zu\n", result.size());
         g_speed_receipt.print();  // Speed Receipt: print timing summary
+
+        // Post-validate RESEARCH answers against evidence; force UNKNOWN when unsupported.
+        if (strict_research) {
+            std::string output_text_escaped;
+            size_t out_start = result.find("\"output\":");
+            if (out_start != std::string::npos) {
+                out_start = result.find('"', out_start + 9);
+                if (out_start != std::string::npos) {
+                    out_start++;
+                    size_t out_end = out_start;
+                    while (out_end < result.size()) {
+                        if (result[out_end] == '"' && result[out_end-1] != '\\') break;
+                        out_end++;
+                    }
+                    output_text_escaped = result.substr(out_start, out_end - out_start);
+                }
+            }
+
+            const std::string plain = zeta_unescape_json_string(output_text_escaped);
+            if (!zeta_is_grounded_research_answer(plain, research_evidence)) {
+                const int graph_nodes = g_dual ? g_dual->num_nodes : 0;
+                const int graph_edges = g_dual ? g_dual->num_edges : 0;
+                const std::string unknown = zeta_escape_json_string("UNKNOWN");
+                char json[2048];
+                snprintf(json, sizeof(json),
+                    "{\"output\":\"%s\",\"tokens\":0,\"momentum\":0.0,\"graph_nodes\":%d,\"graph_edges\":%d}",
+                    unknown.c_str(), graph_nodes, graph_edges);
+                res.set_header("Connection", "close");
+                res.set_header("Content-Length", std::to_string(strlen(json)));
+                res.set_content(json, "application/json");
+                return;
+            }
+        }
 
         // ====== FACT EXTRACTION (Core Coherence Flow) ======
         // Extract facts from generation for future context
@@ -4017,6 +5377,14 @@ int main(int argc, char** argv) {
                         int facts = ZETA_EXTRACT_FACTS(output_text.c_str(), false);
                         if (facts > 0) {
                             fprintf(stderr, "[EXTRACT] Captured %d facts from generation\n", facts);
+
+                            // Capture KV for high-salience nodes created/updated by extraction
+                            int kv_cap = zeta_gkv_capture_high_salience(
+                                g_dual, g_ctx_conscious, g_model_conscious, 0.85f, 3
+                            );
+                            if (kv_cap > 0) {
+                                fprintf(stderr, "[GKV-CAPTURE] Captured %d high-salience nodes after extract\n", kv_cap);
+                            }
                         }
                     } else {
                         fprintf(stderr, "[EXTRACT] Skipped - creative mode (epistemic scoping)\n");
@@ -4294,6 +5662,7 @@ int main(int argc, char** argv) {
         float temperature = 0.7f;  // TODO: Wire to generation params
         (void)temperature;  // Suppress unused warning until implemented
         std::string prompt;
+        std::string last_user_message;
 
         // Extract model
         size_t model_pos = req.body.find("\"model\":");
@@ -4379,6 +5748,7 @@ int main(int argc, char** argv) {
                         prompt += "[SYSTEM]\n" + unescaped + "\n[/SYSTEM]\n\n";
                     } else if (role == "user") {
                         prompt += unescaped;
+                        last_user_message = unescaped;
                     } else if (role == "assistant") {
                         prompt += "\n\nAssistant: " + unescaped + "\n\nUser: ";
                     }
@@ -4407,6 +5777,9 @@ int main(int argc, char** argv) {
         fprintf(stderr, "[OPENAI-COMPAT] Model: %s, MaxTokens: %d, Prompt: %.100s...\n",
                 model.c_str(), max_tokens, prompt.c_str());
 
+        auto research_start = std::chrono::steady_clock::now();
+        int research_used_local = 0;
+
         // === AUTOMATIC TOOL DETECTION ===
         // Check if the query should trigger a tool call
         std::string tool_context;
@@ -4421,37 +5794,111 @@ int main(int argc, char** argv) {
             }
         }
 
-        // Augment prompt with tool context if available
-        std::string augmented_prompt = tool_context + prompt;
+        // === RESEARCH MODE STRICT GROUNDING ===
+        // In RESEARCH mode we:
+        // 1) retrieve evidence snippets automatically
+        // 2) attempt deterministic extraction for simple constant questions
+        // 3) post-validate model output against evidence (fallback to UNKNOWN)
+        const auto current_mode = zeta_modes::g_mode_controller.current_mode();
+        const bool research_requested = (current_mode == zeta_modes::Mode::RESEARCH);
+        const bool research_allowed = research_requested && g_research_mode_enabled && zeta_research_budget_allows_local(research_used_local) && zeta_research_time_allows(research_start);
+        if (research_requested && !research_allowed) {
+            zeta_research_note_prune_local(research_used_local);
+        }
+        std::vector<zeta_retrieved_snippet_t> research_snippets;
+        std::string research_evidence;
+        if (research_allowed) {
+            zeta_research_note_spawn_local(research_used_local);
+            const std::string query = !last_user_message.empty() ? last_user_message : prompt;
+            research_snippets = zeta_retrieve_snippets(query, 8);
+            gitgraph_record_retrieval(research_snippets);
 
-        // Call existing generate function with augmented prompt
-        std::string result = generate(augmented_prompt, max_tokens);
+            // Build evidence block (also used for validation)
+            std::string evidence;
+            evidence.reserve(8192);
+            evidence += "EVIDENCE:\n";
+            for (const auto & sn : research_snippets) {
+                evidence += "[#" + std::to_string(sn.node_id) + "] label=" + sn.label + " sim=" + std::to_string(sn.similarity) + "\n";
+                evidence += sn.value;
+                if (!evidence.empty() && evidence.back() != '\n') evidence += "\n";
+                evidence += "\n";
+                if (evidence.size() > 24000) break; // cap
+            }
+            research_evidence = evidence;
+        }
 
-        // Parse output from Z.E.T.A. JSON response
         std::string output_text;
         int tokens_used = 0;
-        size_t out_start = result.find("\"output\":");
-        if (out_start != std::string::npos) {
-            out_start = result.find('"', out_start + 9);
-            if (out_start != std::string::npos) {
-                out_start++;
-                size_t out_end = out_start;
-                while (out_end < result.size()) {
-                    if (result[out_end] == '"' && result[out_end-1] != '\\') break;
-                    out_end++;
-                }
-                output_text = result.substr(out_start, out_end - out_start);
+        bool output_is_already_json_escaped = false;
+
+        if (research_allowed && !research_snippets.empty()) {
+            std::string deterministic;
+            const std::string query_text = !last_user_message.empty() ? last_user_message : prompt;
+            if (zeta_try_answer_constants_from_evidence(query_text, research_snippets, deterministic)) {
+                output_text = zeta_escape_json_string(deterministic);
+                output_is_already_json_escaped = true;
+                tokens_used = 0;
             }
         }
 
-        // Extract tokens count
-        size_t tok_pos = result.find("\"tokens\":");
-        if (tok_pos != std::string::npos) {
-            size_t num_start = tok_pos + 9;
-            while (num_start < result.size() && !isdigit(result[num_start])) num_start++;
-            if (num_start < result.size()) {
-                tokens_used = std::stoi(result.substr(num_start));
+        std::string result;
+        if (output_text.empty()) {
+            std::string augmented_prompt;
+            if (research_allowed) {
+                std::string strict_system =
+                    "[SYSTEM]\n"
+                    "RESEARCH MODE (STRICT)\n"
+                    "- Use ONLY the EVIDENCE block.\n"
+                    "- If not explicitly supported by evidence, output UNKNOWN.\n"
+                    "- For every supported claim, cite at least one evidence item as [#<node_id>].\n"
+                    "[/SYSTEM]\n\n";
+                augmented_prompt = tool_context + strict_system + research_evidence + "\n" + prompt;
+            } else {
+                augmented_prompt = tool_context + prompt;
             }
+
+            // Call existing generate function with augmented prompt
+            result = generate(augmented_prompt, max_tokens);
+
+            // Parse output from Z.E.T.A. JSON response
+            size_t out_start = result.find("\"output\":");
+            if (out_start != std::string::npos) {
+                out_start = result.find('"', out_start + 9);
+                if (out_start != std::string::npos) {
+                    out_start++;
+                    size_t out_end = out_start;
+                    while (out_end < result.size()) {
+                        if (result[out_end] == '"' && result[out_end-1] != '\\') break;
+                        out_end++;
+                    }
+                    output_text = result.substr(out_start, out_end - out_start);
+                    output_is_already_json_escaped = true;
+                }
+            }
+
+            // Extract tokens count
+            size_t tok_pos = result.find("\"tokens\":");
+            if (tok_pos != std::string::npos) {
+                size_t num_start = tok_pos + 9;
+                while (num_start < result.size() && !isdigit(result[num_start])) num_start++;
+                if (num_start < result.size()) {
+                    tokens_used = std::stoi(result.substr(num_start));
+                }
+            }
+        }
+
+        // Post-validate RESEARCH answers against evidence; force UNKNOWN on mismatch.
+        if (research_allowed) {
+            const std::string plain = zeta_unescape_json_string(output_text);
+            if (!zeta_is_grounded_research_answer(plain, research_evidence)) {
+                const std::string unknown = "UNKNOWN";
+                output_text = zeta_escape_json_string(unknown);
+                output_is_already_json_escaped = true;
+            }
+        }
+
+        if (!output_is_already_json_escaped) {
+            output_text = zeta_escape_json_string(output_text);
         }
 
         // LAZY KV CAPTURE: Capture KV for retrieved nodes that didn't have cached KV
@@ -4462,6 +5909,16 @@ int main(int argc, char** argv) {
             );
             if (kv_captured > 0) {
                 fprintf(stderr, "[LAZY-KV] Captured KV for %d nodes this request\n", kv_captured);
+            }
+        }
+
+        // Opportunistic KV capture for high-salience nodes touched this request
+        if (g_gkv_ctx) {
+            int kv_cap = zeta_gkv_capture_high_salience(
+                g_dual, g_ctx_conscious, g_model_conscious, 0.9f, 2
+            );
+            if (kv_cap > 0) {
+                fprintf(stderr, "[GKV-CAPTURE] Opportunistic capture for %d nodes (post-gen)\n", kv_cap);
             }
         }
 
@@ -4813,73 +6270,94 @@ int main(int argc, char** argv) {
             return;
         }
 
-        // Use dual-process tunnel search
-        const int EMBED_DIM = 2048;  // Must match node embedding dimension
-        if (g_dual) {
-            float q_emb[EMBED_DIM];
-            zeta_subconscious_embed(g_dual, query.c_str(), q_emb, EMBED_DIM);
-
-            // Collect ALL matching nodes with similarity scores, then sort
-            struct ScoredNode { int idx; float sim; };
-            std::vector<ScoredNode> candidates;
-            candidates.reserve(g_dual->num_nodes);
-
-            // Search through ALL graph nodes (no early exit)
-            for (int i = 0; i < g_dual->num_nodes; i++) {
-                zeta_graph_node_t* node = &g_dual->nodes[i];
-                if (!node->is_active) continue;
-
-                // Calculate similarity
-                float sim = zeta_cosine_sim(q_emb, node->embedding, EMBED_DIM);
-                if (sim > 0.2f) {  // Lower threshold, let sorting handle ranking
-                    candidates.push_back({i, sim});
-                }
-            }
-
-            // Sort by similarity (highest first)
-            std::sort(candidates.begin(), candidates.end(),
-                [](const ScoredNode& a, const ScoredNode& b) { return a.sim > b.sim; });
-
-            // Build JSON response with top K results
-            std::string json = "{\"query\": \"" + query + "\", \"results\": [";
-            int found = 0;
-            for (size_t j = 0; j < candidates.size() && found < top_k; j++) {
-                zeta_graph_node_t* node = &g_dual->nodes[candidates[j].idx];
-                float sim = candidates[j].sim;
-
-                if (found > 0) json += ",";
-
-                // Escape label and value
-                std::string esc_label, esc_value;
-                for (char c : std::string(node->label)) {
-                    if (c == '"') esc_label += "\\\"";
-                    else if (c == '\\') esc_label += "\\\\";
-                    else if (c == '\n') esc_label += "\\n";
-                    else esc_label += c;
-                }
-                for (char c : std::string(node->value)) {
-                    if (c == '"') esc_value += "\\\"";
-                    else if (c == '\\') esc_value += "\\\\";
-                    else if (c == '\n') esc_value += "\\n";
-                    else esc_value += c;
-                }
-
-                char entry[2048];
-                snprintf(entry, sizeof(entry),
-                    "{\"node_id\": %lld, \"label\": \"%s\", \"value\": \"%s\", "
-                    "\"similarity\": %.4f, \"salience\": %.2f}",
-                    (long long)node->node_id, esc_label.c_str(), esc_value.c_str(),
-                    sim, node->salience);
-                json += entry;
-                found++;
-            }
-
-            json += "], \"count\": " + std::to_string(found) + "}";
-            res.set_content(json, "application/json");
+        if (!g_dual) {
+            res.set_content("{\"error\": \"Memory system not available\"}", "application/json");
             return;
         }
 
-        res.set_content("{\"error\": \"Memory system not available\"}", "application/json");
+        g_last_activity = time(NULL);
+
+        const int EMBED_DIM = 2048;  // Must match node embedding dimension
+        float q_emb[EMBED_DIM];
+        zeta_subconscious_embed(g_dual, query.c_str(), q_emb, EMBED_DIM);
+
+        // Build tunnel graph adapters
+        zeta_tunnel_graph_t graph = build_tunnel_graph();
+
+        // Seed search with LSH if available
+        int64_t lsh_candidates[ZETA_TUNNEL_BEAM_WIDTH];
+        int num_seeds = 0;
+        if (g_dedup) {
+            num_seeds = zeta_dedup_find_similar(g_dedup, q_emb, lsh_candidates, nullptr, ZETA_TUNNEL_BEAM_WIDTH);
+        }
+
+        float initial_momentum = g_dual->current_momentum;
+        if (initial_momentum <= 0.0f) initial_momentum = 0.5f;
+        if (initial_momentum > 1.0f) initial_momentum = 1.0f;
+
+        zeta_tunnel_state_t state;
+        zeta_tunnel_init(&state, initial_momentum, 0.9f, 0.65f);
+
+        int results_found = 0;
+        if (num_seeds > 0) {
+            results_found = zeta_tunnel_search_lsh(&state, &graph, q_emb, lsh_candidates, num_seeds, ZETA_TUNNEL_MAX_HOPS);
+        } else {
+            results_found = zeta_tunnel_search(&state, &graph, q_emb, -1, ZETA_TUNNEL_MAX_HOPS);
+        }
+
+        // Build JSON response with top K results
+        std::string json = "{\"query\": \"" + query + "\", \"results\": [";
+        int emitted = 0;
+        for (int i = 0; i < results_found && emitted < top_k; i++) {
+            const zeta_tunnel_result_t& r = state.results[i];
+            zeta_graph_node_t* node = tunnel_find_node(r.node_id);
+            if (!node) continue;
+
+            if (emitted > 0) json += ",";
+
+            // Escape label and value
+            std::string esc_label, esc_value;
+            for (char c : std::string(node->label)) {
+                if (c == '"') esc_label += "\\\"";
+                else if (c == '\\') esc_label += "\\\\";
+                else if (c == '\n') esc_label += "\\n";
+                else esc_label += c;
+            }
+            for (char c : std::string(node->value)) {
+                if (c == '"') esc_value += "\\\"";
+                else if (c == '\\') esc_value += "\\\\";
+                else if (c == '\n') esc_value += "\\n";
+                else esc_value += c;
+            }
+
+            // Serialize path (if any)
+            std::string path_json = "[";
+            for (int p = 0; p < r.hop_count; p++) {
+                if (p > 0) path_json += ",";
+                path_json += std::to_string((long long)r.path[p]);
+            }
+            path_json += "]";
+
+            char entry[4096];
+            snprintf(entry, sizeof(entry),
+                "{\"node_id\": %lld, \"label\": \"%s\", \"value\": \"%s\", "
+                "\"relevance\": %.4f, \"similarity\": %.4f, \"path_weight\": %.4f, "
+                "\"hops\": %d, \"salience\": %.2f, \"path\": %s}",
+                (long long)node->node_id, esc_label.c_str(), esc_value.c_str(),
+                r.relevance, r.similarity, r.path_weight,
+                r.hop_count, node->salience, path_json.c_str());
+            json += entry;
+            emitted++;
+        }
+
+        json += "], \"count\": " + std::to_string(emitted);
+        json += ", \"momentum\": " + std::to_string(initial_momentum);
+        json += ", \"tunnel_jumps\": " + std::to_string(state.tunnel_jumps);
+        json += ", \"local_steps\": " + std::to_string(state.local_steps);
+        json += ", \"lsh_seeds\": " + std::to_string(num_seeds);
+        json += "}";
+
+        res.set_content(json, "application/json");
     });
 
     // Graph-KV stats endpoint
@@ -4949,10 +6427,14 @@ int main(int argc, char** argv) {
             llama_memory_clear(mem, true);
 
             // Tokenize the node's content
-            std::vector<llama_token> tokens(512);
-            int n_tokens = llama_tokenize(g_vocab, node->value,
-                                          strlen(node->value),
-                                          tokens.data(), tokens.size(), true, true);
+            std::vector<llama_token> tokens;
+            int n_tokens = zeta_tokenize_cached(
+                g_vocab,
+                node->value,
+                node->node_id,
+                tokens,
+                true,
+                true);
             if (n_tokens <= 0 || n_tokens > 400) continue;  // Skip empty or too long
             tokens.resize(n_tokens);
 
@@ -4983,6 +6465,158 @@ int main(int argc, char** argv) {
         res.set_content(json, "application/json");
         fprintf(stderr, "[GKV-WARMUP] Captured KV for %d nodes, skipped %d (already cached)\n",
                 captured, skipped);
+    });
+
+    // Graph-KV debug endpoint: basic cache stats
+    svr.Get("/debug/kv", [](const httplib::Request&, httplib::Response& res) {
+        res.set_header("Access-Control-Allow-Origin", "*");
+        if (!g_gkv_ctx) {
+            res.set_content("{\"enabled\":false}", "application/json");
+            return;
+        }
+        zeta_gkv_stats_t stats;
+        zeta_gkv_get_stats(g_gkv_ctx, &stats);
+        char json[512];
+        snprintf(json, sizeof(json),
+            "{\"enabled\":true,\"segments\":%lld,\"bytes\":%lld,\"saves\":%lld,\"loads\":%lld,\"injections\":%lld,\"prefill_ms\":%lld}",
+            (long long)stats.num_segments,
+            (long long)stats.total_bytes,
+            (long long)stats.total_saves,
+            (long long)stats.total_loads,
+            (long long)stats.total_injections,
+            (long long)stats.prefill_skipped_ms);
+        res.set_content(json, "application/json");
+    });
+
+    // Token cache debug endpoint
+    svr.Get("/debug/token-cache", [](const httplib::Request&, httplib::Response& res) {
+        res.set_header("Access-Control-Allow-Origin", "*");
+        if (!g_token_cache_enabled) {
+            res.set_content("{\"enabled\":false}", "application/json");
+            return;
+        }
+        size_t entries = 0, total_tokens = 0, max_tokens = 0, max_entries = 0;
+        zeta_token_cache::stats(entries, total_tokens, max_tokens, max_entries);
+        char json[256];
+        snprintf(json, sizeof(json),
+            "{\"enabled\":true,\"entries\":%zu,\"tokens\":%zu,\"cap_tokens\":%zu,\"cap_entries\":%zu}",
+            entries, total_tokens, max_tokens, max_entries);
+        res.set_content(json, "application/json");
+    });
+
+    // Research lite debug endpoint (counters only, gated by flag)
+    svr.Get("/debug/research-lite", [](const httplib::Request&, httplib::Response& res) {
+        res.set_header("Access-Control-Allow-Origin", "*");
+        if (!g_research_mode_enabled) {
+            res.set_content("{\"enabled\":false}", "application/json");
+            return;
+        }
+        char json[256];
+        snprintf(json, sizeof(json),
+            "{\"enabled\":true,\"branches_spawned\":%lld,\"branches_pruned\":%lld,\"tensions\":%lld,\"facts\":%lld,\"budget_branches\":%d,\"budget_depth\":%d,\"budget_time_ms\":%d,\"auto_switch_attempts\":%lld,\"auto_switch_denied_flag\":%lld,\"auto_switch_denied_budget\":%lld,\"auto_switch_success\":%lld}",
+            (long long)g_research_branches_spawned.load(),
+            (long long)g_research_branches_pruned.load(),
+            (long long)g_research_tensions_recorded.load(),
+            (long long)g_research_facts_committed.load(),
+            g_research_budget_max_branches,
+            g_research_budget_max_depth,
+            g_research_budget_time_ms,
+            (long long)g_research_auto_switch_attempts.load(),
+            (long long)g_research_auto_switch_denied_flag.load(),
+            (long long)g_research_auto_switch_denied_budget.load(),
+            (long long)g_research_auto_switch_success.load());
+        res.set_content(json, "application/json");
+    });
+
+    // Embedding cache debug endpoint
+    svr.Get("/debug/embed", [](const httplib::Request&, httplib::Response& res) {
+        res.set_header("Access-Control-Allow-Origin", "*");
+        if (!g_embed_ctx || !g_embed_ctx->initialized) {
+            res.set_content("{\"enabled\":false}", "application/json");
+            return;
+        }
+        std::string stats = g_embed_cache.get_stats();
+        // Escape newlines for JSON
+        std::string escaped;
+        escaped.reserve(stats.size());
+        for (char c : stats) {
+            if (c == '\n') escaped += "\\n";
+            else if (c == '"') escaped += "\\\"";
+            else escaped += c;
+        }
+        char json[2048];
+        snprintf(json, sizeof(json), "{\"enabled\":true,\"dim\":%d,\"stats\":\"%s\"}",
+                 g_embed_ctx->embed_dim, escaped.c_str());
+        res.set_content(json, "application/json");
+    });
+
+    // Clear embedding cache
+    svr.Post("/debug/embed/clear", [](const httplib::Request&, httplib::Response& res) {
+        res.set_header("Access-Control-Allow-Origin", "*");
+        g_embed_cache.clear();
+        res.set_content("{\"ok\":true,\"cleared\":true}", "application/json");
+    });
+
+    // Configure embedding cache at runtime (query params: enabled, max, ttl, minlen)
+    svr.Post("/debug/embed/config", [](const httplib::Request& req, httplib::Response& res) {
+        res.set_header("Access-Control-Allow-Origin", "*");
+
+        if (req.has_param("enabled")) {
+            std::string enabled_val = req.get_param_value("enabled");
+            bool enable = !(enabled_val == "0" || enabled_val == "false" || enabled_val == "FALSE");
+            g_embed_cache.set_enabled(enable);
+            if (!enable) {
+                g_embed_cache.clear();
+            }
+        }
+
+        int max_entries = req.has_param("max") ? std::max(0, atoi(req.get_param_value("max").c_str())) : -1;
+        int ttl_seconds = req.has_param("ttl") ? std::max(0, atoi(req.get_param_value("ttl").c_str())) : -1;
+        int minlen = req.has_param("minlen") ? std::max(0, atoi(req.get_param_value("minlen").c_str())) : -1;
+
+        g_embed_cache.configure(max_entries, ttl_seconds, minlen);
+
+        char json[256];
+        snprintf(json, sizeof(json),
+                 "{\"ok\":true,\"enabled\":%s,\"max\":%d,\"ttl\":%d,\"minlen\":%d}",
+                 g_embed_cache.is_enabled() ? "true" : "false",
+                 g_embed_cache.max_entries,
+                 g_embed_cache.ttl_seconds,
+                 g_embed_cache.min_text_len);
+        res.set_content(json, "application/json");
+    });
+
+    // Dedup debug endpoint: hash+LSH index stats
+    svr.Get("/debug/dedup", [](const httplib::Request&, httplib::Response& res) {
+        res.set_header("Access-Control-Allow-Origin", "*");
+        res.set_content(zeta_dedup_stats_json(), "application/json");
+    });
+
+    // User-facing dedup stats (no debug prefix) for remote monitoring
+    svr.Get("/dedup/stats", [](const httplib::Request&, httplib::Response& res) {
+        res.set_header("Access-Control-Allow-Origin", "*");
+        res.set_content(zeta_dedup_stats_json(), "application/json");
+    });
+
+    // Embed-memory stats endpoint: counts + momentum health
+    svr.Get("/debug/memory", [](const httplib::Request&, httplib::Response& res) {
+        res.set_header("Access-Control-Allow-Origin", "*");
+        if (!g_dual) {
+            res.set_content("{\"enabled\":false}", "application/json");
+            return;
+        }
+
+        int total = 0, raw = 0, consolidated = 0, low = 0;
+        zeta_memory_stats(g_dual, &total, &raw, &consolidated, &low);
+
+        char json[512];
+        snprintf(json, sizeof(json),
+            "{\"enabled\":true,\"embed_ready\":%s,\"total\":%d,\"raw\":%d,\"consolidated\":%d,\"low_momentum\":%d,\"consolidations\":%d,\"pruned\":%d}",
+            (g_embed_ctx && g_embed_ctx->initialized) ? "true" : "false",
+            total, raw, consolidated, low,
+            g_embed_memory_consolidations.load(),
+            g_embed_memory_prunes.load());
+        res.set_content(json, "application/json");
     });
 
 
@@ -5316,6 +6950,295 @@ int main(int argc, char** argv) {
              << "}";
 
         res.set_content(json.str(), "application/json");
+    });
+
+    // =========================================================================
+    // GITGRAPH CONTROL + TRAVERSAL
+    // =========================================================================
+
+    svr.Get("/git/branches", [](const httplib::Request&, httplib::Response& res) {
+        res.set_header("Access-Control-Allow-Origin", "*");
+        if (!g_git) {
+            res.set_content("{\"error\": \"GitGraph not initialized\"}", "application/json");
+            return;
+        }
+
+        std::ostringstream json;
+        json << "{\"branches\":[";
+        bool first = true;
+        for (int i = 0; i < g_git->num_branches; i++) {
+            const auto& b = g_git->branches[i];
+            if (!b.is_active) continue;
+            if (!first) json << ",";
+            first = false;
+            json << "{\"name\":\"" << b.name << "\",";
+            json << "\"head\":" << b.head_node_id << ",";
+            json << "\"commits\":" << b.commit_count << ",";
+            json << "\"protected\":" << (b.is_protected ? "true" : "false") << "}";
+        }
+        json << "],\"current\":\"" << (g_git->current_branch_idx >= 0 ? g_git->branches[g_git->current_branch_idx].name : "") << "\"}";
+        res.set_content(json.str(), "application/json");
+    });
+
+    svr.Get("/git/status", [](const httplib::Request&, httplib::Response& res) {
+        res.set_header("Access-Control-Allow-Origin", "*");
+        if (!g_git) {
+            res.set_content("{\"error\": \"GitGraph not initialized\"}", "application/json");
+            return;
+        }
+
+        zeta_branch_status_t status = zeta_git_status(g_git);
+        std::ostringstream json;
+        json << "{\"branch\":\"" << git_branch_name_safe(g_git->current_branch_idx) << "\",";
+        json << "\"ahead\":" << status.ahead_count << ",";
+        json << "\"fork_point\":" << status.fork_point << ",";
+        json << "\"parent\":\"" << status.parent_branch << "\",";
+        json << "\"total_nodes\":" << status.total_nodes << "}";
+        res.set_content(json.str(), "application/json");
+    });
+
+    svr.Post("/git/branch", [](const httplib::Request& req, httplib::Response& res) {
+        res.set_header("Access-Control-Allow-Origin", "*");
+        if (!g_git) {
+            res.set_content("{\"error\": \"GitGraph not initialized\"}", "application/json");
+            return;
+        }
+
+        std::string name;
+        size_t pos = req.body.find("\"name\":");
+        if (pos != std::string::npos) {
+            size_t s = req.body.find('"', pos + 7);
+            if (s != std::string::npos) {
+                size_t e = req.body.find('"', s + 1);
+                if (e != std::string::npos) name = req.body.substr(s + 1, e - s - 1);
+            }
+        }
+
+        if (name.empty()) {
+            res.set_content("{\"error\": \"Missing branch name\"}", "application/json");
+            return;
+        }
+
+        int idx = zeta_git_branch(g_git, name.c_str());
+        if (idx < 0) {
+            res.set_content("{\"error\": \"Failed to create branch (exists or limit reached)\"}", "application/json");
+            return;
+        }
+
+        char json[256];
+        snprintf(json, sizeof(json), "{\"status\":\"ok\",\"branch\":\"%s\"}", name.c_str());
+        res.set_content(json, "application/json");
+    });
+
+    svr.Post("/git/checkout", [](const httplib::Request& req, httplib::Response& res) {
+        res.set_header("Access-Control-Allow-Origin", "*");
+        if (!g_git) {
+            res.set_content("{\"error\": \"GitGraph not initialized\"}", "application/json");
+            return;
+        }
+
+        std::string name;
+        size_t pos = req.body.find("\"branch\":");
+        if (pos != std::string::npos) {
+            size_t s = req.body.find('"', pos + 9);
+            if (s != std::string::npos) {
+                size_t e = req.body.find('"', s + 1);
+                if (e != std::string::npos) name = req.body.substr(s + 1, e - s - 1);
+            }
+        }
+
+        if (name.empty()) {
+            res.set_content("{\"error\": \"Missing branch field\"}", "application/json");
+            return;
+        }
+
+        if (!zeta_git_checkout(g_git, name.c_str())) {
+            res.set_content("{\"error\": \"Branch not found\"}", "application/json");
+            return;
+        }
+
+        char json[256];
+        snprintf(json, sizeof(json), "{\"status\":\"ok\",\"current\":\"%s\"}", name.c_str());
+        res.set_content(json, "application/json");
+    });
+
+    svr.Post("/git/surface", [](const httplib::Request& req, httplib::Response& res) {
+        res.set_header("Access-Control-Allow-Origin", "*");
+        if (!g_git || !g_git->graph) {
+            res.set_content("{\"error\": \"GitGraph not initialized\"}", "application/json");
+            return;
+        }
+
+        std::string prompt;
+        size_t pos = req.body.find("\"prompt\":");
+        if (pos != std::string::npos) {
+            size_t s = req.body.find('"', pos + 9);
+            if (s != std::string::npos) {
+                size_t e = s + 1;
+                while (e < req.body.size()) {
+                    if (req.body[e] == '"' && req.body[e - 1] != '\\') break;
+                    e++;
+                }
+                if (e < req.body.size()) prompt = req.body.substr(s + 1, e - s - 1);
+            }
+        }
+
+        if (prompt.empty()) {
+            res.set_content("{\"error\": \"Missing prompt\"}", "application/json");
+            return;
+        }
+
+        int max_primary = 8;
+        int max_hops = 16;
+
+        auto parse_int = [&](const char* key, int fallback) {
+            size_t p = req.body.find(key);
+            if (p == std::string::npos) return fallback;
+            size_t n = req.body.find_first_of("-0123456789", p + strlen(key));
+            if (n == std::string::npos) return fallback;
+            return atoi(req.body.c_str() + n);
+        };
+
+        max_primary = std::max(1, std::min(32, parse_int("\"max_primary\":", max_primary)));
+        max_hops = std::max(0, std::min(64, parse_int("\"max_hops\":", max_hops)));
+
+        std::vector<float> emb;
+        if (!build_query_embedding(prompt, emb)) {
+            res.set_content("{\"error\": \"Embedding unavailable\"}", "application/json");
+            return;
+        }
+
+        auto surface = zeta_git_surface(g_git, emb.data(), (int)emb.size(), max_primary, max_hops);
+
+        std::ostringstream json;
+        json << "{\"primary\":[";
+        for (int i = 0; i < surface.num_primary; i++) {
+            const auto& hit = surface.primary_hits[i];
+            if (i > 0) json << ",";
+            const char* branch = git_branch_name_safe(hit.branch_idx);
+            json << "{\"node_id\":" << hit.node_id
+                 << ",\"branch\":\"" << branch << "\""
+                 << ",\"similarity\":" << hit.similarity
+                 << ",\"salience\":" << hit.salience
+                 << ",\"score\":" << hit.relevance_score << "}";
+        }
+        json << "],\"hops\":[";
+        for (int i = 0; i < surface.num_hops; i++) {
+            if (i > 0) json << ",";
+            json << surface.hop_hits[i];
+        }
+        json << "],\"coherence\":" << surface.context_coherence
+             << ",\"dominant_branch\":\"" << git_branch_name_safe(surface.dominant_branch) << "\"}";
+
+        res.set_content(json.str(), "application/json");
+    });
+
+    svr.Post("/git/explore", [](const httplib::Request& req, httplib::Response& res) {
+        res.set_header("Access-Control-Allow-Origin", "*");
+        if (!g_git || !g_git->graph) {
+            res.set_content("{\"error\": \"GitGraph not initialized\"}", "application/json");
+            return;
+        }
+
+        std::string prompt;
+        size_t pos = req.body.find("\"prompt\":");
+        if (pos != std::string::npos) {
+            size_t s = req.body.find('"', pos + 9);
+            if (s != std::string::npos) {
+                size_t e = s + 1;
+                while (e < req.body.size()) {
+                    if (req.body[e] == '"' && req.body[e - 1] != '\\') break;
+                    e++;
+                }
+                if (e < req.body.size()) prompt = req.body.substr(s + 1, e - s - 1);
+            }
+        }
+
+        if (prompt.empty()) {
+            res.set_content("{\"error\": \"Missing prompt\"}", "application/json");
+            return;
+        }
+
+        auto parse_int = [&](const char* key, int fallback) {
+            size_t p = req.body.find(key);
+            if (p == std::string::npos) return fallback;
+            size_t n = req.body.find_first_of("-0123456789", p + strlen(key));
+            if (n == std::string::npos) return fallback;
+            return atoi(req.body.c_str() + n);
+        };
+
+        int top_k = parse_int("\"top_k\":", 10);
+        top_k = std::max(1, std::min(32, top_k));
+
+        std::vector<float> emb;
+        if (!build_query_embedding(prompt, emb)) {
+            res.set_content("{\"error\": \"Embedding unavailable\"}", "application/json");
+            return;
+        }
+
+        std::vector<int64_t> ids(top_k, -1);
+        std::vector<float> scores(top_k, 0.0f);
+        int found = zeta_git_explore_topk(g_git, emb.data(), (int)emb.size(), ids.data(), scores.data(), top_k);
+
+        std::ostringstream json;
+        json << "{\"hits\":[";
+        for (int i = 0; i < found; i++) {
+            if (i > 0) json << ",";
+            json << "{\"node_id\":" << ids[i] << ",\"score\":" << scores[i] << "}";
+        }
+        json << "],\"count\":" << found << "}";
+
+        res.set_content(json.str(), "application/json");
+    });
+
+    // =========================================================================
+    // TERNARY LOGIC UTILITIES
+    // =========================================================================
+
+    svr.Post("/ternary/consensus", [](const httplib::Request& req, httplib::Response& res) {
+        res.set_header("Access-Control-Allow-Origin", "*");
+
+        auto parse_int = [&](const char* key) -> int {
+            size_t p = req.body.find(key);
+            if (p == std::string::npos) return 0;
+            size_t n = req.body.find_first_of("-0123456789", p + strlen(key));
+            if (n == std::string::npos) return 0;
+            return atoi(req.body.c_str() + n);
+        };
+
+        int a_raw = parse_int("\"a\":");
+        int b_raw = parse_int("\"b\":");
+
+        auto clamp_trit = [](int v) {
+            if (v > 1) return 1;
+            if (v < -1) return -1;
+            return v;
+        };
+
+        ZetaTernary::Trit a = static_cast<ZetaTernary::Trit>(clamp_trit(a_raw));
+        ZetaTernary::Trit b = static_cast<ZetaTernary::Trit>(clamp_trit(b_raw));
+
+        // Default: consensus; allow optional op
+        std::string op;
+        size_t pos = req.body.find("\"op\":");
+        if (pos != std::string::npos) {
+            size_t s = req.body.find('"', pos + 5);
+            if (s != std::string::npos) {
+                size_t e = req.body.find('"', s + 1);
+                if (e != std::string::npos) op = req.body.substr(s + 1, e - s - 1);
+            }
+        }
+
+        ZetaTernary::Trit result = ZetaTernary::CONSENSUS(a, b);
+        if (op == "and") result = ZetaTernary::AND(a, b);
+        else if (op == "or") result = ZetaTernary::OR(a, b);
+        else if (op == "implies") result = ZetaTernary::IMPLIES(a, b);
+        else if (op == "not_a") result = ZetaTernary::NOT(a);
+
+        char json[256];
+        snprintf(json, sizeof(json), "{\"a\":%d,\"b\":%d,\"result\":%d,\"op\":\"%s\"}",
+                 a_raw, b_raw, static_cast<int>(result), op.empty() ? "consensus" : op.c_str());
+        res.set_content(json, "application/json");
     });
 
     // Unload 3B to free VRAM
@@ -6272,6 +8195,7 @@ int main(int argc, char** argv) {
             snprintf(buf, sizeof(buf), "{\"success\": %s, \"branch\": \"%s\", \"idx\": %d}",
                      idx >= 0 ? "true" : "false", name.c_str(), idx);
             res.set_content(buf, "application/json");
+            if (idx >= 0) persist_git_state(false, "branch-create");
         }
     });
 
@@ -6285,6 +8209,7 @@ int main(int argc, char** argv) {
         snprintf(buf, sizeof(buf), "{\"success\": %s, \"branch\": \"%s\"}",
                  ok ? "true" : "false", name.c_str());
         res.set_content(buf, "application/json");
+        if (ok) persist_git_state(false, "branch-checkout");
     });
 
     svr.Post("/git/commit", [](const httplib::Request& req, httplib::Response& res) {
@@ -6301,6 +8226,7 @@ int main(int argc, char** argv) {
         snprintf(buf, sizeof(buf), "{\"node_id\": %lld, \"branch\": \"%s\"}",
                  (long long)node_id, zeta_git_current_branch(g_git));
         res.set_content(buf, "application/json");
+        if (node_id >= 0) persist_git_state(false, "git-commit");
     });
 
     svr.Post("/git/merge", [](const httplib::Request& req, httplib::Response& res) {
@@ -6321,6 +8247,20 @@ int main(int argc, char** argv) {
         snprintf(buf, sizeof(buf), "{\"status\": \"%s\", \"source\": \"%s\", \"target\": \"%s\"}",
                  status_str, source.c_str(), zeta_git_current_branch(g_git));
         res.set_content(buf, "application/json");
+        if (result == MERGE_OK || result == MERGE_NO_CHANGES) {
+            persist_git_state(false, "git-merge");
+        }
+    });
+
+    svr.Get("/git/save", [](const httplib::Request&, httplib::Response& res) {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        g_last_activity = time(NULL);
+        if (!g_dual || !g_git) {
+            res.set_content("{\"error\":\"GitGraph not initialized\"}", "application/json");
+            return;
+        }
+        persist_git_state(true, "manual-save");
+        res.set_content("{\"saved\":true}", "application/json");
     });
 
     svr.Get("/git/log", [](const httplib::Request& req, httplib::Response& res) {
@@ -6559,6 +8499,7 @@ int main(int argc, char** argv) {
         g_dream_config.dreams_dir = g_config.dream_dir;
         fprintf(stderr, "[DREAM] Using configured dream dir: %s\n", g_config.dream_dir.c_str());
     }
+    g_dream_config.enabled = g_config.dream_enabled;
     g_dream_state.init(g_dual, [](const std::string& prompt, int max_tokens, float temp, float penalty) -> std::string {
         // Dream generation callback - runs with custom temperature/penalty
         // CRITICAL: Check if user activity is pending BEFORE acquiring mutex
@@ -6665,13 +8606,19 @@ int main(int argc, char** argv) {
     // Start Swarm Manager
     g_swarm.start();
 
-    g_dream_state.start_dream_thread();
-    fprintf(stderr, "[DREAM] Dream thread started (idle threshold: %ds)\n", g_dream_config.idle_threshold_sec);
+    if (g_dream_config.enabled) {
+        g_dream_state.start_dream_thread();
+        fprintf(stderr, "[DREAM] Dream thread started (idle threshold: %ds)\n", g_dream_config.idle_threshold_sec);
+    } else {
+        fprintf(stderr, "[DREAM] Dreaming disabled via config\n");
+    }
 
     svr.listen("0.0.0.0", port);
 
-    fprintf(stderr, "\n[SHUTDOWN] Stopping Dream thread...\n");
-    g_dream_state.stop_dream_thread();
+    if (g_dream_config.enabled) {
+        fprintf(stderr, "\n[SHUTDOWN] Stopping Dream thread...\n");
+        g_dream_state.stop_dream_thread();
+    }
     g_swarm.stop();
 
     fprintf(stderr, "[SHUTDOWN] Stopping 3B worker...\n");
@@ -6681,14 +8628,24 @@ int main(int argc, char** argv) {
     }
 
     fprintf(stderr, "[SHUTDOWN] Flushing Graph-KV cache...\n");
-    zeta_gkv_print_stats();
+    if (g_gkv_ctx) {
+        zeta_gkv_force_flush();
+        zeta_gkv_print_stats();
+    }
     zeta_gkv_integration_free();
 
     fprintf(stderr, "[SHUTDOWN] Consolidating memory...\n");
     consolidate_memory();
 
+    save_gitgraph_ctx();
+
     fprintf(stderr, "[SHUTDOWN] Cleaning up scratch buffer...\n");
     ZETA_SCRATCH_CLEANUP();
+
+    if (g_dedup) {
+        zeta_dedup_free(g_dedup);
+        g_dedup = nullptr;
+    }
 
     if (g_git) zeta_git_free(g_git);
     if (g_dual) free(g_dual);

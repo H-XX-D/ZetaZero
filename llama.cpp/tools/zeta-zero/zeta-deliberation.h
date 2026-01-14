@@ -255,7 +255,7 @@ private:
 
     // Performance tracking
     std::chrono::high_resolution_clock::time_point delib_start;
-    int64_t total_latency_us;
+    int64_t total_latency_us [[maybe_unused]];
 
 public:
     // ========================================================================
@@ -504,19 +504,19 @@ private:
             if (dual_ctx->nodes[i].node_id == node_id) {
                 const auto& node = dual_ctx->nodes[i];
 
-                strncpy(ev.content, node.text, sizeof(ev.content) - 1);
-                ev.trust = (node.source == ZETA_SOURCE_USER) ? 1.0f : 0.8f;
+                strncpy(ev.content, node.value, sizeof(ev.content) - 1);
+                ev.trust = (node.source == SOURCE_USER) ? 1.0f : 0.8f;
                 ev.salience = node.salience;
-                ev.timestamp = node.created;
+                ev.timestamp = node.created_at;
 
                 // Compute recency (exponential decay)
-                int64_t age_seconds = time(NULL) - node.created;
+                int64_t age_seconds = time(NULL) - node.created_at;
                 float lambda = 0.00001f;  // Very slow decay
                 ev.recency = expf(-lambda * age_seconds);
 
                 // Check for supersession
-                ev.has_supersedes = (node.supersedes_id > 0);
-                ev.superseded_by = node.supersedes_id;
+                ev.has_supersedes = (node.superseded_by > 0);
+                ev.superseded_by = node.superseded_by;
 
                 break;
             }
@@ -529,6 +529,7 @@ private:
         const std::string& query,
         const std::vector<zeta_evidence_t>& evidence
     ) {
+        (void)query;
         // Simple claim generation from evidence
         // (In full implementation, this uses the 2B Output Synthesizer)
 

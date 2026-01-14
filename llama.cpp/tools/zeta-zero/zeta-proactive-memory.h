@@ -21,6 +21,7 @@
 
 #include "zeta-streaming.h"
 #include "zeta-embed-integration.h"
+#include "zeta-token-storage.h"
 extern "C" {
 #include "zeta-tunnel-search.h"
 }
@@ -318,7 +319,8 @@ static inline int zeta_proactive_prefetch(
                 pn->relevance = result->relevance;
                 strncpy(pn->content, node->value, sizeof(pn->content) - 1);
                 pn->content[sizeof(pn->content) - 1] = '\0';
-                pn->tokens = (strlen(pn->content) + 3) / 4;
+                int cached_tokens = zeta_token_cache::token_count(node->node_id, pn->content);
+                pn->tokens = cached_tokens > 0 ? cached_tokens : (int)((strlen(pn->content) + 3) / 4);
                 pn->injected = false;
 
                 // Track tunnel jumps (non-local fetches)

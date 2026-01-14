@@ -104,26 +104,26 @@ typedef struct {
     float similarity;           // Embedding similarity to query
     float salience;             // Current node salience
     float relevance_score;      // Combined: sim * salience * branch_boost
-} zeta_tunnel_hit_t;
+} zeta_git_tunnel_hit_t;
 
 #define ZETA_MAX_TUNNEL_HITS 64
 
 typedef struct {
-    zeta_tunnel_hit_t hits[ZETA_MAX_TUNNEL_HITS];
+    zeta_git_tunnel_hit_t hits[ZETA_MAX_TUNNEL_HITS];
     int num_hits;
     int current_branch_hits;    // How many are from current branch
     int cross_branch_hits;      // How many crossed branch boundaries
-} zeta_tunnel_result_t;
+} zeta_git_tunnel_result_t;
 
 // Tunnel across all branches, preferring current branch
-static inline zeta_tunnel_result_t zeta_git_tunnel(
+static inline zeta_git_tunnel_result_t zeta_git_tunnel(
     zeta_git_ctx_t* git,
     const float* query_embedding,
     int embed_dim,
     float min_similarity,
     float current_branch_boost  // Boost for nodes on current branch (e.g., 1.2)
 ) {
-    zeta_tunnel_result_t result = {0};
+    zeta_git_tunnel_result_t result = {};
     if (!git || !git->graph || !query_embedding) return result;
 
     int current_branch = git->current_branch_idx;
@@ -149,7 +149,7 @@ static inline zeta_tunnel_result_t zeta_git_tunnel(
         float branch_factor = (node_branch == current_branch) ? current_branch_boost : 1.0f;
         float score = sim * node->salience * branch_factor;
 
-        scores[num_scores++] = (scored_t){node->node_id, score, node_branch, sim};
+        scores[num_scores++] = scored_t{node->node_id, score, node_branch, sim};
     }
 
     // Sort by score (simple bubble sort for small arrays)
@@ -168,7 +168,7 @@ static inline zeta_tunnel_result_t zeta_git_tunnel(
         zeta_graph_node_t* node = zeta_find_node_by_id(git->graph, scores[i].id);
         if (!node) continue;
 
-        zeta_tunnel_hit_t* hit = &result.hits[result.num_hits++];
+        zeta_git_tunnel_hit_t* hit = &result.hits[result.num_hits++];
         hit->node_id = scores[i].id;
         hit->branch_idx = scores[i].branch;
         hit->similarity = scores[i].sim;
@@ -198,12 +198,12 @@ typedef struct {
     int queries_this_session;
 } zeta_branch_momentum_t;
 
-static zeta_branch_momentum_t g_branch_momentum = {0};
+static zeta_branch_momentum_t g_branch_momentum = {};
 
 // Update momentum based on query and hits
 static inline void zeta_git_update_momentum(
     zeta_git_ctx_t* git,
-    const zeta_tunnel_result_t* hits,
+    const zeta_git_tunnel_result_t* hits,
     float query_boost   // How much to boost (default: 0.1)
 ) {
     if (!git || !hits) return;
@@ -265,12 +265,14 @@ static inline float zeta_git_branch_momentum(int branch_idx) {
 // =============================================================================
 
 typedef struct {
-    zeta_tunnel_hit_t primary_hits[32];     // Direct tunnel hits
+    zeta_git_tunnel_hit_t primary_hits[32];     // Direct tunnel hits
     int num_primary;
     int64_t hop_hits[64];                   // Multi-hop related nodes
     int num_hops;
     float context_coherence;                // How coherent is this context?
     int dominant_branch;                    // Which branch dominated?
+    int current_branch_hits;                // How many primaries on current branch
+    int cross_branch_hits;                  // How many primaries off-branch
 } zeta_surface_result_t;
 
 static inline zeta_surface_result_t zeta_git_surface(
@@ -280,11 +282,11 @@ static inline zeta_surface_result_t zeta_git_surface(
     int max_primary,
     int max_hops
 ) {
-    zeta_surface_result_t result = {0};
+    zeta_surface_result_t result = {};
     if (!git) return result;
 
     // 1. Tunnel to find primary hits
-    zeta_tunnel_result_t tunnel = zeta_git_tunnel(
+    zeta_git_tunnel_result_t tunnel = zeta_git_tunnel(
         git, query_embedding, embed_dim,
         0.3f,   // min similarity
         1.2f    // current branch boost
@@ -300,7 +302,7 @@ static inline zeta_surface_result_t zeta_git_surface(
     for (int i = 0; i < tunnel.num_hits - 1; i++) {
         for (int j = 0; j < tunnel.num_hits - i - 1; j++) {
             if (tunnel.hits[j].relevance_score < tunnel.hits[j + 1].relevance_score) {
-                zeta_tunnel_hit_t tmp = tunnel.hits[j];
+                zeta_git_tunnel_hit_t tmp = tunnel.hits[j];
                 tunnel.hits[j] = tunnel.hits[j + 1];
                 tunnel.hits[j + 1] = tmp;
             }
@@ -449,7 +451,7 @@ static inline int zeta_git_walk_history(
         int64_t parent = -1;
         for (int i = 0; i < git->graph->num_edges; i++) {
             zeta_graph_edge_t* edge = &git->graph->edges[i];
-            if (edge->source_id == current && edge->type == EDGE_DERIVES_FROM) {
+            if (edge->source_id == current && edge->type == EDGE_RELATED) {
                 parent = edge->target_id;
                 break;
             }
@@ -476,13 +478,7 @@ typedef struct {
     float similarity_threshold;   // Minimum similarity to consider (default: 0.3)
 } zeta_explore_config_t;
 
-static zeta_explore_config_t g_explore_config = {
-    .initial_temperature = 1.0f,
-    .cooling_rate = 0.9f,
-    .min_temperature = 0.1f,
-    .max_steps = 50,
-    .similarity_threshold = 0.3f
-};
+static zeta_explore_config_t g_explore_config = {1.0f, 0.9f, 0.1f, 50, 0.3f};
 
 typedef struct {
     int64_t node_id;
@@ -515,7 +511,7 @@ static inline void zeta_heap_push(zeta_frontier_entry_t* heap, int* size,
     if (*size >= 256) return;  // Heap capacity
 
     int i = (*size)++;
-    heap[i] = (zeta_frontier_entry_t){node_id, priority, depth};
+    heap[i] = zeta_frontier_entry_t{node_id, priority, depth};
 
     // Bubble up
     while (i > 0) {
@@ -529,7 +525,7 @@ static inline void zeta_heap_push(zeta_frontier_entry_t* heap, int* size,
 }
 
 static inline zeta_frontier_entry_t zeta_heap_pop(zeta_frontier_entry_t* heap, int* size) {
-    if (*size <= 0) return (zeta_frontier_entry_t){-1, 0, 0};
+    if (*size <= 0) return zeta_frontier_entry_t{-1, 0, 0};
 
     zeta_frontier_entry_t top = heap[0];
     heap[0] = heap[--(*size)];
@@ -565,7 +561,7 @@ static inline zeta_explore_result_t zeta_git_explore_probabilistic(
     int embed_dim,
     const zeta_explore_config_t* config  // NULL for defaults
 ) {
-    zeta_explore_result_t result = {0};
+    zeta_explore_result_t result = {};
     if (!git || !git->graph || !query_embedding) return result;
 
     const zeta_explore_config_t* cfg = config ? config : &g_explore_config;
@@ -575,7 +571,7 @@ static inline zeta_explore_result_t zeta_git_explore_probabilistic(
     int visited_count = 0;
 
     // Priority queue (max-heap by similarity-weighted priority)
-    zeta_frontier_entry_t frontier[256];
+    zeta_frontier_entry_t frontier[256] = {};
     int frontier_size = 0;
 
     float temperature = cfg->initial_temperature;

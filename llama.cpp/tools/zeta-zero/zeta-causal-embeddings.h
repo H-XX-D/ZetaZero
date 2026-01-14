@@ -8,6 +8,15 @@
 #include "zeta-embed-integration.h"
 #include <vector>
 #include <string>
+#include <cstring>
+#include <cstdio>
+#include <cctype>
+#include <cmath>
+
+// Forward declarations to avoid circular includes
+struct zeta_dual_ctx_t;
+static inline int64_t zeta_create_node(zeta_dual_ctx_t* ctx, zeta_node_type_t type, const char* label, const char* value, float salience);
+static inline int64_t zeta_create_edge(zeta_dual_ctx_t* ctx, int64_t source_id, int64_t target_id, zeta_edge_type_t type, float weight);
 
 #define ZETA_CAUSAL_EMBED_DIM 1536  // BGE-small dimension
 #define ZETA_MAX_ANCHORS 64
@@ -23,7 +32,7 @@ struct zeta_causal_anchors {
     bool initialized;
 };
 
-static zeta_causal_anchors g_causal_anchors = {0};
+static zeta_causal_anchors g_causal_anchors = {};
 
 // Initialize causal anchors by embedding canonical phrases
 static bool zeta_causal_init_anchors() {
@@ -153,7 +162,7 @@ static int zeta_causal_classify(const char* sentence, float* confidence) {
 
 // Extract causal edges from text using embeddings
 // Returns number of edges created
-int zeta_causal_extract_edges(
+static inline int zeta_causal_extract_edges(
     zeta_dual_ctx_t* ctx,
     const char* text
 ) {

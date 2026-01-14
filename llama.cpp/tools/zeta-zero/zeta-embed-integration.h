@@ -15,6 +15,7 @@
 #include <thread>
 #include <map>
 #include <string>
+#include <atomic>
 
 // ============================================================================
 // DREAM SUGGESTION (085129): Embedding Cache for 4B Model
@@ -39,6 +40,7 @@ private:
     mutable std::mutex cache_mutex_;
     int cache_hits_ = 0;
     int cache_misses_ = 0;
+    std::atomic<bool> cache_enabled_{true};
 
     // Simple hash for cache key (first 100 chars lowercase + length)
     std::string make_key(const char* text) {
@@ -80,8 +82,24 @@ private:
     }
 
 public:
+    void set_enabled(bool enabled) {
+        cache_enabled_.store(enabled);
+    }
+
+    bool is_enabled() const {
+        return cache_enabled_.load();
+    }
+
+    void configure(int max_entries_in, int ttl_seconds_in, int min_text_len_in) {
+        std::lock_guard<std::mutex> lock(cache_mutex_);
+        if (max_entries_in > 0) max_entries = max_entries_in;
+        if (ttl_seconds_in > 0) ttl_seconds = ttl_seconds_in;
+        if (min_text_len_in > 0) min_text_len = min_text_len_in;
+    }
+
     // Check cache for existing embedding
     bool get(const char* text, float* output, int dim) {
+        if (!cache_enabled_.load()) return false;
         if (!text || strlen(text) < (size_t)min_text_len) return false;
 
         std::lock_guard<std::mutex> lock(cache_mutex_);
@@ -116,6 +134,7 @@ public:
 
     // Add embedding to cache
     void put(const char* text, const float* embedding, int dim) {
+        if (!cache_enabled_.load()) return;
         if (!text || !embedding || strlen(text) < (size_t)min_text_len) return;
 
         std::lock_guard<std::mutex> lock(cache_mutex_);
@@ -149,13 +168,17 @@ public:
 
         snprintf(buf, sizeof(buf),
                  "=== Embedding Cache Stats ===\n"
+                 "Enabled: %s\n"
                  "Entries: %zu/%d\n"
                  "Hits: %d\n"
                  "Misses: %d\n"
                  "Hit Rate: %.1f%%\n"
-                 "TTL: %d seconds\n",
+                 "TTL: %d seconds\n"
+                 "Min Text: %d\n",
+                 cache_enabled_.load() ? "yes" : "no",
                  cache_.size(), max_entries,
-                 cache_hits_, cache_misses_, hit_rate, ttl_seconds);
+                 cache_hits_, cache_misses_, hit_rate, ttl_seconds,
+                 min_text_len);
 
         return std::string(buf);
     }

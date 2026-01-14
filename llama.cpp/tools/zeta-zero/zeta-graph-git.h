@@ -182,11 +182,43 @@ static inline int64_t zeta_git_commit(
 
     zeta_branch_t* branch = &ctx->branches[ctx->current_branch_idx];
 
+    std::string clean_norm = zeta_norm(value);
+    char concept_key[64];
+    zeta_build_concept_key(label, clean_norm, concept_key, sizeof(concept_key));
+
+    auto touch_existing = [&](int64_t id) -> int64_t {
+        zeta_graph_node_t* node = zeta_find_node_by_id(ctx->graph, id);
+        if (!node || !node->is_active) return -1;
+        if (zeta_norm(node->value) != clean_norm) return -1;  // Hash collision safeguard
+        node->access_count++;
+        node->last_accessed = (int64_t)time(NULL);
+        node->salience = fminf(1.0f, node->salience + 0.02f);
+        return node->node_id;
+    };
+
+    if (g_zeta_dedup && g_zeta_dedup_ingest_enabled && concept_key[0]) {
+        int64_t existing = zeta_dedup_find_exact(g_zeta_dedup, concept_key);
+        if (existing >= 0) {
+            int64_t touched = touch_existing(existing);
+            if (touched >= 0) {
+                branch->head_node_id = touched;
+                branch->last_commit_at = (int64_t)time(NULL);
+                branch->commit_count++;
+                zeta_attach_concept_and_hook(ctx->graph, touched, concept_key, clean_norm, label);
+                fprintf(stderr, "[GIT-GRAPH] Dedup reuse '%s' (id=%lld) on branch '%s'\n",
+                        label ? label : "fact", (long long)touched, branch->name);
+                return touched;
+            }
+        }
+    }
+
     // Create node in underlying graph
     int64_t node_id = zeta_create_node_with_source(
         ctx->graph, type, label, value, salience, source);
 
     if (node_id < 0) return -1;
+
+    zeta_attach_concept_and_hook(ctx->graph, node_id, concept_key, clean_norm, label);
 
     // Link to previous head (creates chain)
     if (branch->head_node_id >= 0) {

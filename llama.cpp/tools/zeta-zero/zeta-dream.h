@@ -58,19 +58,21 @@ typedef struct {
     float compression_confidence;  // Min confidence to save (default: 0.7)
     std::string dreams_dir;        // Base directory for dreams
     int plateau_threshold;         // Consecutive discards before graph jump (default: 3)
+    bool enabled;                  // Enable/disable dreaming at runtime
 } zeta_dream_config_t;
 
 // Default dream configuration
 // NOTE: idle_threshold_sec set to 5 for MAX DREAMING (was 3600)
 static zeta_dream_config_t g_dream_config = {
-    5,                 // idle_threshold_sec - Dream after 5s idle (MAX DREAMING MODE)
+    31536000,          // idle_threshold_sec - effectively disable dreaming (~1 year idle)
     0.9f,              // dream_temp
     1.0f,              // dream_penalty_repeat
     10,                // max_dream_iterations (was 5, doubled for corpus run)
     512,               // max_dream_tokens
     0.6f,              // compression_confidence (lowered from 0.7 to save more dreams)
     "/storage/dreams", // dreams_dir
-    2                  // plateau_threshold - Jump to random graph node after 2 discards (was 3)
+    2,                 // plateau_threshold - Jump to random graph node after 2 discards (was 3)
+    true               // enabled by default
 };
 
 // ============================================================================
@@ -623,6 +625,10 @@ public:
     // DREAM THREAD
     // ========================================================================
     void start_dream_thread() {
+        if (!config.enabled) {
+            fprintf(stderr, "[DREAM] Disabled via configuration - thread will not start\n");
+            return;
+        }
         if (dream_thread_running) return;
 
         dream_thread_running = true;
@@ -650,7 +656,7 @@ public:
 
 private:
     bool should_dream() const {
-        if (!ctx || !generate_fn) return false;
+        if (!ctx || !generate_fn || !config.enabled) return false;
         time_t idle_time = time(NULL) - last_activity.load();
         return idle_time >= config.idle_threshold_sec;
     }

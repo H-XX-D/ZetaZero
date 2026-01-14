@@ -7,18 +7,18 @@
 #include "zeta-embed-integration.h"
 #include "zeta-dual-process.h"
 
-#define ZETA_DEDUP_THRESHOLD 0.85f    // Skip if >85% similar to existing
-#define ZETA_MERGE_THRESHOLD 0.90f    // Merge if >90% similar
+#define ZETA_EMBED_DEDUP_THRESHOLD 0.85f    // Skip if >85% similar to existing
+#define ZETA_EMBED_MERGE_THRESHOLD 0.90f    // Merge if >90% similar
 #define ZETA_COLD_MOMENTUM   0.30f    // Below this = candidate for embedding-only storage
 
 // Cache for recent embeddings to avoid re-computing
-#define ZETA_EMBED_CACHE_SIZE 64
+#define ZETA_EMBED_NODE_CACHE_SIZE 64
 static struct {
     int64_t node_id;
     float embedding[1536];
     bool valid;
-} g_embed_cache[ZETA_EMBED_CACHE_SIZE] = {0};
-static int g_embed_cache_idx = 0;
+} g_embed_node_cache[ZETA_EMBED_NODE_CACHE_SIZE] = {};
+static int g_embed_node_cache_idx = 0;
 
 // Get or compute embedding for a node
 static inline bool zeta_get_node_embedding(
@@ -29,9 +29,9 @@ static inline bool zeta_get_node_embedding(
     if (!ctx || !out_embedding) return false;
     
     // Check cache first
-    for (int i = 0; i < ZETA_EMBED_CACHE_SIZE; i++) {
-        if (g_embed_cache[i].valid && g_embed_cache[i].node_id == node_id) {
-            memcpy(out_embedding, g_embed_cache[i].embedding, 1536 * sizeof(float));
+    for (int i = 0; i < ZETA_EMBED_NODE_CACHE_SIZE; i++) {
+        if (g_embed_node_cache[i].valid && g_embed_node_cache[i].node_id == node_id) {
+            memcpy(out_embedding, g_embed_node_cache[i].embedding, 1536 * sizeof(float));
             return true;
         }
     }
@@ -42,10 +42,10 @@ static inline bool zeta_get_node_embedding(
             int dim = zeta_embed_text(ctx->nodes[n].value, out_embedding, 1536);
             if (dim > 0) {
                 // Cache it
-                g_embed_cache[g_embed_cache_idx].node_id = node_id;
-                memcpy(g_embed_cache[g_embed_cache_idx].embedding, out_embedding, 1536 * sizeof(float));
-                g_embed_cache[g_embed_cache_idx].valid = true;
-                g_embed_cache_idx = (g_embed_cache_idx + 1) % ZETA_EMBED_CACHE_SIZE;
+                g_embed_node_cache[g_embed_node_cache_idx].node_id = node_id;
+                memcpy(g_embed_node_cache[g_embed_node_cache_idx].embedding, out_embedding, 1536 * sizeof(float));
+                g_embed_node_cache[g_embed_node_cache_idx].valid = true;
+                g_embed_node_cache_idx = (g_embed_node_cache_idx + 1) % ZETA_EMBED_NODE_CACHE_SIZE;
                 return true;
             }
             break;
@@ -62,7 +62,7 @@ inline int64_t zeta_check_semantic_duplicate(
     float threshold
 ) {
     if (!ctx || !new_fact || !g_embed_ctx || !g_embed_ctx->initialized) return -1;
-    
+
     // Embed the new fact
     float new_emb[1536];
     int dim = zeta_embed_text(new_fact, new_emb, 1536);
@@ -86,8 +86,8 @@ inline int64_t zeta_check_semantic_duplicate(
     }
     
     if (max_sim > threshold) {
-        fprintf(stderr, "[DEDUP] Found %.1f%% similar fact (id=%ld), skipping duplicate\n", 
-                max_sim * 100.0f, max_id);
+        fprintf(stderr, "[DEDUP] Found %.1f%% similar fact (id=%lld), skipping duplicate\n",
+                max_sim * 100.0f, (long long)max_id);
         return max_id;
     }
     
@@ -104,7 +104,7 @@ static inline int zeta_find_similar_facts(
     float* out_sims,       // Array to store similarity scores
     int max_results
 ) {
-    if (!ctx || !query || !out_ids || !g_embed_ctx) return 0;
+    if (!ctx || !query || !out_ids || !g_embed_ctx || !g_embed_ctx->initialized) return 0;
     
     float query_emb[1536];
     int dim = zeta_embed_text(query, query_emb, 1536);
@@ -168,7 +168,7 @@ static inline int64_t zeta_consolidate_similar(
         zeta_create_edge(ctx, summary_id, node_ids[i], EDGE_SUPERSEDES, 1.0f);
     }
     
-    fprintf(stderr, "[CONSOLIDATE] Merged %d facts into node %ld\n", count, summary_id);
+    fprintf(stderr, "[CONSOLIDATE] Merged %d facts into node %lld\n", count, (long long)summary_id);
     return summary_id;
 }
 
@@ -179,7 +179,7 @@ static inline int zeta_prune_redundant(
     float momentum_threshold,
     float similarity_threshold
 ) {
-    if (!ctx || !g_embed_ctx) return 0;
+    if (!ctx || !g_embed_ctx || !g_embed_ctx->initialized) return 0;
     
     int pruned = 0;
     
@@ -204,8 +204,8 @@ static inline int zeta_prune_redundant(
                 if (sim > similarity_threshold) {
                     // This low-momentum fact is covered by a high-momentum one
                     node->salience = 0.01f;  // Mark as prunable
-                    fprintf(stderr, "[PRUNE] Fact %ld (%.2f sim to %ld) marked for pruning\n",
-                            node->node_id, sim, other->node_id);
+                        fprintf(stderr, "[PRUNE] Fact %lld (%.2f sim to %lld) marked for pruning\n",
+                            (long long)node->node_id, sim, (long long)other->node_id);
                     pruned++;
                     break;
                 }

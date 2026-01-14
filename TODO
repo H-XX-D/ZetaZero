@@ -4,6 +4,24 @@
 
 ---
 
+## New wiring tasks (Jan 12 2026)
+- Wire zeta-deliberation.h: init engine at startup, add CLI toggle + /debug, register navigate/verify/gate/veto/reflect callbacks, emit UNKNOWN when gate/veto fails.
+- Wire zeta-branching-engine.*: enforce budgets (branch count/depth/time), add validator/ternary/conflict gate before commit, expose counters via /debug.
+- Wire zeta-embed-integration.h: hook embedding cache/context manager into ingest + retrieval paths, reuse dedup/LSH seeds.
+- Add branch-scoped KV capture/pruning: capture high-salience nodes per branch, flush on shutdown, prune idle/low-signal branches.
+- Research graph + semantic-attacks gates: integrate research graph ingestion carefully and keep semantic attack checks on new hops.
+- Proactive memory tuning: ensure token-cache counts back off long warmups; expose toggle and stats with existing cache.
+- Research mode gating: keep zeta-research* and research-graph integration disabled by default; add CLI toggle; enforce budgets; stub-safe persistence (rate-limited writes, off by default) and ternary/semantic-attack gate before committing facts.
+
+### Memory substrate defaults
+- Invisible by default: conservative warmups, low-priority background threads, no blocking on critical paths.
+- Adaptive backoff: auto-throttle warmups/capture/pruning under load; resume when idle.
+- Minimal churn: coalesce noncritical flushes; error-only logs unless verbose is enabled.
+- Observability: /debug/memory-lite (small counters) on; deep /debug/memory-detail gated by a flag.
+- Safety: keep semantic-attack/ternary checks on ingest/hops; surface details only in the detailed view.
+
+---
+
 ## BUG FIXES COMMITTED (39 bugs total)
 
 ### Deep Audit Commits (29 bugs)

@@ -59,6 +59,9 @@ install(TARGETS ${TARGET} RUNTIME)
 set(SERVER_TARGET zeta-zero-server)
 add_executable(${SERVER_TARGET} zeta-server.cpp)
 
+# Compatibility alias: older scripts may still build target "zeta-server".
+add_custom_target(zeta-server DEPENDS ${SERVER_TARGET})
+
 target_sources(${SERVER_TARGET} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/zeta-mode-controller.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/zeta-memory.c

@@ -44,6 +44,7 @@ struct zeta_config_t {
     std::string storage_dir;
     std::string gkv_dir;      // Graph-KV cache directory
     std::string dream_dir;    // Dream output directory
+    bool dream_enabled;       // Enable/disable dream thread
     std::string log_file;
 
     // Auth - unified sudo password for all admin operations
@@ -129,6 +130,7 @@ static zeta_config_t g_config = {
     "/storage",     // storage_dir
     "/storage/graph_kv",    // gkv_dir
     "/storage/dreams",      // dream_dir
+    true,            // dream_enabled
     "/tmp/zeta.log",// log_file
     "zeta1234",     // sudo_password (default - CHANGE IN PRODUCTION)
     true,           // sudo_enabled (true = require password, false = power user mode)
@@ -287,6 +289,11 @@ static inline bool zeta_load_config() {
     if (config.count("ZETA_STORAGE")) g_config.storage_dir = config["ZETA_STORAGE"];
     if (config.count("ZETA_GKV_DIR")) g_config.gkv_dir = config["ZETA_GKV_DIR"];
     if (config.count("ZETA_DREAM_DIR")) g_config.dream_dir = config["ZETA_DREAM_DIR"];
+    if (config.count("ZETA_DREAM_ENABLED")) {
+        std::string val = config["ZETA_DREAM_ENABLED"];
+        g_config.dream_enabled = (val == "true" || val == "1" || val == "yes" || val == "on");
+        fprintf(stderr, "[CONFIG] Dreaming: %s\n", g_config.dream_enabled ? "ENABLED" : "DISABLED");
+    }
     if (config.count("ZETA_LOG")) g_config.log_file = config["ZETA_LOG"];
     // ZETA_SUDO_PASSWORD is the canonical name, ZETA_PASSWORD kept for backwards compatibility
     if (config.count("ZETA_PASSWORD")) g_config.sudo_password = config["ZETA_PASSWORD"];  // legacy
@@ -383,7 +390,7 @@ static inline void zeta_print_config() {
     fprintf(stderr, "Paths:\n");
     fprintf(stderr, "  Storage: %s\n", g_config.storage_dir.c_str());
     fprintf(stderr, "  GKV:     %s\n", g_config.gkv_dir.c_str());
-    fprintf(stderr, "  Dreams:  %s\n", g_config.dream_dir.c_str());
+    fprintf(stderr, "  Dreams:  %s (enabled=%s)\n", g_config.dream_dir.c_str(), g_config.dream_enabled ? "yes" : "no");
     fprintf(stderr, "Advanced (runtime):\n");
     fprintf(stderr, "  Graph:   nodes=%d, edges=%d, hop_depth=%d\n",
             g_config.max_graph_nodes, g_config.max_edges, g_config.max_hop_depth);

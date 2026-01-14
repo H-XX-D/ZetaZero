@@ -8,6 +8,7 @@
 #include "llama.h"
 #include "zeta-3b-extract.h"
 #include "zeta-ontology.h"
+#include "zeta-dedup.h"
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdlib.h>
@@ -26,7 +27,16 @@ static inline void zeta_set_vocab(const llama_vocab* vocab) { g_zeta_vocab = voc
 // Uses void* to avoid circular dependency with zeta-graph-git.h
 static void* g_zeta_git_ctx = NULL;
 
+// Global dedup context (set by server)
+static zeta_dedup_ctx_t* g_zeta_dedup = NULL;
+static bool g_zeta_dedup_ingest_enabled = true;
+static bool g_zeta_causal_embeddings_enabled = true;
+
 static inline void zeta_set_git_ctx(void* git) { g_zeta_git_ctx = git; }
+
+static inline void zeta_set_dedup_ctx(zeta_dedup_ctx_t* ctx) { g_zeta_dedup = ctx; }
+static inline void zeta_set_dedup_enabled(bool enabled) { g_zeta_dedup_ingest_enabled = enabled; }
+static inline void zeta_set_causal_embeddings_enabled(bool enabled) { g_zeta_causal_embeddings_enabled = enabled; }
 
 // Function pointer for automatic git commits (set by zeta-graph-git.h)
 // Signature: (ctx, type, label, value, salience, source) -> node_id
@@ -115,7 +125,7 @@ typedef enum {
 } zeta_epistemic_scope_t;
 
 // Memory graph node
-typedef struct {
+typedef struct zeta_graph_node {
     int64_t node_id;
     zeta_node_type_t type;
     char label[128];           // Entity name
@@ -175,7 +185,7 @@ typedef struct {
 } zeta_surfaced_context_t;
 
 // Dual-process state
-typedef struct {
+typedef struct zeta_dual_ctx_t {
     // Subconscious model (7B memory/extraction)
     llama_model* model_subconscious;
     llama_context* ctx_subconscious;
@@ -204,6 +214,13 @@ typedef struct {
     char storage_dir[512];
 } zeta_dual_ctx_t;
 
+// Optional server hook fired after fact commits (used for embed-memory maintenance)
+typedef void (*zeta_fact_commit_hook_fn)(zeta_dual_ctx_t*, const std::string&, int64_t, const char*);
+static zeta_fact_commit_hook_fn g_zeta_fact_hook = NULL;
+static bool g_zeta_fact_hook_enabled = true;
+static inline void zeta_set_fact_commit_hook(zeta_fact_commit_hook_fn fn) { g_zeta_fact_hook = fn; }
+static inline void zeta_set_fact_hook_enabled(bool enabled) { g_zeta_fact_hook_enabled = enabled; }
+
 // Forward declarations
 static inline int64_t zeta_create_node_with_source(zeta_dual_ctx_t*, zeta_node_type_t, const char*, const char*, float, zeta_source_t);
 static inline int64_t zeta_create_node(zeta_dual_ctx_t* ctx, zeta_node_type_t type, const char* label, const char* value, float salience) {
@@ -213,6 +230,8 @@ static inline int64_t zeta_create_edge(zeta_dual_ctx_t*, int64_t, int64_t, zeta_
 static inline int64_t zeta_create_edge_ternary(zeta_dual_ctx_t*, int64_t, int64_t, zeta_edge_type_t, zeta_edge_polarity_t, float);
 static inline zeta_edge_polarity_t zeta_ternary_consensus(zeta_edge_polarity_t, zeta_edge_polarity_t);
 static inline int zeta_find_contradictions(zeta_dual_ctx_t*, int64_t, int64_t, zeta_edge_type_t, int64_t*, int);
+
+#include "zeta-causal-embeddings.h"
 
 // ============================================================================
 // 3B Subconscious Operations
@@ -1156,6 +1175,43 @@ static inline uint64_t fnv1a64(const std::string& s) {
     return h;
 }
 
+static inline void zeta_build_concept_key(const char* label, const std::string& clean_value_norm, char* out, size_t out_size) {
+    if (!out || out_size == 0) return;
+    const char* label_safe = (label && label[0]) ? label : "fact";
+    uint64_t h = fnv1a64(clean_value_norm);
+    uint32_t h32 = (uint32_t)(h & 0xffffffffu);
+    snprintf(out, out_size, "%.40s#%08x", label_safe, h32);
+    if (out_size > 0) {
+        out[out_size - 1] = '\0';
+    }
+}
+
+static inline void zeta_attach_concept_and_hook(
+    zeta_dual_ctx_t* ctx,
+    int64_t node_id,
+    const char* concept_key,
+    const std::string& clean_value_norm,
+    const char* label
+) {
+    if (!ctx || node_id < 0) return;
+    for (int i = 0; i < ctx->num_nodes; i++) {
+        if (ctx->nodes[i].node_id != node_id || !ctx->nodes[i].is_active) continue;
+
+        if (concept_key && concept_key[0]) {
+            snprintf(ctx->nodes[i].concept_key, sizeof(ctx->nodes[i].concept_key), "%s", concept_key);
+            if (g_zeta_dedup && g_zeta_dedup_ingest_enabled) {
+                zeta_dedup_add(g_zeta_dedup, node_id, concept_key, ctx->nodes[i].embedding);
+            }
+        }
+
+        if (g_zeta_fact_hook && g_zeta_fact_hook_enabled) {
+            const char* hook_label = (label && label[0]) ? label : ctx->nodes[i].label;
+            g_zeta_fact_hook(ctx, clean_value_norm, node_id, hook_label);
+        }
+        break;
+    }
+}
+
 static inline bool looks_like_code(const std::string& s) {
     return (s.find("#include") != std::string::npos) ||
            (s.find("def ") != std::string::npos) ||
@@ -1223,24 +1279,66 @@ static inline int64_t zeta_commit_dedup(
     zeta_source_t source
 ) {
     if (!ctx) return -1;
-
+    const char* label_safe = (label && label[0]) ? label : "fact";
     uint64_t h = fnv1a64(clean_value_norm);
-    auto it = g_remember_hash_index.find(h);
-    if (it != g_remember_hash_index.end()) {
-        int64_t id = it->second;
-        // locate node by id and verify value matches (guard against hash collision)
+    char concept_key[64];
+    zeta_build_concept_key(label_safe, clean_value_norm, concept_key, sizeof(concept_key));
+
+    auto touch_existing = [&](int64_t id) -> int64_t {
         for (int i = 0; i < ctx->num_nodes; i++) {
             if (ctx->nodes[i].node_id == id && ctx->nodes[i].is_active) {
                 std::string existing = zeta_norm(ctx->nodes[i].value);
-                if (existing == clean_value_norm) {
-                    ctx->nodes[i].access_count++;
-                    ctx->nodes[i].last_accessed = (int64_t)time(NULL);
-                    ctx->nodes[i].salience = fminf(1.0f, ctx->nodes[i].salience + 0.02f);
-                    fprintf(stderr, "[DEDUP] Touched existing node %lld (access=%d, sal=%.2f)\n",
-                            (long long)id, ctx->nodes[i].access_count, ctx->nodes[i].salience);
-                    return id;
+                if (existing != clean_value_norm) break;  // Hash collision, treat as miss
+                ctx->nodes[i].access_count++;
+                ctx->nodes[i].last_accessed = (int64_t)time(NULL);
+                ctx->nodes[i].salience = fminf(1.0f, ctx->nodes[i].salience + 0.02f);
+                fprintf(stderr, "[DEDUP] Touched existing node %lld (access=%d, sal=%.2f)\n",
+                        (long long)id, ctx->nodes[i].access_count, ctx->nodes[i].salience);
+                return id;
+            }
+        }
+        return -1;
+    };
+
+    // Exact deduplication via engine (concept_key keyed on label + normalized hash)
+    if (g_zeta_dedup && g_zeta_dedup_ingest_enabled) {
+        int64_t existing = zeta_dedup_find_exact(g_zeta_dedup, concept_key);
+        if (existing >= 0) {
+            g_remember_hash_index[h] = existing;  // Keep hash shortcut in sync
+            int64_t touched = touch_existing(existing);
+            if (touched >= 0) {
+                zeta_attach_concept_and_hook(ctx, touched, concept_key, clean_value_norm, label_safe);
+                return touched;
+            }
+        }
+    }
+
+    // Hash-based shortcut (legacy path)
+    auto it = g_remember_hash_index.find(h);
+    if (it != g_remember_hash_index.end()) {
+        int64_t touched = touch_existing(it->second);
+        if (touched >= 0) return touched;
+    }
+
+    // Semantic near-duplicate check (embedding-based) to avoid variant duplicates
+    if (g_zeta_embed_text) {
+        float new_emb[2048];
+        if (g_zeta_embed_text(clean_value_norm.c_str(), new_emb, 2048) > 0) {
+            float best_sim = 0.0f;
+            int64_t best_id = -1;
+            for (int i = 0; i < ctx->num_nodes; i++) {
+                if (!ctx->nodes[i].is_active) continue;
+                if (strcmp(ctx->nodes[i].label, label_safe) != 0) continue;  // same label family
+                float sim = zeta_cosine_sim_early(new_emb, ctx->nodes[i].embedding, 2048);
+                if (sim > 0.90f && sim > best_sim) {
+                    best_sim = sim;
+                    best_id = ctx->nodes[i].node_id;
                 }
-                break;
+            }
+            if (best_id >= 0) {
+                g_remember_hash_index[h] = best_id;  // seed shortcut for future hits
+                int64_t touched = touch_existing(best_id);
+                if (touched >= 0) return touched;
             }
         }
     }
@@ -1248,6 +1346,7 @@ static inline int64_t zeta_commit_dedup(
     int64_t id_new = zeta_commit_fact(ctx, type, label, clean_value_norm.c_str(), salience, source);
     if (id_new >= 0) {
         g_remember_hash_index[h] = id_new;
+        zeta_attach_concept_and_hook(ctx, id_new, concept_key, clean_value_norm, label_safe);
     }
     return id_new;
 }
@@ -1467,6 +1566,11 @@ static inline int zeta_subconscious_extract_facts(
                         fprintf(stderr, "[PREVENTS] %s --PREVENTS--> %s\n", subj, obj);
                     }
                 }
+            }
+
+            if (g_zeta_causal_embeddings_enabled) {
+                int edges = zeta_causal_extract_edges(ctx, clean_norm.c_str());
+                if (edges > 0) facts_created += edges;
             }
 
             return facts_created;  // Skip full 3B extraction but kept causal edges
@@ -1869,82 +1973,92 @@ static inline int zeta_subconscious_extract_facts(
         NULL
     };
 
-    // Check for causal relationships (CAUSES)
-    for (int cv = 0; causal_verbs[cv]; cv++) {
-        const char* cmatch = strstr(lower, causal_verbs[cv]);
-        if (cmatch) {
-            char c_subject[128] = {0};
-            const char* c_subj_start = cmatch - 1;
-            while (c_subj_start > lower && *c_subj_start == ' ') c_subj_start--;
-            const char* c_word_end = c_subj_start + 1;
-            while (c_subj_start > lower && *c_subj_start != ' ' && *c_subj_start != '.' && *c_subj_start != ',') {
-                c_subj_start--;
-            }
-            if (*c_subj_start == ' ' || *c_subj_start == '.' || *c_subj_start == ',') c_subj_start++;
-            int csi = 0;
-            while (c_subj_start < c_word_end && csi < 127) c_subject[csi++] = *c_subj_start++;
-            c_subject[csi] = '\0';
-
-            char c_object[128] = {0};
-            int coi = 0;
-            const char* c_obj_start = cmatch + strlen(causal_verbs[cv]);
-            while (*c_obj_start && coi < 127 && *c_obj_start != '.' && *c_obj_start != ',' && *c_obj_start != '\n') {
-                c_object[coi++] = *c_obj_start++;
-            }
-            while (coi > 0 && c_object[coi-1] == ' ') coi--;
-            c_object[coi] = '\0';
-
-            if (strlen(c_subject) > 1 && strlen(c_object) > 1) {
-                int64_t c_subj_id = zeta_commit_fact(ctx, NODE_ENTITY, "causal_agent", c_subject, 0.85f, SOURCE_USER);
-                int64_t c_obj_id = zeta_commit_fact(ctx, NODE_ENTITY, "causal_target", c_object, 0.85f, SOURCE_USER);
-                zeta_commit_edge(ctx, c_subj_id, c_obj_id, EDGE_CAUSES, 1.0f);
-                facts_created++;
-                fprintf(stderr, "[3B] CAUSAL: %s --CAUSES--> %s\n", c_subject, c_object);
-
-                // Store full causal sentence for surfacing
-                char c_sent[256];
-                snprintf(c_sent, sizeof(c_sent), "%.*s causes %.*s", 120, c_subject, 120, c_object);
-                zeta_commit_fact(ctx, NODE_FACT, "causes_relation", c_sent, 0.95f, SOURCE_USER);
-            }
+    int causal_edges_created = 0;
+    if (g_zeta_causal_embeddings_enabled) {
+        causal_edges_created = zeta_causal_extract_edges(ctx, text);
+        if (causal_edges_created > 0) {
+            facts_created += causal_edges_created;
         }
     }
 
-    // Check for preventive relationships (PREVENTS)
-    for (int pv = 0; prevent_verbs[pv]; pv++) {
-        const char* pmatch = strstr(lower, prevent_verbs[pv]);
-        if (pmatch) {
-            char p_subject[128] = {0};
-            const char* p_subj_start = pmatch - 1;
-            while (p_subj_start > lower && *p_subj_start == ' ') p_subj_start--;
-            const char* p_word_end = p_subj_start + 1;
-            while (p_subj_start > lower && *p_subj_start != ' ' && *p_subj_start != '.' && *p_subj_start != ',') {
-                p_subj_start--;
+    if (causal_edges_created == 0) {
+        // Check for causal relationships (CAUSES)
+        for (int cv = 0; causal_verbs[cv]; cv++) {
+            const char* cmatch = strstr(lower, causal_verbs[cv]);
+            if (cmatch) {
+                char c_subject[128] = {0};
+                const char* c_subj_start = cmatch - 1;
+                while (c_subj_start > lower && *c_subj_start == ' ') c_subj_start--;
+                const char* c_word_end = c_subj_start + 1;
+                while (c_subj_start > lower && *c_subj_start != ' ' && *c_subj_start != '.' && *c_subj_start != ',') {
+                    c_subj_start--;
+                }
+                if (*c_subj_start == ' ' || *c_subj_start == '.' || *c_subj_start == ',') c_subj_start++;
+                int csi = 0;
+                while (c_subj_start < c_word_end && csi < 127) c_subject[csi++] = *c_subj_start++;
+                c_subject[csi] = '\0';
+
+                char c_object[128] = {0};
+                int coi = 0;
+                const char* c_obj_start = cmatch + strlen(causal_verbs[cv]);
+                while (*c_obj_start && coi < 127 && *c_obj_start != '.' && *c_obj_start != ',' && *c_obj_start != '\n') {
+                    c_object[coi++] = *c_obj_start++;
+                }
+                while (coi > 0 && c_object[coi-1] == ' ') coi--;
+                c_object[coi] = '\0';
+
+                if (strlen(c_subject) > 1 && strlen(c_object) > 1) {
+                    int64_t c_subj_id = zeta_commit_fact(ctx, NODE_ENTITY, "causal_agent", c_subject, 0.85f, SOURCE_USER);
+                    int64_t c_obj_id = zeta_commit_fact(ctx, NODE_ENTITY, "causal_target", c_object, 0.85f, SOURCE_USER);
+                    zeta_commit_edge(ctx, c_subj_id, c_obj_id, EDGE_CAUSES, 1.0f);
+                    facts_created++;
+                    fprintf(stderr, "[3B] CAUSAL: %s --CAUSES--> %s\n", c_subject, c_object);
+
+                    // Store full causal sentence for surfacing
+                    char c_sent[256];
+                    snprintf(c_sent, sizeof(c_sent), "%.*s causes %.*s", 120, c_subject, 120, c_object);
+                    zeta_commit_fact(ctx, NODE_FACT, "causes_relation", c_sent, 0.95f, SOURCE_USER);
+                }
             }
-            if (*p_subj_start == ' ' || *p_subj_start == '.' || *p_subj_start == ',') p_subj_start++;
-            int psi = 0;
-            while (p_subj_start < p_word_end && psi < 127) p_subject[psi++] = *p_subj_start++;
-            p_subject[psi] = '\0';
+        }
 
-            char p_object[128] = {0};
-            int poi = 0;
-            const char* p_obj_start = pmatch + strlen(prevent_verbs[pv]);
-            while (*p_obj_start && poi < 127 && *p_obj_start != '.' && *p_obj_start != ',' && *p_obj_start != '\n') {
-                p_object[poi++] = *p_obj_start++;
-            }
-            while (poi > 0 && p_object[poi-1] == ' ') poi--;
-            p_object[poi] = '\0';
+        // Check for preventive relationships (PREVENTS)
+        for (int pv = 0; prevent_verbs[pv]; pv++) {
+            const char* pmatch = strstr(lower, prevent_verbs[pv]);
+            if (pmatch) {
+                char p_subject[128] = {0};
+                const char* p_subj_start = pmatch - 1;
+                while (p_subj_start > lower && *p_subj_start == ' ') p_subj_start--;
+                const char* p_word_end = p_subj_start + 1;
+                while (p_subj_start > lower && *p_subj_start != ' ' && *p_subj_start != '.' && *p_subj_start != ',') {
+                    p_subj_start--;
+                }
+                if (*p_subj_start == ' ' || *p_subj_start == '.' || *p_subj_start == ',') p_subj_start++;
+                int psi = 0;
+                while (p_subj_start < p_word_end && psi < 127) p_subject[psi++] = *p_subj_start++;
+                p_subject[psi] = '\0';
 
-            if (strlen(p_subject) > 1 && strlen(p_object) > 1) {
-                int64_t p_subj_id = zeta_commit_fact(ctx, NODE_ENTITY, "preventer", p_subject, 0.9f, SOURCE_USER);
-                int64_t p_obj_id = zeta_commit_fact(ctx, NODE_ENTITY, "prevented", p_object, 0.85f, SOURCE_USER);
-                zeta_commit_edge(ctx, p_subj_id, p_obj_id, EDGE_PREVENTS, 1.0f);
-                facts_created++;
-                fprintf(stderr, "[3B] PREVENTS: %s --PREVENTS--> %s\n", p_subject, p_object);
+                char p_object[128] = {0};
+                int poi = 0;
+                const char* p_obj_start = pmatch + strlen(prevent_verbs[pv]);
+                while (*p_obj_start && poi < 127 && *p_obj_start != '.' && *p_obj_start != ',' && *p_obj_start != '\n') {
+                    p_object[poi++] = *p_obj_start++;
+                }
+                while (poi > 0 && p_object[poi-1] == ' ') poi--;
+                p_object[poi] = '\0';
 
-                // Store full prevents sentence for surfacing
-                char p_sent[256];
-                snprintf(p_sent, sizeof(p_sent), "%.*s prevents %.*s", 120, p_subject, 120, p_object);
-                zeta_commit_fact(ctx, NODE_FACT, "prevents_relation", p_sent, 0.95f, SOURCE_USER);
+                if (strlen(p_subject) > 1 && strlen(p_object) > 1) {
+                    int64_t p_subj_id = zeta_commit_fact(ctx, NODE_ENTITY, "preventer", p_subject, 0.9f, SOURCE_USER);
+                    int64_t p_obj_id = zeta_commit_fact(ctx, NODE_ENTITY, "prevented", p_object, 0.85f, SOURCE_USER);
+                    zeta_commit_edge(ctx, p_subj_id, p_obj_id, EDGE_PREVENTS, 1.0f);
+                    facts_created++;
+                    fprintf(stderr, "[3B] PREVENTS: %s --PREVENTS--> %s\n", p_subject, p_object);
+
+                    // Store full prevents sentence for surfacing
+                    char p_sent[256];
+                    snprintf(p_sent, sizeof(p_sent), "%.*s prevents %.*s", 120, p_subject, 120, p_object);
+                    zeta_commit_fact(ctx, NODE_FACT, "prevents_relation", p_sent, 0.95f, SOURCE_USER);
+                }
             }
         }
     }
