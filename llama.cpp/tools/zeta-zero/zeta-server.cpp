@@ -179,6 +179,14 @@ static zeta_dedup_ctx_t* g_dedup = nullptr;
 static bool g_dedup_ingest_enabled = true;
 static float g_dedup_threshold_cfg = 0.86f;
 
+// Fast node ID to index lookup (O(1) instead of O(N))
+static std::unordered_map<int64_t, int> g_node_id_to_idx;
+
+// Forward declarations for node ID lookup (implementations after g_dual)
+static void rebuild_node_id_lookup();
+static inline int get_node_idx_by_id(int64_t node_id);
+static inline void add_node_to_lookup(int64_t node_id, int idx);
+
 // Tunnel search (momentum-driven retrieval) toggle
 static bool g_tunnel_enabled = true;
 
@@ -271,6 +279,33 @@ static bool g_deliberation_enabled = false;
 // Skips 3B extraction, embedding, and proactive prefetch for short/trivial queries
 static bool g_fast_path_enabled = true;
 static int g_fast_path_token_threshold = 25;  // Queries under this token count use fast path
+
+// ============================================================================
+// Node ID to Index Lookup Implementations
+// ============================================================================
+
+// Rebuild node ID lookup table (call after graph load or node creation)
+static void rebuild_node_id_lookup() {
+    g_node_id_to_idx.clear();
+    if (!g_dual) return;
+    g_node_id_to_idx.reserve(g_dual->num_nodes);
+    for (int i = 0; i < g_dual->num_nodes; i++) {
+        if (g_dual->nodes[i].is_active) {
+            g_node_id_to_idx[g_dual->nodes[i].node_id] = i;
+        }
+    }
+}
+
+// Get node index by ID in O(1) - returns -1 if not found
+static inline int get_node_idx_by_id(int64_t node_id) {
+    auto it = g_node_id_to_idx.find(node_id);
+    return (it != g_node_id_to_idx.end()) ? it->second : -1;
+}
+
+// Add a single node to the lookup table (O(1) incremental update)
+static inline void add_node_to_lookup(int64_t node_id, int idx) {
+    g_node_id_to_idx[node_id] = idx;
+}
 
 // Detect if a query is "simple" and can skip heavy graph operations
 // Simple queries: short, no remember: commands, no complex instructions
@@ -481,6 +516,9 @@ static int zeta_gkv_capture_high_salience(
 // Rebuild dedup index from in-memory graph (label + normalized hash as concept key)
 static void zeta_rebuild_dedup_index() {
     if (!g_dual || !g_dedup) return;
+
+    // Also rebuild fast node ID lookup table
+    rebuild_node_id_lookup();
 
     std::vector<zeta_dedup_node_info_t> nodes;
     nodes.reserve(g_dual->num_nodes);
@@ -781,14 +819,40 @@ static std::vector<zeta_retrieved_snippet_t> zeta_retrieve_snippets(const std::s
 
     struct scored_node_t { int idx; float sim; };
     std::vector<scored_node_t> candidates;
-    candidates.reserve(g_dual->num_nodes);
 
-    for (int i = 0; i < g_dual->num_nodes; i++) {
-        zeta_graph_node_t * node = &g_dual->nodes[i];
-        if (!node->is_active) continue;
-        float sim = zeta_cosine_sim(q_emb.data(), node->embedding, EMBED_DIM);
-        if (sim > 0.20f) {
-            candidates.push_back({i, sim});
+    // =========================================================================
+    // FIX: Use LSH for O(1) approximate candidate selection instead of O(N×2048)
+    // =========================================================================
+    if (g_dedup) {
+        // Fast path: LSH gives us approximate nearest neighbors in O(1)
+        const int MAX_LSH_CANDIDATES = 64;  // Get more candidates, then verify
+        int64_t lsh_ids[MAX_LSH_CANDIDATES];
+        float lsh_sims[MAX_LSH_CANDIDATES];
+        int n_lsh = zeta_dedup_find_similar(g_dedup, q_emb.data(), lsh_ids, lsh_sims, MAX_LSH_CANDIDATES);
+        
+        // Only verify similarity for LSH candidates (O(K×2048) where K << N)
+        candidates.reserve(n_lsh);
+        for (int i = 0; i < n_lsh; i++) {
+            // O(1) lookup using hash map instead of O(N) linear scan
+            int idx = get_node_idx_by_id(lsh_ids[i]);
+            if (idx >= 0 && g_dual->nodes[idx].is_active) {
+                // Verify with exact cosine similarity
+                float sim = zeta_cosine_sim(q_emb.data(), g_dual->nodes[idx].embedding, EMBED_DIM);
+                if (sim > 0.20f) {
+                    candidates.push_back({idx, sim});
+                }
+            }
+        }
+    } else {
+        // Fallback: Brute force if no LSH index (shouldn't happen normally)
+        candidates.reserve(g_dual->num_nodes);
+        for (int i = 0; i < g_dual->num_nodes; i++) {
+            zeta_graph_node_t * node = &g_dual->nodes[i];
+            if (!node->is_active) continue;
+            float sim = zeta_cosine_sim(q_emb.data(), node->embedding, EMBED_DIM);
+            if (sim > 0.20f) {
+                candidates.push_back({i, sim});
+            }
         }
     }
 
@@ -818,13 +882,14 @@ static std::vector<zeta_retrieved_snippet_t> zeta_retrieve_snippets(const std::s
         zeta_tunnel_state_t tstate;
         zeta_tunnel_init(&tstate, 0.85f, 0.88f, 0.65f);
 
-        // Seed with top base hits and optional LSH candidates from dedup
+        // Seed with top base hits (LSH already used above)
         int64_t seeds[ZETA_TUNNEL_BEAM_WIDTH];
         int seed_count = 0;
         for (size_t j = 0; j < candidates.size() && seed_count < ZETA_TUNNEL_BEAM_WIDTH; j++) {
             seeds[seed_count++] = g_dual->nodes[candidates[j].idx].node_id;
         }
-        if (g_dedup && seed_count < ZETA_TUNNEL_BEAM_WIDTH) {
+        // Note: LSH already used above for base candidates, no need to repeat here
+        if (seed_count < ZETA_TUNNEL_BEAM_WIDTH && g_dedup) {
             int64_t lsh_ids[ZETA_TUNNEL_BEAM_WIDTH];
             int n_lsh = zeta_dedup_find_similar(g_dedup, q_emb.data(), lsh_ids, nullptr, ZETA_TUNNEL_BEAM_WIDTH);
             for (int i = 0; i < n_lsh && seed_count < ZETA_TUNNEL_BEAM_WIDTH; i++) {
@@ -2934,17 +2999,27 @@ static std::string generate_chunked_output(const std::string& prompt, int max_to
     // Strip self-critique metadata that leaked into output
     clean_output = strip_self_critique_metadata(clean_output);
 
-    // Story coherence check (CREATIVE mode only)
+    // Story coherence check AND extraction (CREATIVE mode only)
     // Check for contradictions with established characters/plot/locations
+    // Also extract new story elements from generated output
     {
         auto current_mode = zeta_modes::g_mode_controller.current_mode();
         auto policy = zeta_modes::get_policy(current_mode);
-        if (policy.use_story_coherence && policy.story_check_on_output && g_story_ctx && g_dual) {
-            int contradictions = zeta_story_check_coherence(g_dual, clean_output.c_str());
-            if (contradictions > 0) {
-                fprintf(stderr, "[STORY] Warning: %d potential contradictions detected in output\n",
-                        contradictions);
-                // Note: Could trigger a repair pass here in future versions
+        if (policy.use_story_coherence && g_story_ctx && g_dual) {
+            // Check coherence first
+            if (policy.story_check_on_output) {
+                int contradictions = zeta_story_check_coherence(g_dual, clean_output.c_str());
+                if (contradictions > 0) {
+                    fprintf(stderr, "[STORY] Warning: %d potential contradictions detected in output\n",
+                            contradictions);
+                }
+            }
+            // Extract story elements from generated output
+            int chapter = g_story_ctx->current_chapter > 0 ? g_story_ctx->current_chapter : 1;
+            int extracted = zeta_story_extract_all(g_dual, clean_output.c_str(), chapter);
+            if (extracted > 0) {
+                fprintf(stderr, "[STORY] Extracted %d elements from output (ch%d)\n",
+                        extracted, chapter);
             }
         }
     }
@@ -4434,6 +4509,9 @@ static void load_graph() {
         }
         g_dual->next_node_id = max_node_id + 1;
         g_dual->next_edge_id = max_edge_id + 1;
+
+        // Build fast O(1) node ID lookup table
+        rebuild_node_id_lookup();
 
         fprintf(stderr, "[LOAD] Restored %d nodes, %d edges from %s (next_id=%lld)\n",
                 g_dual->num_nodes, g_dual->num_edges, path, (long long)g_dual->next_node_id);
