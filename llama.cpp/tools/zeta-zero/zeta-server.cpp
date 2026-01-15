@@ -5800,13 +5800,15 @@ int main(int argc, char** argv) {
                         // STORY EXTRACTION: Extract story elements in creative mode
                         // This captures characters, locations, relationships from generated content
                         auto policy = zeta_modes::get_policy(zeta_modes::g_mode_controller.current_mode());
+                        fprintf(stderr, "[STORY-GEN] Checking: use_story=%d g_story_ctx=%p g_dual=%p output_len=%zu\n",
+                                policy.use_story_coherence, (void*)g_story_ctx, (void*)g_dual, output_text.size());
                         if (policy.use_story_coherence && g_story_ctx && g_dual) {
                             int chapter = g_story_ctx->current_chapter > 0 ? g_story_ctx->current_chapter : 1;
+                            fprintf(stderr, "[STORY-GEN] Extracting from output (ch%d): %.80s...\n",
+                                    chapter, output_text.c_str());
                             int extracted = zeta_story_extract_all(g_dual, output_text.c_str(), chapter);
-                            if (extracted > 0) {
-                                fprintf(stderr, "[STORY] Extracted %d elements from /generate output (ch%d)\n",
-                                        extracted, chapter);
-                            }
+                            fprintf(stderr, "[STORY-GEN] Extracted %d elements from /generate output (ch%d)\n",
+                                    extracted, chapter);
                         }
                     }
                 }

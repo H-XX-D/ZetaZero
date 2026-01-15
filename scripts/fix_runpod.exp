@@ -1,0 +1,50 @@
+#!/usr/bin/expect -f
+set timeout 180
+
+spawn ssh -tt l5s0tvdyr1dty6-64410d4f@ssh.runpod.io
+expect "passphrase" {send "1770\r"}
+
+# Wait for shell prompt
+expect -re {root@[^#]+#}
+
+# Fix 1: Enable prefetch
+send "cd /runpod-volume/ZetaZero/llama.cpp/tools/zeta-zero\r"
+expect -re {root@[^#]+#}
+
+send "sed -i 's/prefetch_enabled = false/prefetch_enabled = true/g' zeta-proactive-memory.h && echo FIX1_DONE\r"
+expect "FIX1_DONE"
+expect -re {root@[^#]+#}
+
+# Fix 2: Remove the continue statement in lazy capture and add actual capture
+# This is trickier - we need to check current state first
+send "grep -n 'DISABLED.*lazy' zeta-graph-kv-integration.h | head -3\r"
+expect -re {root@[^#]+#}
+
+# Fix 3: Uncomment opportunistic capture in zeta-server.cpp
+send "grep -n 'DISABLED.*opportunistic' zeta-server.cpp | head -3\r"
+expect -re {root@[^#]+#}
+
+# Rebuild
+send "cd /runpod-volume/ZetaZero/llama.cpp && cmake --build build --target zeta-zero-server -j8 2>&1 | tail -20 && echo BUILD_DONE\r"
+expect {
+    "BUILD_DONE" { puts "\n=== BUILD COMPLETE ===" }
+    timeout { puts "\n=== BUILD TIMEOUT ===" }
+}
+expect -re {root@[^#]+#}
+
+# Start zeta server
+send "pkill -x zeta-zero-server 2>/dev/null; sleep 1\r"
+expect -re {root@[^#]+#}
+
+send "nohup /runpod-volume/ZetaZero/llama.cpp/build/bin/zeta-zero-server --host 0.0.0.0 --port 8080 -m /runpod-volume/models/qwen2.5-14b-instruct-q4_k_m-00001-of-00003.gguf --zeta-storage /runpod-volume/storage/graph -ngl 99 -c 4096 > /runpod-volume/logs/zeta.log 2>&1 &\r"
+expect -re {root@[^#]+#}
+
+send "sleep 15 && curl -s http://localhost:8080/health && echo ZETA_UP\r"
+expect {
+    "ZETA_UP" { puts "\n=== ZETA SERVER UP ===" }
+    timeout { puts "\n=== SERVER NOT READY ===" }
+}
+expect -re {root@[^#]+#}
+
+send "exit\r"
+expect eof

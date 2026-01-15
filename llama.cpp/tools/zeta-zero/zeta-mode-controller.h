@@ -788,7 +788,17 @@ public:
             return Mode::CHAT;
         }
 
-        // Use query_class from router
+        // Use query_class from router UNLESS in CREATIVE mode (story mode is sticky)
+        // This prevents story writing from being interrupted by CODE routing
+        fprintf(stderr, "[DETECT-MODE] current_mode_=%d query_class=%s\n",
+                (int)current_mode_, query_class.c_str());
+        if (current_mode_ == Mode::CREATIVE) {
+            // CREATIVE mode is sticky - only explicit mode commands can exit it
+            // Query classification should NOT override story mode
+            fprintf(stderr, "[DETECT-MODE] Sticky CREATIVE, returning CREATIVE\n");
+            return Mode::CREATIVE;
+        }
+
         if (query_class == "CREATIVE") return Mode::CREATIVE;
         if (query_class == "CODE" || query_class == "MATH") return Mode::CODE;
         if (query_class == "RESEARCH") return Mode::RESEARCH;

@@ -146,6 +146,17 @@ SUMMARY:
     slowdown_factor: 1.0x (flat)
     total_time_s: 102.5
     avg_time_s: 2.05
+  energy:
+    baseline_llama_cpp:
+      total_energy_j: 18823.1
+      total_energy_wh: 5.2286
+    zeta_fresh_statement_fastpath:
+      total_energy_j: 6283.1
+      total_energy_wh: 1.7453
+    savings:
+      absolute_j: 12540.0
+      absolute_wh: 3.4833
+      percent: 66.6
   comparison:
     turn_50_speedup: 4.6x faster
     total_time_savings: 58% less total time

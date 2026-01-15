@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  zeta-runpod:
+    image: ghcr.io/h-xx-d/zetazero:latest
+    container_name: zeta-runpod
+    restart: unless-stopped
+    runtime: nvidia
+    environment:
+      - ZETA_HOST=0.0.0.0
+      - ZETA_PORT=8080
+    ports:
+      - "8080:8080"
+    volumes:
+      # Runpod Network Volume - models persist here after first download
+      - /workspace/models:/workspace/models
+      - /workspace/zetazero:/workspace/zetazero
+      # Runpod-specific config and entrypoint
+      - ./zeta.conf.runpod:/app/zeta.conf:ro
+      - ./runpod-entrypoint.sh:/app/runpod-entrypoint.sh:ro
+    entrypoint: ["/bin/bash", "/app/runpod-entrypoint.sh"]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

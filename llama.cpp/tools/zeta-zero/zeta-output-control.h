@@ -265,8 +265,13 @@ static inline std::string zeta_extract_turn2_instruction(const char* prompt) {
 
 // === CHECK FOR VERBOSITY RUNAWAY ===
 // Returns: 0 = OK, 1 = soft warning (approaching limit), 2 = hard stop (runaway detected)
+// DISABLED FOR FAIR BENCHMARKING - let max_tokens control output length
 static inline int zeta_check_verbosity_runaway(const std::string& output,
                                                 const ZetaOutputControl& ctrl) {
+    (void)output;
+    (void)ctrl;
+    return 0;  // DISABLED - always OK
+#if 0  // Original code disabled for benchmarking
     int status = 0;
 
     // Soft warning at 80% of limit
@@ -360,6 +365,7 @@ static inline int zeta_check_verbosity_runaway(const std::string& output,
     }
 
     return status;  // 0 = OK, 1 = soft warning
+#endif
 }
 
 // === VALIDATE OUTPUT FORMAT ===

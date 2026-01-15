@@ -1,0 +1,103 @@
+{
+  "start_time": "2026-01-15T00:21:20.242949",
+  "server": "http://192.168.0.165:8080",
+  "tests": [
+    {
+      "name": "direct_extraction",
+      "extracted": 84,
+      "time": 11.977394104003906,
+      "passed": true
+    },
+    {
+      "name": "character_extraction",
+      "extracted": 50,
+      "max": 64,
+      "time": 111.31772518157959,
+      "passed": true
+    },
+    {
+      "name": "location_extraction",
+      "extracted": 16,
+      "max": 32,
+      "time": 6.346799850463867,
+      "passed": true
+    },
+    {
+      "name": "relationship_extraction",
+      "created": 10,
+      "time": 13.83496904373169,
+      "passed": true
+    },
+    {
+      "name": "chapter_progression",
+      "created": 15,
+      "max": 32,
+      "time": 376.47599816322327,
+      "passed": true
+    },
+    {
+      "name": "context_surfacing",
+      "facts_surfaced": 0,
+      "time": 44.37589120864868,
+      "passed": false
+    },
+    {
+      "name": "coherence_check",
+      "drift_tests": 4,
+      "contradictions_detected": 0,
+      "time": 54.4913809299469,
+      "passed": true
+    },
+    {
+      "name": "stress_generation",
+      "queries": 20,
+      "successes": 0,
+      "time": 180.2520318031311,
+      "qps": 0.11095575345216489,
+      "passed": false
+    }
+  ],
+  "characters_extracted": 50,
+  "locations_extracted": 16,
+  "relationships_created": 10,
+  "plot_points_stored": 0,
+  "chapters_marked": 2,
+  "contradictions_detected": 0,
+  "context_surfaced_bytes": 0,
+  "baseline": {
+    "status": "ok",
+    "version": "5.1",
+    "parallel_3b": true,
+    "graph_nodes": 32,
+    "graph_edges": 34,
+    "specialists": {
+      "immune": false,
+      "tools": false,
+      "router": false,
+      "critic": false
+    }
+  },
+  "final_health": {
+    "status": "ok",
+    "version": "5.1",
+    "parallel_3b": true,
+    "graph_nodes": 174,
+    "graph_edges": 310,
+    "specialists": {
+      "immune": false,
+      "tools": false,
+      "router": false,
+      "critic": false
+    }
+  },
+  "final_story_stats": {
+    "title": "Epic_Saga_Maximum_Stress_Test",
+    "genre": "unknown",
+    "current_chapter": 2,
+    "num_characters": 50,
+    "num_locations": 16,
+    "facts_surfaced": 0,
+    "contradictions_prevented": 0
+  },
+  "end_time": "2026-01-15T00:34:39.369167"
+}

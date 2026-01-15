@@ -54,6 +54,35 @@ private:
         return key;
     }
 
+    // Check if text is malformed (garbage/noise that shouldn't be cached)
+    bool is_malformed(const char* text) {
+        if (!text) return true;
+        size_t len = strlen(text);
+        if (len < 3) return true;  // Too short
+
+        // Count printable ASCII chars
+        int printable = 0;
+        int alpha = 0;
+        int spaces = 0;
+        for (size_t i = 0; i < len && i < 200; i++) {
+            unsigned char c = (unsigned char)text[i];
+            if (c >= 32 && c < 127) printable++;
+            if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) alpha++;
+            if (c == ' ') spaces++;
+        }
+
+        // Reject if too few printable chars (binary garbage)
+        if (printable < (int)(len * 0.7)) return true;
+
+        // Reject if too few alpha chars relative to spaces (word salad)
+        if (len > 20 && spaces > 5 && alpha < spaces) return true;
+
+        // Reject if string starts with "Dependency to having" (known bug pattern)
+        if (strncmp(text, "Dependency to having", 20) == 0) return true;
+
+        return false;
+    }
+
     void prune_expired() {
         time_t now = time(NULL);
         auto it = cache_.begin();
@@ -101,6 +130,7 @@ public:
     bool get(const char* text, float* output, int dim) {
         if (!cache_enabled_.load()) return false;
         if (!text || strlen(text) < (size_t)min_text_len) return false;
+        if (is_malformed(text)) return false;  // Skip malformed inputs
 
         std::lock_guard<std::mutex> lock(cache_mutex_);
 
@@ -136,6 +166,7 @@ public:
     void put(const char* text, const float* embedding, int dim) {
         if (!cache_enabled_.load()) return;
         if (!text || !embedding || strlen(text) < (size_t)min_text_len) return;
+        if (is_malformed(text)) return;  // Don't cache malformed inputs
 
         std::lock_guard<std::mutex> lock(cache_mutex_);
 

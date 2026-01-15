@@ -1,0 +1,310 @@
+2026-01-15T02:57:07.425957792Z ==========================================
+2026-01-15T02:57:07.426034911Z   Z.E.T.A. Node Starting...
+2026-01-15T02:57:07.426043111Z ==========================================
+2026-01-15T02:57:07.426055901Z Config: Environment variables (no zeta.conf found)
+2026-01-15T02:57:07.426062210Z Host: 0.0.0.0
+2026-01-15T02:57:07.426067460Z Port: 8080
+2026-01-15T02:57:07.426072380Z Model 14B: /models/qwen2.5-14b-instruct-q4.gguf
+2026-01-15T02:57:07.426077230Z Model 7B: /models/qwen2.5-7b-instruct-q4_k_m-00002-of-00002.gguf
+2026-01-15T02:57:07.426082030Z Model Embed: /models/nomic-embed-text-v1.5-q4_k_m.gguf
+2026-01-15T02:57:07.426086970Z Storage: /storage
+2026-01-15T02:57:07.426092520Z ==========================================
+2026-01-15T02:57:07.426151869Z Starting with environment variables...
+2026-01-15T02:57:07.476157674Z [CONFIG] No config file found, using defaults
+2026-01-15T02:57:07.476225383Z Z.E.T.A. Server v5.1 (Conscious Scratch Buffer)
+2026-01-15T02:57:07.476231473Z Sudo:      Unified password (set via ZETA_SUDO_PASSWORD in config or --sudo-password)
+2026-01-15T02:57:07.476237592Z Context:   14B=4096, 7B/3B=2048 tokens
+2026-01-15T02:57:07.476242602Z Streaming: 600 tokens, 6 nodes
+2026-01-15T02:57:07.476247792Z Code:      900 tokens, 10 nodes
+2026-01-15T02:57:07.476252602Z 14B Conscious: /models/qwen2.5-14b-instruct-q4.gguf
+2026-01-15T02:57:07.476258212Z 7B Coder: /models/qwen2.5-7b-instruct-q4_k_m-00002-of-00002.gguf
+2026-01-15T02:57:07.476263012Z Embed: /models/nomic-embed-text-v1.5-q4_k_m.gguf
+2026-01-15T02:57:07.476267882Z Port: 8080 (GPU layers: 999)
+2026-01-15T02:57:07.822336494Z ggml_cuda_init: GGML_CUDA_FORCE_MMQ:    no
+2026-01-15T02:57:07.822403953Z ggml_cuda_init: GGML_CUDA_FORCE_CUBLAS: no
+2026-01-15T02:57:07.822409893Z ggml_cuda_init: found 1 CUDA devices:
+2026-01-15T02:57:07.824002792Z   Device 0: NVIDIA RTX 6000 Ada Generation, compute capability 8.9, VMM: yes
+2026-01-15T02:57:07.996485640Z llama_model_load_from_file_impl: using device CUDA0 (NVIDIA RTX 6000 Ada Generation) (0000:04:00.0) - 48105 MiB free
+2026-01-15T02:57:07.996544049Z gguf_init_from_file: failed to open GGUF file '/models/qwen2.5-14b-instruct-q4.gguf'
+2026-01-15T02:57:07.996688428Z llama_model_load: error loading model: llama_model_loader: failed to load model from /models/qwen2.5-14b-instruct-q4.gguf
+2026-01-15T02:57:07.996718477Z llama_model_load_from_file_impl: failed to load model
+2026-01-15T02:57:07.996725067Z Failed to load 14B model
+2026-01-15T02:57:11.191270396Z ==========================================
+2026-01-15T02:57:11.191326835Z   Z.E.T.A. Node Starting...
+2026-01-15T02:57:11.191333985Z ==========================================
+2026-01-15T02:57:11.191338995Z Config: Environment variables (no zeta.conf found)
+2026-01-15T02:57:11.191349955Z Host: 0.0.0.0
+2026-01-15T02:57:11.191355975Z Port: 8080
+2026-01-15T02:57:11.191360944Z Model 14B: /models/qwen2.5-14b-instruct-q4.gguf
+2026-01-15T02:57:11.191366114Z Model 7B: /models/qwen2.5-7b-instruct-q4_k_m-00002-of-00002.gguf
+2026-01-15T02:57:11.191370954Z Model Embed: /models/nomic-embed-text-v1.5-q4_k_m.gguf
+2026-01-15T02:57:11.191375904Z Storage: /storage
+2026-01-15T02:57:11.191381364Z ==========================================
+2026-01-15T02:57:11.191403734Z Starting with environment variables...
+2026-01-15T02:57:11.243554930Z [CONFIG] No config file found, using defaults
+2026-01-15T02:57:11.243624609Z Z.E.T.A. Server v5.1 (Conscious Scratch Buffer)
+2026-01-15T02:57:11.243630259Z Sudo:      Unified password (set via ZETA_SUDO_PASSWORD in config or --sudo-password)
+2026-01-15T02:57:11.243637949Z Context:   14B=4096, 7B/3B=2048 tokens
+2026-01-15T02:57:11.243642359Z Streaming: 600 tokens, 6 nodes
+2026-01-15T02:57:11.243647079Z Code:      900 tokens, 10 nodes
+2026-01-15T02:57:11.243651709Z 14B Conscious: /models/qwen2.5-14b-instruct-q4.gguf
+2026-01-15T02:57:11.243656769Z 7B Coder: /models/qwen2.5-7b-instruct-q4_k_m-00002-of-00002.gguf
+2026-01-15T02:57:11.243661039Z Embed: /models/nomic-embed-text-v1.5-q4_k_m.gguf
+2026-01-15T02:57:11.243665369Z Port: 8080 (GPU layers: 999)
+2026-01-15T02:57:11.572150531Z ggml_cuda_init: GGML_CUDA_FORCE_MMQ:    no
+2026-01-15T02:57:11.572215440Z ggml_cuda_init: GGML_CUDA_FORCE_CUBLAS: no
+2026-01-15T02:57:11.572221310Z ggml_cuda_init: found 1 CUDA devices:
+2026-01-15T02:57:11.574145425Z   Device 0: NVIDIA RTX 6000 Ada Generation, compute capability 8.9, VMM: yes
+2026-01-15T02:57:11.735357101Z llama_model_load_from_file_impl: using device CUDA0 (NVIDIA RTX 6000 Ada Generation) (0000:04:00.0) - 48105 MiB free
+2026-01-15T02:57:11.735406370Z gguf_init_from_file: failed to open GGUF file '/models/qwen2.5-14b-instruct-q4.gguf'
+2026-01-15T02:57:11.735499179Z llama_model_load: error loading model: llama_model_loader: failed to load model from /models/qwen2.5-14b-instruct-q4.gguf
+2026-01-15T02:57:11.735539298Z llama_model_load_from_file_impl: failed to load model
+2026-01-15T02:57:11.735546168Z Failed to load 14B model
+2026-01-15T02:57:27.972087511Z ==========================================
+2026-01-15T02:57:27.972133421Z   Z.E.T.A. Node Starting...
+2026-01-15T02:57:27.972143731Z ==========================================
+2026-01-15T02:57:27.972148171Z Config: Environment variables (no zeta.conf found)
+2026-01-15T02:57:27.972152891Z Host: 0.0.0.0
+2026-01-15T02:57:27.972171040Z Port: 8080
+2026-01-15T02:57:27.972175640Z Model 14B: /models/qwen2.5-14b-instruct-q4.gguf
+2026-01-15T02:57:27.972180060Z Model 7B: /models/qwen2.5-7b-instruct-q4_k_m-00002-of-00002.gguf
+2026-01-15T02:57:27.972184310Z Model Embed: /models/nomic-embed-text-v1.5-q4_k_m.gguf
+2026-01-15T02:57:27.972188550Z Storage: /storage
+2026-01-15T02:57:27.972193080Z ==========================================
+2026-01-15T02:57:27.972234529Z Starting with environment variables...
+2026-01-15T02:57:28.020654075Z [CONFIG] No config file found, using defaults
+2026-01-15T02:57:28.020714954Z Z.E.T.A. Server v5.1 (Conscious Scratch Buffer)
+2026-01-15T02:57:28.020721214Z Sudo:      Unified password (set via ZETA_SUDO_PASSWORD in config or --sudo-password)
+2026-01-15T02:57:28.020727454Z Context:   14B=4096, 7B/3B=2048 tokens
+2026-01-15T02:57:28.020732384Z Streaming: 600 tokens, 6 nodes
+2026-01-15T02:57:28.020737843Z Code:      900 tokens, 10 nodes
+2026-01-15T02:57:28.020742573Z 14B Conscious: /models/qwen2.5-14b-instruct-q4.gguf
+2026-01-15T02:57:28.020748743Z 7B Coder: /models/qwen2.5-7b-instruct-q4_k_m-00002-of-00002.gguf
+2026-01-15T02:57:28.020753513Z Embed: /models/nomic-embed-text-v1.5-q4_k_m.gguf
+2026-01-15T02:57:28.020758193Z Port: 8080 (GPU layers: 999)
+2026-01-15T02:57:28.348471176Z ggml_cuda_init: GGML_CUDA_FORCE_MMQ:    no
+2026-01-15T02:57:28.348525185Z ggml_cuda_init: GGML_CUDA_FORCE_CUBLAS: no
+2026-01-15T02:57:28.348530935Z ggml_cuda_init: found 1 CUDA devices:
+2026-01-15T02:57:28.350411160Z   Device 0: NVIDIA RTX 6000 Ada Generation, compute capability 8.9, VMM: yes
+2026-01-15T02:57:28.520691097Z llama_model_load_from_file_impl: using device CUDA0 (NVIDIA RTX 6000 Ada Generation) (0000:04:00.0) - 48105 MiB free
+2026-01-15T02:57:28.520754327Z gguf_init_from_file: failed to open GGUF file '/models/qwen2.5-14b-instruct-q4.gguf'
+2026-01-15T02:57:28.520803596Z llama_model_load: error loading model: llama_model_loader: failed to load model from /models/qwen2.5-14b-instruct-q4.gguf
+2026-01-15T02:57:28.520821036Z llama_model_load_from_file_impl: failed to load model
+2026-01-15T02:57:28.520828066Z Failed to load 14B model
+2026-01-15T02:57:44.689281572Z ==========================================
+2026-01-15T02:57:44.689359261Z   Z.E.T.A. Node Starting...
+2026-01-15T02:57:44.689367080Z ==========================================
+2026-01-15T02:57:44.689372780Z Config: Environment variables (no zeta.conf found)
+2026-01-15T02:57:44.689391340Z Host: 0.0.0.0
+2026-01-15T02:57:44.689397140Z Port: 8080
+2026-01-15T02:57:44.689402370Z Model 14B: /models/qwen2.5-14b-instruct-q4.gguf
+2026-01-15T02:57:44.689407590Z Model 7B: /models/qwen2.5-7b-instruct-q4_k_m-00002-of-00002.gguf
+2026-01-15T02:57:44.689413530Z Model Embed: /models/nomic-embed-text-v1.5-q4_k_m.gguf
+2026-01-15T02:57:44.689418780Z Storage: /storage
+2026-01-15T02:57:44.689424390Z ==========================================
+2026-01-15T02:57:44.689431640Z Starting with environment variables...
+2026-01-15T02:57:44.741689914Z [CONFIG] No config file found, using defaults
+2026-01-15T02:57:44.741743704Z Z.E.T.A. Server v5.1 (Conscious Scratch Buffer)
+2026-01-15T02:57:44.741750074Z Sudo:      Unified password (set via ZETA_SUDO_PASSWORD in config or --sudo-password)
+2026-01-15T02:57:44.741755764Z Context:   14B=4096, 7B/3B=2048 tokens
+2026-01-15T02:57:44.741784423Z Streaming: 600 tokens, 6 nodes
+2026-01-15T02:57:44.741790703Z Code:      900 tokens, 10 nodes
+2026-01-15T02:57:44.741795533Z 14B Conscious: /models/qwen2.5-14b-instruct-q4.gguf
+2026-01-15T02:57:44.741801793Z 7B Coder: /models/qwen2.5-7b-instruct-q4_k_m-00002-of-00002.gguf
+2026-01-15T02:57:44.741807353Z Embed: /models/nomic-embed-text-v1.5-q4_k_m.gguf
+2026-01-15T02:57:44.741812803Z Port: 8080 (GPU layers: 999)
+2026-01-15T02:57:45.076372926Z ggml_cuda_init: GGML_CUDA_FORCE_MMQ:    no
+2026-01-15T02:57:45.076431485Z ggml_cuda_init: GGML_CUDA_FORCE_CUBLAS: no
+2026-01-15T02:57:45.076438055Z ggml_cuda_init: found 1 CUDA devices:
+2026-01-15T02:57:45.078448818Z   Device 0: NVIDIA RTX 6000 Ada Generation, compute capability 8.9, VMM: yes
+2026-01-15T02:57:45.247866967Z llama_model_load_from_file_impl: using device CUDA0 (NVIDIA RTX 6000 Ada Generation) (0000:04:00.0) - 48105 MiB free
+2026-01-15T02:57:45.247917116Z gguf_init_from_file: failed to open GGUF file '/models/qwen2.5-14b-instruct-q4.gguf'
+2026-01-15T02:57:45.248024465Z llama_model_load: error loading model: llama_model_loader: failed to load model from /models/qwen2.5-14b-instruct-q4.gguf
+2026-01-15T02:57:45.248041794Z llama_model_load_from_file_impl: failed to load model
+2026-01-15T02:57:45.248048844Z Failed to load 14B model
+2026-01-15T02:58:01.473743000Z ==========================================
+2026-01-15T02:58:01.473816479Z   Z.E.T.A. Node Starting...
+2026-01-15T02:58:01.473823049Z ==========================================
+2026-01-15T02:58:01.473827589Z Config: Environment variables (no zeta.conf found)
+2026-01-15T02:58:01.473832779Z Host: 0.0.0.0
+2026-01-15T02:58:01.473837778Z Port: 8080
+2026-01-15T02:58:01.473843038Z Model 14B: /models/qwen2.5-14b-instruct-q4.gguf
+2026-01-15T02:58:01.473847608Z Model 7B: /models/qwen2.5-7b-instruct-q4_k_m-00002-of-00002.gguf
+2026-01-15T02:58:01.473852028Z Model Embed: /models/nomic-embed-text-v1.5-q4_k_m.gguf
+2026-01-15T02:58:01.473856588Z Storage: /storage
+2026-01-15T02:58:01.473861308Z ==========================================
+2026-01-15T02:58:01.473869868Z Starting with environment variables...
+2026-01-15T02:58:01.526485098Z [CONFIG] No config file found, using defaults
+2026-01-15T02:58:01.526553117Z Z.E.T.A. Server v5.1 (Conscious Scratch Buffer)
+2026-01-15T02:58:01.526559137Z Sudo:      Unified password (set via ZETA_SUDO_PASSWORD in config or --sudo-password)
+2026-01-15T02:58:01.526564307Z Context:   14B=4096, 7B/3B=2048 tokens
+2026-01-15T02:58:01.526568737Z Streaming: 600 tokens, 6 nodes
+2026-01-15T02:58:01.526574127Z Code:      900 tokens, 10 nodes
+2026-01-15T02:58:01.526578597Z 14B Conscious: /models/qwen2.5-14b-instruct-q4.gguf
+2026-01-15T02:58:01.526583627Z 7B Coder: /models/qwen2.5-7b-instruct-q4_k_m-00002-of-00002.gguf
+2026-01-15T02:58:01.526587887Z Embed: /models/nomic-embed-text-v1.5-q4_k_m.gguf
+2026-01-15T02:58:01.526592177Z Port: 8080 (GPU layers: 999)
+2026-01-15T02:58:01.856762617Z ggml_cuda_init: GGML_CUDA_FORCE_MMQ:    no
+2026-01-15T02:58:01.856817876Z ggml_cuda_init: GGML_CUDA_FORCE_CUBLAS: no
+2026-01-15T02:58:01.856824676Z ggml_cuda_init: found 1 CUDA devices:
+2026-01-15T02:58:01.858521394Z   Device 0: NVIDIA RTX 6000 Ada Generation, compute capability 8.9, VMM: yes
+2026-01-15T02:58:02.029897287Z llama_model_load_from_file_impl: using device CUDA0 (NVIDIA RTX 6000 Ada Generation) (0000:04:00.0) - 48105 MiB free
+2026-01-15T02:58:02.029950246Z gguf_init_from_file: failed to open GGUF file '/models/qwen2.5-14b-instruct-q4.gguf'
+2026-01-15T02:58:02.030070404Z llama_model_load: error loading model: llama_model_loader: failed to load model from /models/qwen2.5-14b-instruct-q4.gguf
+2026-01-15T02:58:02.030103864Z llama_model_load_from_file_impl: failed to load model
+2026-01-15T02:58:02.030110864Z Failed to load 14B model
+2026-01-15T02:58:18.245556754Z ==========================================
+2026-01-15T02:58:18.245625293Z   Z.E.T.A. Node Starting...
+2026-01-15T02:58:18.245631153Z ==========================================
+2026-01-15T02:58:18.245643943Z Config: Environment variables (no zeta.conf found)
+2026-01-15T02:58:18.245648712Z Host: 0.0.0.0
+2026-01-15T02:58:18.245654282Z Port: 8080
+2026-01-15T02:58:18.245658792Z Model 14B: /models/qwen2.5-14b-instruct-q4.gguf
+2026-01-15T02:58:18.245683232Z Model 7B: /models/qwen2.5-7b-instruct-q4_k_m-00002-of-00002.gguf
+2026-01-15T02:58:18.245688422Z Model Embed: /models/nomic-embed-text-v1.5-q4_k_m.gguf
+2026-01-15T02:58:18.245692632Z Storage: /storage
+2026-01-15T02:58:18.245697042Z ==========================================
+2026-01-15T02:58:18.245703462Z Starting with environment variables...
+2026-01-15T02:58:18.298044015Z [CONFIG] No config file found, using defaults
+2026-01-15T02:58:18.298137824Z Z.E.T.A. Server v5.1 (Conscious Scratch Buffer)
+2026-01-15T02:58:18.298148414Z Sudo:      Unified password (set via ZETA_SUDO_PASSWORD in config or --sudo-password)
+2026-01-15T02:58:18.298154354Z Context:   14B=4096, 7B/3B=2048 tokens
+2026-01-15T02:58:18.298158644Z Streaming: 600 tokens, 6 nodes
+2026-01-15T02:58:18.298163554Z Code:      900 tokens, 10 nodes
+2026-01-15T02:58:18.298167804Z 14B Conscious: /models/qwen2.5-14b-instruct-q4.gguf
+2026-01-15T02:58:18.298172374Z 7B Coder: /models/qwen2.5-7b-instruct-q4_k_m-00002-of-00002.gguf
+2026-01-15T02:58:18.298176724Z Embed: /models/nomic-embed-text-v1.5-q4_k_m.gguf
+2026-01-15T02:58:18.298181044Z Port: 8080 (GPU layers: 999)
+2026-01-15T02:58:18.638734908Z ggml_cuda_init: GGML_CUDA_FORCE_MMQ:    no
+2026-01-15T02:58:18.638793567Z ggml_cuda_init: GGML_CUDA_FORCE_CUBLAS: no
+2026-01-15T02:58:18.638800977Z ggml_cuda_init: found 1 CUDA devices:
+2026-01-15T02:58:18.640763881Z   Device 0: NVIDIA RTX 6000 Ada Generation, compute capability 8.9, VMM: yes
+2026-01-15T02:58:18.814143418Z llama_model_load_from_file_impl: using device CUDA0 (NVIDIA RTX 6000 Ada Generation) (0000:04:00.0) - 48105 MiB free
+2026-01-15T02:58:18.814197197Z gguf_init_from_file: failed to open GGUF file '/models/qwen2.5-14b-instruct-q4.gguf'
+2026-01-15T02:58:18.814257716Z llama_model_load: error loading model: llama_model_loader: failed to load model from /models/qwen2.5-14b-instruct-q4.gguf
+2026-01-15T02:58:18.814290966Z llama_model_load_from_file_impl: failed to load model
+2026-01-15T02:58:18.814297956Z Failed to load 14B model
+2026-01-15T02:58:34.993692968Z ==========================================
+2026-01-15T02:58:34.993753977Z   Z.E.T.A. Node Starting...
+2026-01-15T02:58:34.993760747Z ==========================================
+2026-01-15T02:58:34.993773357Z Config: Environment variables (no zeta.conf found)
+2026-01-15T02:58:34.993778917Z Host: 0.0.0.0
+2026-01-15T02:58:34.993783697Z Port: 8080
+2026-01-15T02:58:34.993788267Z Model 14B: /models/qwen2.5-14b-instruct-q4.gguf
+2026-01-15T02:58:34.993792787Z Model 7B: /models/qwen2.5-7b-instruct-q4_k_m-00002-of-00002.gguf
+2026-01-15T02:58:34.993797207Z Model Embed: /models/nomic-embed-text-v1.5-q4_k_m.gguf
+2026-01-15T02:58:34.993802207Z Storage: /storage
+2026-01-15T02:58:34.993807007Z ==========================================
+2026-01-15T02:58:34.993838836Z Starting with environment variables...
+2026-01-15T02:58:35.041751588Z [CONFIG] No config file found, using defaults
+2026-01-15T02:58:35.041807977Z Z.E.T.A. Server v5.1 (Conscious Scratch Buffer)
+2026-01-15T02:58:35.041814647Z Sudo:      Unified password (set via ZETA_SUDO_PASSWORD in config or --sudo-password)
+2026-01-15T02:58:35.041820467Z Context:   14B=4096, 7B/3B=2048 tokens
+2026-01-15T02:58:35.041824797Z Streaming: 600 tokens, 6 nodes
+2026-01-15T02:58:35.041829697Z Code:      900 tokens, 10 nodes
+2026-01-15T02:58:35.041834217Z 14B Conscious: /models/qwen2.5-14b-instruct-q4.gguf
+2026-01-15T02:58:35.041840057Z 7B Coder: /models/qwen2.5-7b-instruct-q4_k_m-00002-of-00002.gguf
+2026-01-15T02:58:35.041844347Z Embed: /models/nomic-embed-text-v1.5-q4_k_m.gguf
+2026-01-15T02:58:35.041849267Z Port: 8080 (GPU layers: 999)
+2026-01-15T02:58:35.366815895Z ggml_cuda_init: GGML_CUDA_FORCE_MMQ:    no
+2026-01-15T02:58:35.366871204Z ggml_cuda_init: GGML_CUDA_FORCE_CUBLAS: no
+2026-01-15T02:58:35.366877144Z ggml_cuda_init: found 1 CUDA devices:
+2026-01-15T02:58:35.368643761Z   Device 0: NVIDIA RTX 6000 Ada Generation, compute capability 8.9, VMM: yes
+2026-01-15T02:58:35.545037118Z llama_model_load_from_file_impl: using device CUDA0 (NVIDIA RTX 6000 Ada Generation) (0000:04:00.0) - 48105 MiB free
+2026-01-15T02:58:35.545091257Z gguf_init_from_file: failed to open GGUF file '/models/qwen2.5-14b-instruct-q4.gguf'
+2026-01-15T02:58:35.545220296Z llama_model_load: error loading model: llama_model_loader: failed to load model from /models/qwen2.5-14b-instruct-q4.gguf
+2026-01-15T02:58:35.545309065Z llama_model_load_from_file_impl: failed to load model
+2026-01-15T02:58:35.545315494Z Failed to load 14B model
+2026-01-15T02:58:51.769292772Z ==========================================
+2026-01-15T02:58:51.769352982Z   Z.E.T.A. Node Starting...
+2026-01-15T02:58:51.769358902Z ==========================================
+2026-01-15T02:58:51.769363821Z Config: Environment variables (no zeta.conf found)
+2026-01-15T02:58:51.769369321Z Host: 0.0.0.0
+2026-01-15T02:58:51.769374771Z Port: 8080
+2026-01-15T02:58:51.769379291Z Model 14B: /models/qwen2.5-14b-instruct-q4.gguf
+2026-01-15T02:58:51.769383951Z Model 7B: /models/qwen2.5-7b-instruct-q4_k_m-00002-of-00002.gguf
+2026-01-15T02:58:51.769388621Z Model Embed: /models/nomic-embed-text-v1.5-q4_k_m.gguf
+2026-01-15T02:58:51.769393761Z Storage: /storage
+2026-01-15T02:58:51.769398621Z ==========================================
+2026-01-15T02:58:51.769405271Z Starting with environment variables...
+2026-01-15T02:58:51.822472945Z [CONFIG] No config file found, using defaults
+2026-01-15T02:58:51.822523844Z Z.E.T.A. Server v5.1 (Conscious Scratch Buffer)
+2026-01-15T02:58:51.822529574Z Sudo:      Unified password (set via ZETA_SUDO_PASSWORD in config or --sudo-password)
+2026-01-15T02:58:51.822535174Z Context:   14B=4096, 7B/3B=2048 tokens
+2026-01-15T02:58:51.822539644Z Streaming: 600 tokens, 6 nodes
+2026-01-15T02:58:51.822544314Z Code:      900 tokens, 10 nodes
+2026-01-15T02:58:51.822548594Z 14B Conscious: /models/qwen2.5-14b-instruct-q4.gguf
+2026-01-15T02:58:51.822554104Z 7B Coder: /models/qwen2.5-7b-instruct-q4_k_m-00002-of-00002.gguf
+2026-01-15T02:58:51.822558514Z Embed: /models/nomic-embed-text-v1.5-q4_k_m.gguf
+2026-01-15T02:58:51.822562794Z Port: 8080 (GPU layers: 999)
+2026-01-15T02:58:52.159204019Z ggml_cuda_init: GGML_CUDA_FORCE_MMQ:    no
+2026-01-15T02:58:52.159262479Z ggml_cuda_init: GGML_CUDA_FORCE_CUBLAS: no
+2026-01-15T02:58:52.159268938Z ggml_cuda_init: found 1 CUDA devices:
+2026-01-15T02:58:52.161192383Z   Device 0: NVIDIA RTX 6000 Ada Generation, compute capability 8.9, VMM: yes
+2026-01-15T02:58:52.340361754Z llama_model_load_from_file_impl: using device CUDA0 (NVIDIA RTX 6000 Ada Generation) (0000:04:00.0) - 48105 MiB free
+2026-01-15T02:58:52.340409543Z gguf_init_from_file: failed to open GGUF file '/models/qwen2.5-14b-instruct-q4.gguf'
+2026-01-15T02:58:52.340472262Z llama_model_load: error loading model: llama_model_loader: failed to load model from /models/qwen2.5-14b-instruct-q4.gguf
+2026-01-15T02:58:52.340506522Z llama_model_load_from_file_impl: failed to load model
+2026-01-15T02:58:52.340513222Z Failed to load 14B model
+2026-01-15T02:59:08.580552939Z ==========================================
+2026-01-15T02:59:08.580734077Z   Z.E.T.A. Node Starting...
+2026-01-15T02:59:08.580744336Z ==========================================
+2026-01-15T02:59:08.580750506Z Config: Environment variables (no zeta.conf found)
+2026-01-15T02:59:08.580757716Z Host: 0.0.0.0
+2026-01-15T02:59:08.580765726Z Port: 8080
+2026-01-15T02:59:08.580772186Z Model 14B: /models/qwen2.5-14b-instruct-q4.gguf
+2026-01-15T02:59:08.580778516Z Model 7B: /models/qwen2.5-7b-instruct-q4_k_m-00002-of-00002.gguf
+2026-01-15T02:59:08.580784106Z Model Embed: /models/nomic-embed-text-v1.5-q4_k_m.gguf
+2026-01-15T02:59:08.580789436Z Storage: /storage
+2026-01-15T02:59:08.580796586Z ==========================================
+2026-01-15T02:59:08.580801726Z Starting with environment variables...
+2026-01-15T02:59:08.628342132Z [CONFIG] No config file found, using defaults
+2026-01-15T02:59:08.628417001Z Z.E.T.A. Server v5.1 (Conscious Scratch Buffer)
+2026-01-15T02:59:08.628423181Z Sudo:      Unified password (set via ZETA_SUDO_PASSWORD in config or --sudo-password)
+2026-01-15T02:59:08.628430691Z Context:   14B=4096, 7B/3B=2048 tokens
+2026-01-15T02:59:08.628435781Z Streaming: 600 tokens, 6 nodes
+2026-01-15T02:59:08.628440851Z Code:      900 tokens, 10 nodes
+2026-01-15T02:59:08.628445641Z 14B Conscious: /models/qwen2.5-14b-instruct-q4.gguf
+2026-01-15T02:59:08.628452651Z 7B Coder: /models/qwen2.5-7b-instruct-q4_k_m-00002-of-00002.gguf
+2026-01-15T02:59:08.628457491Z Embed: /models/nomic-embed-text-v1.5-q4_k_m.gguf
+2026-01-15T02:59:08.628485060Z Port: 8080 (GPU layers: 999)
+2026-01-15T02:59:08.955673260Z ggml_cuda_init: GGML_CUDA_FORCE_MMQ:    no
+2026-01-15T02:59:08.955736759Z ggml_cuda_init: GGML_CUDA_FORCE_CUBLAS: no
+2026-01-15T02:59:08.955742539Z ggml_cuda_init: found 1 CUDA devices:
+2026-01-15T02:59:08.957481226Z   Device 0: NVIDIA RTX 6000 Ada Generation, compute capability 8.9, VMM: yes
+2026-01-15T02:59:09.135014728Z llama_model_load_from_file_impl: using device CUDA0 (NVIDIA RTX 6000 Ada Generation) (0000:04:00.0) - 48105 MiB free
+2026-01-15T02:59:09.135073127Z gguf_init_from_file: failed to open GGUF file '/models/qwen2.5-14b-instruct-q4.gguf'
+2026-01-15T02:59:09.135160896Z llama_model_load: error loading model: llama_model_loader: failed to load model from /models/qwen2.5-14b-instruct-q4.gguf
+2026-01-15T02:59:09.135217835Z llama_model_load_from_file_impl: failed to load model
+2026-01-15T02:59:09.135224105Z Failed to load 14B model
+2026-01-15T02:59:25.394018657Z ==========================================
+2026-01-15T02:59:25.394076116Z   Z.E.T.A. Node Starting...
+2026-01-15T02:59:25.394082636Z ==========================================
+2026-01-15T02:59:25.394087506Z Config: Environment variables (no zeta.conf found)
+2026-01-15T02:59:25.394092506Z Host: 0.0.0.0
+2026-01-15T02:59:25.394097216Z Port: 8080
+2026-01-15T02:59:25.394101636Z Model 14B: /models/qwen2.5-14b-instruct-q4.gguf
+2026-01-15T02:59:25.394106026Z Model 7B: /models/qwen2.5-7b-instruct-q4_k_m-00002-of-00002.gguf
+2026-01-15T02:59:25.394110555Z Model Embed: /models/nomic-embed-text-v1.5-q4_k_m.gguf
+2026-01-15T02:59:25.394115265Z Storage: /storage
+2026-01-15T02:59:25.394131845Z ==========================================
+2026-01-15T02:59:25.394140735Z Starting with environment variables...
+2026-01-15T02:59:25.446586257Z [CONFIG] No config file found, using defaults
+2026-01-15T02:59:25.446638187Z Z.E.T.A. Server v5.1 (Conscious Scratch Buffer)
+2026-01-15T02:59:25.446644337Z Sudo:      Unified password (set via ZETA_SUDO_PASSWORD in config or --sudo-password)
+2026-01-15T02:59:25.446649617Z Context:   14B=4096, 7B/3B=2048 tokens
+2026-01-15T02:59:25.446654086Z Streaming: 600 tokens, 6 nodes
+2026-01-15T02:59:25.446659926Z Code:      900 tokens, 10 nodes
+2026-01-15T02:59:25.446664146Z 14B Conscious: /models/qwen2.5-14b-instruct-q4.gguf
+2026-01-15T02:59:25.446669336Z 7B Coder: /models/qwen2.5-7b-instruct-q4_k_m-00002-of-00002.gguf
+2026-01-15T02:59:25.446673626Z Embed: /models/nomic-embed-text-v1.5-q4_k_m.gguf
+2026-01-15T02:59:25.446677956Z Port: 8080 (GPU layers: 999)
+2026-01-15T02:59:25.784592785Z ggml_cuda_init: GGML_CUDA_FORCE_MMQ:    no
+2026-01-15T02:59:25.784645634Z ggml_cuda_init: GGML_CUDA_FORCE_CUBLAS: no
+2026-01-15T02:59:25.784651674Z ggml_cuda_init: found 1 CUDA devices:
+2026-01-15T02:59:25.786318962Z   Device 0: NVIDIA RTX 6000 Ada Generation, compute capability 8.9, VMM: yes
+2026-01-15T02:59:25.962779068Z llama_model_load_from_file_impl: using device CUDA0 (NVIDIA RTX 6000 Ada Generation) (0000:04:00.0) - 48105 MiB free
+2026-01-15T02:59:25.962828658Z gguf_init_from_file: failed to open GGUF file '/models/qwen2.5-14b-instruct-q4.gguf'
+2026-01-15T02:59:25.962910717Z llama_model_load: error loading model: llama_model_loader: failed to load model from /models/qwen2.5-14b-instruct-q4.gguf
+2026-01-15T02:59:25.962944216Z llama_model_load_from_file_impl: failed to load model
+2026-01-15T02:59:25.962950926Z Failed to load 14B model

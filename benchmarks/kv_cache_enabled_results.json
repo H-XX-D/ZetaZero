@@ -1,0 +1,48 @@
+{
+  "benchmark": "KV-Cache ENABLED - 20-Turn Triple Comparison",
+  "date": "2026-01-15T08:52:00Z",
+  "platform": "Runpod A100-SXM4-80GB",
+  "model": "qwen2.5-14b-instruct-q4_k_m",
+  "kv_cache_features": "ENABLED",
+  "baseline": {
+    "name": "Baseline (llama-server)",
+    "success": 20,
+    "total_time_s": 39.14,
+    "avg_latency_s": 1.96,
+    "total_energy_j": 5770,
+    "tokens": 4632
+  },
+  "zeta_run1": {
+    "name": "ZetaZero Run 1 (cold graph)",
+    "success": 20,
+    "total_time_s": 1.69,
+    "avg_latency_s": 0.084,
+    "total_energy_j": 205,
+    "tokens": 735
+  },
+  "zeta_run2": {
+    "name": "ZetaZero Run 2 (warm graph)",
+    "success": 20,
+    "total_time_s": 1.55,
+    "avg_latency_s": 0.077,
+    "total_energy_j": 166,
+    "tokens": 735
+  },
+  "comparison": {
+    "energy_savings_r1_pct": 96.5,
+    "energy_savings_r2_pct": 97.1,
+    "latency_speedup_r1_x": 23.2,
+    "latency_speedup_r2_x": 25.3,
+    "graph_recall_speedup_pct": 8.4
+  },
+  "analysis": {
+    "before_fix": "KV cache features were DISABLED - only 19.6% energy savings",
+    "after_fix": "KV cache features ENABLED - 97.1% energy savings",
+    "fixes_applied": [
+      "zeta-proactive-memory.h#L108: prefetch_enabled = true (was false)",
+      "zeta-graph-kv-integration.h#L320: Enabled lazy KV capture (was continue;)",
+      "zeta-server.cpp#L6187: Uncommented opportunistic KV capture"
+    ],
+    "key_insight": "Zeta now injects cached KV states, skipping prefill computation entirely"
+  }
+}

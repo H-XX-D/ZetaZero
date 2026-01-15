@@ -70,3 +70,8 @@ Z.E.T.A. Zero represents a significant leap toward "Local AGI." By moving away f
 **Reviewer:** Junie (Autonomous Programmer)
 **Date:** 2026-01-07
 **Status:** Architecture Validated.
+
+---
+
+## 2026-01-14 Codebase Audit (Reality Check)
+A full wiring status, overlap analysis, and per‑file inventory has been appended to docs/zeta_implementation_status.md. That section documents what is actually active in `zeta-server.cpp`, what is aspirational, and where the biggest integration gaps live.
