@@ -117,11 +117,14 @@ extern "C" {
 #include "zeta-dream.h"         // Dream State: idle consolidation cycle
 #include "zeta-cloud.h"         // Cloud routing: optional escalation to OpenAI/Anthropic
 #include "zeta-ternary.h"
+#include "zeta-research-graph-integration.h"
 
 // Mode Controller + Branching Engine: Multi-hypothesis exploration across all modes
 #include "zeta-branching-engine.h"
 #include "zeta-mode-controller.h"
 #include "zeta-deliberation.h"
+#include "zeta-project-manager.h"  // Multi-project 4-layer graph isolation
+#include "zeta-story-integration.h" // Story coherence for CREATIVE mode
 
 // ============================================================================
 // SPEED RECEIPT: High-resolution timing for the "Zero-Latency" lifecycle
@@ -259,6 +262,7 @@ static std::atomic<int64_t> g_research_auto_switch_attempts{0};
 static std::atomic<int64_t> g_research_auto_switch_denied_flag{0};
 static std::atomic<int64_t> g_research_auto_switch_denied_budget{0};
 static std::atomic<int64_t> g_research_auto_switch_success{0};
+static std::string g_research_graph_session_id;
 
 // Deliberation engine toggle (off by default)
 static bool g_deliberation_enabled = false;
@@ -298,6 +302,25 @@ static inline void zeta_research_note_prune() {
 
 static inline void zeta_research_note_prune_local(int& /*used_in_request*/) {
     zeta_research_note_prune();
+}
+
+static void zeta_sync_research_graph() {
+    if (!g_research_mode_enabled) return;
+    if (zeta_modes::g_mode_controller.current_mode() != zeta_modes::Mode::RESEARCH) return;
+    if (!zeta_modes::g_mode_controller.session_active()) return;
+
+    const auto& session_id = zeta_modes::g_mode_controller.session_id();
+    if (session_id.empty()) return;
+
+    if (session_id != g_research_graph_session_id) {
+        zeta_research_graph::g_config.gitgraph_root = g_storage_dir;
+        zeta_research_graph::g_config.graphkv_root =
+            g_config.gkv_dir.empty() ? (g_storage_dir + "/graph_kv") : g_config.gkv_dir;
+        zeta_research_graph::init_research_graph(session_id);
+        g_research_graph_session_id = session_id;
+    }
+
+    zeta_research_graph::persist_branching_state(zeta_modes::g_mode_controller.engine());
 }
 
 // Tokenize with optional persistent cache (identified by node/fact id)
@@ -463,11 +486,20 @@ static const float* tunnel_get_embedding(int64_t node_id, void* /*ctx*/) {
 static float tunnel_get_edge_weight(int64_t from, int64_t to, void* /*ctx*/) {
     if (!g_dual) return 0.0f;
     float best = 0.0f;
+    int best_idx = -1;
     for (int i = 0; i < g_dual->num_edges; i++) {
-        const zeta_graph_edge_t& e = g_dual->edges[i];
+        zeta_graph_edge_t& e = g_dual->edges[i];
         if ((e.source_id == from && e.target_id == to) || (e.source_id == to && e.target_id == from)) {
-            if (e.weight > best) best = e.weight;
+            if (e.weight > best) {
+                best = e.weight;
+                best_idx = i;
+            }
         }
+    }
+    // CONTINUOUS TERNARY: Activate the best edge found
+    if (best_idx >= 0) {
+        g_dual->edges[best_idx].activation_count++;
+        g_dual->edges[best_idx].last_activated = (uint32_t)time(NULL);
     }
     return best;
 }
@@ -476,7 +508,7 @@ static int tunnel_get_neighbors(int64_t node_id, int64_t* neighbors, float* weig
     if (!g_dual || !neighbors || max_neighbors <= 0) return 0;
     int count = 0;
     for (int i = 0; i < g_dual->num_edges && count < max_neighbors; i++) {
-        const zeta_graph_edge_t& e = g_dual->edges[i];
+        zeta_graph_edge_t& e = g_dual->edges[i];  // non-const for activation
         int64_t target = -1;
         if (e.source_id == node_id) target = e.target_id;
         else if (e.target_id == node_id) target = e.source_id;
@@ -491,6 +523,10 @@ static int tunnel_get_neighbors(int64_t node_id, int64_t* neighbors, float* weig
             if (neighbors[j] == target) { dup = true; break; }
         }
         if (dup) continue;
+
+        // CONTINUOUS TERNARY: Activate edge on neighbor traversal
+        e.activation_count++;
+        e.last_activated = (uint32_t)time(NULL);
 
         neighbors[count] = target;
         if (weights) weights[count] = (e.weight > 0.0f) ? e.weight : 0.1f;
@@ -773,6 +809,22 @@ static std::vector<zeta_retrieved_snippet_t> zeta_retrieve_snippets(const std::s
         out.resize(top_k);
     }
 
+    // CONTINUOUS TERNARY: Activate edges connected to retrieved nodes
+    if (!out.empty() && g_dual) {
+        std::unordered_set<int64_t> retrieved_ids;
+        for (const auto& sn : out) {
+            retrieved_ids.insert(sn.node_id);
+        }
+        uint32_t now = (uint32_t)time(NULL);
+        for (int i = 0; i < g_dual->num_edges; i++) {
+            zeta_graph_edge_t& e = g_dual->edges[i];
+            if (retrieved_ids.count(e.source_id) || retrieved_ids.count(e.target_id)) {
+                e.activation_count++;
+                e.last_activated = now;
+            }
+        }
+    }
+
     return out;
 }
 
@@ -891,23 +943,49 @@ static zeta_reflection_t zeta_delib_reflect(const std::string& query, const std:
     return out;
 }
 
+// Forward declaration for late initialization
+static void zeta_initialize_deliberation();
+
 // Run deliberation within research guardrails; returns overlay text (may be empty)
+// Uses mode policy's use_deliberation flag (enabled for RESEARCH mode)
 static bool zeta_run_deliberation(const std::string& query,
                                   const std::chrono::steady_clock::time_point& start,
                                   int& research_used_local,
                                   std::string& overlay_out) {
     overlay_out.clear();
-    if (!g_deliberation_enabled) return false;
-    if (!g_research_mode_enabled) return false;
-    if (!zeta_research_time_allows(start)) return false;
-    if (!zeta_deliberation_ready()) return false;
+
+    // Check mode policy for deliberation
+    auto current_mode = zeta_modes::g_mode_controller.current_mode();
+    auto policy = zeta_modes::get_policy(current_mode);
+
+    // Skip if deliberation not enabled for this mode (unless forced by flag)
+    if (!policy.use_deliberation && !g_deliberation_enabled) return false;
+
+    // Research mode has additional budget constraints
+    if (current_mode == zeta_modes::Mode::RESEARCH) {
+        if (!g_research_mode_enabled) return false;
+        if (!zeta_research_time_allows(start)) return false;
+    }
+
+    if (!zeta_deliberation_ready()) {
+        // Try late initialization if needed
+        zeta_initialize_deliberation();
+        if (!zeta_deliberation_ready()) return false;
+    }
+
+    // Set confidence threshold from mode policy
+    g_deliberation.set_confidence_threshold(policy.deliberation_confidence);
 
     auto result = zeta_deliberate(query);
 
     if (!result.output_is_verified || result.output_states_uncertainty || result.veto.is_blocked) {
-        overlay_out = "[DELIBRATION] Unverified or blocked; respond with UNKNOWN unless evidence is cited.";
+        overlay_out = "[DELIBERATION] Unverified or blocked; respond with UNKNOWN unless evidence is cited.";
+        if (result.veto.is_blocked) {
+            overlay_out += " Veto reason: " + std::string(result.veto.explanation);
+        }
     } else {
-        overlay_out = "[DELIBRATION] Verified summary available.";
+        overlay_out = "[DELIBERATION] Verified (confidence=" +
+                      std::to_string(result.confidence.calibrated_confidence) + ")";
     }
 
     // Count the deliberation step against local research budget to avoid runaway
@@ -915,8 +993,15 @@ static bool zeta_run_deliberation(const std::string& query,
     return true;
 }
 
+static std::atomic<bool> g_deliberation_initialized{false};
+
 static void zeta_initialize_deliberation() {
-    if (!g_deliberation_enabled) return;
+    // Allow initialization if flag is set OR if RESEARCH mode uses deliberation
+    bool should_init = g_deliberation_enabled ||
+                       zeta_modes::get_policy(zeta_modes::Mode::RESEARCH).use_deliberation;
+
+    if (!should_init) return;
+    if (g_deliberation_initialized.load()) return;  // Already done
 
     zeta_scratch_buffer_t* scratch = zeta_get_scratch_buffer();
     if (!g_dual || !scratch) {
@@ -938,7 +1023,8 @@ static void zeta_initialize_deliberation() {
         zeta_delib_reflect
     );
 
-    fprintf(stderr, "[DELIB] Callbacks wired and ready\n");
+    g_deliberation_initialized.store(true);
+    fprintf(stderr, "[DELIB] Callbacks wired and ready (RESEARCH mode grounded generation enabled)\n");
 }
 
 // Register retrieved nodes in co-retrieval graph and record correlations
@@ -952,6 +1038,21 @@ static void gitgraph_record_retrieval(const std::vector<zeta_retrieved_snippet_t
         if (!node || !node->is_active) continue;
         zeta_gitgraph_register_block(g_gitgraph, node->node_id, node->embedding, GITGRAPH_SUMMARY_DIM);
         g_gitgraph_registered_blocks.insert(sn.node_id);
+    }
+
+    // CONTINUOUS TERNARY: Activate edges connected to retrieved nodes
+    std::unordered_set<int64_t> retrieved_ids;
+    for (const auto& sn : snippets) {
+        retrieved_ids.insert(sn.node_id);
+    }
+    uint32_t now = (uint32_t)time(NULL);
+    for (int i = 0; i < g_dual->num_edges; i++) {
+        zeta_graph_edge_t& e = g_dual->edges[i];
+        // Activate edge if either endpoint was retrieved
+        if (retrieved_ids.count(e.source_id) || retrieved_ids.count(e.target_id)) {
+            e.activation_count++;
+            e.last_activated = now;
+        }
     }
 
     if (snippets.size() < 2) return;  // Need at least a pair to form an edge
@@ -2664,6 +2765,26 @@ static std::string generate_chunked_output(const std::string& prompt, int max_to
 
     fprintf(stderr, "[CHUNK] Plan has %zu sections\n", sections.size());
 
+    // Step 1.5: Story extraction (CREATIVE mode only)
+    // Extract characters, locations, plot points from plan for narrative consistency
+    {
+        auto current_mode = zeta_modes::g_mode_controller.current_mode();
+        auto policy = zeta_modes::get_policy(current_mode);
+        if (policy.use_story_coherence && policy.story_extract_on_plan && !plan.empty()) {
+            if (!g_story_ctx && g_git) {
+                zeta_story_init(g_git, "Story");
+            }
+            if (g_story_ctx && g_dual) {
+                int chapter = g_story_ctx->current_chapter > 0 ? g_story_ctx->current_chapter : 1;
+                int extracted = zeta_story_extract_all(g_dual, plan.c_str(), chapter);
+                if (extracted > 0) {
+                    fprintf(stderr, "[STORY] Extracted %d elements from plan (ch%d)\n",
+                            extracted, chapter);
+                }
+            }
+        }
+    }
+
     // Guard: empty sections means plan failed
     if (sections.empty()) {
         fprintf(stderr, "[CHUNK] Warning: No sections generated, returning empty\n");
@@ -2754,6 +2875,21 @@ static std::string generate_chunked_output(const std::string& prompt, int max_to
 
     // Strip self-critique metadata that leaked into output
     clean_output = strip_self_critique_metadata(clean_output);
+
+    // Story coherence check (CREATIVE mode only)
+    // Check for contradictions with established characters/plot/locations
+    {
+        auto current_mode = zeta_modes::g_mode_controller.current_mode();
+        auto policy = zeta_modes::get_policy(current_mode);
+        if (policy.use_story_coherence && policy.story_check_on_output && g_story_ctx && g_dual) {
+            int contradictions = zeta_story_check_coherence(g_dual, clean_output.c_str());
+            if (contradictions > 0) {
+                fprintf(stderr, "[STORY] Warning: %d potential contradictions detected in output\n",
+                        contradictions);
+                // Note: Could trigger a repair pass here in future versions
+            }
+        }
+    }
 
     return clean_output;
 }
@@ -2984,9 +3120,38 @@ static std::string generate(const std::string& prompt, int max_tokens) {
                 g_params.sampling.penalty_last_n);
     }
 
-    // Optional deliberation pre-pass for RESEARCH mode (budget + time gated)
-    if (zeta_modes::g_mode_controller.current_mode() == zeta_modes::Mode::RESEARCH) {
-        (void)zeta_run_deliberation(prompt, research_start, research_used_local, deliberation_overlay);
+    // Optional deliberation pre-pass (policy-driven, enabled for RESEARCH mode)
+    // The mode policy's use_deliberation flag controls whether this runs
+    {
+        auto policy = zeta_modes::get_policy(zeta_modes::g_mode_controller.current_mode());
+        if (policy.use_deliberation || g_deliberation_enabled) {
+            (void)zeta_run_deliberation(prompt, research_start, research_used_local, deliberation_overlay);
+        }
+    }
+
+    // Story coherence pre-pass (policy-driven, enabled for CREATIVE mode)
+    // Surfaces established characters, locations, plot points, relationships
+    std::string story_overlay;
+    {
+        auto policy = zeta_modes::get_policy(zeta_modes::g_mode_controller.current_mode());
+        if (policy.use_story_coherence && policy.story_surface_on_generate) {
+            // Initialize story context if needed
+            if (!g_story_ctx && g_git) {
+                zeta_story_init(g_git, "Story");
+            }
+
+            // Get current chapter from story context (or default to 1)
+            int current_chapter = g_story_ctx ? g_story_ctx->current_chapter : 1;
+            if (current_chapter < 1) current_chapter = 1;
+
+            // Surface relevant story facts
+            const char* story_context = zeta_story_surface_context(g_dual, current_chapter);
+            if (story_context && strlen(story_context) > 50) {
+                story_overlay = story_context;
+                fprintf(stderr, "[STORY] Surfaced %d chars of story context for ch%d\n",
+                        (int)strlen(story_context), current_chapter);
+            }
+        }
     }
 
     // Optional branching pre-pass (mode-policy driven, lightweight)
@@ -3017,6 +3182,9 @@ static std::string generate(const std::string& prompt, int max_tokens) {
             }
         }
     }
+
+    // Persist RESEARCH branching state into the research graph (if enabled)
+    zeta_sync_research_graph();
 
     // === CLOUD ROUTING: Optionally escalate complex queries to cloud APIs ===
     // This is DISABLED by default. Enable with CLOUD_ROUTING=true in zeta.conf
@@ -3250,6 +3418,12 @@ static std::string generate(const std::string& prompt, int max_tokens) {
     if (!deliberation_overlay.empty() && augmented_prompt.size() + deliberation_overlay.size() < (size_t)max_context_chars) {
         augmented_prompt += deliberation_overlay;
         augmented_prompt += "\n";
+    }
+    // Story coherence overlay for CREATIVE mode (character/plot/location context)
+    if (!story_overlay.empty() && augmented_prompt.size() + story_overlay.size() < (size_t)max_context_chars) {
+        augmented_prompt += "[STORY CONTEXT]\n";
+        augmented_prompt += story_overlay;
+        augmented_prompt += "\n[/STORY CONTEXT]\n";
     }
     if (!branching_overlay.empty() && augmented_prompt.size() + branching_overlay.size() < (size_t)max_context_chars) {
         augmented_prompt += branching_overlay;
@@ -4295,6 +4469,7 @@ int main(int argc, char** argv) {
         else if (strcmp(argv[i], "--model-7b-coder") == 0 && i+1 < argc) model_7b_coder_path = argv[++i];
         else if (strcmp(argv[i], "--port") == 0 && i+1 < argc) port = atoi(argv[++i]);
         else if (strcmp(argv[i], "--gpu-layers") == 0 && i+1 < argc) gpu_layers = std::max(0, atoi(argv[++i]));
+        else if (strcmp(argv[i], "--embed-gpu-layers") == 0 && i+1 < argc) g_config.embed_gpu_layers = std::max(0, atoi(argv[++i]));
         else if (strcmp(argv[i], "--zeta-storage") == 0 && i+1 < argc) g_storage_dir = argv[++i];
         else if (strcmp(argv[i], "--embed-model") == 0 && i+1 < argc) g_embed_model_path = argv[++i];
         else if (strcmp(argv[i], "--embed-model-code") == 0 && i+1 < argc) g_embed_model_code_path = argv[++i];
@@ -4365,8 +4540,11 @@ int main(int argc, char** argv) {
             g_research_budget_max_branches,
             g_research_budget_max_depth,
             g_research_budget_time_ms);
-        fprintf(stderr, "Deliberation: %s (pre-pass in research mode)\n",
-            g_deliberation_enabled ? "on" : "off");
+        bool research_delib = zeta_modes::get_policy(zeta_modes::Mode::RESEARCH).use_deliberation;
+        fprintf(stderr, "Deliberation: %s (RESEARCH mode: %s, flag: %s)\n",
+            (research_delib || g_deliberation_enabled) ? "enabled" : "disabled",
+            research_delib ? "grounded" : "off",
+            g_deliberation_enabled ? "forced" : "policy");
     fprintf(stderr, "Git autosave: %s\n", g_git_autosave_enabled ? "on" : "off");
     fprintf(stderr, "Causal embeddings: %s (fallback to verb patterns if off)\n", g_zeta_causal_embeddings_enabled ? "on" : "off");
     fprintf(stderr, "Port: %d (GPU layers: %d)\n", port, gpu_layers);
@@ -4527,6 +4705,24 @@ int main(int argc, char** argv) {
         zeta_git_wire_auto_commit(g_git);
         // Wire edge commits for tracked correlations
         zeta_git_wire_edge_commit(g_git);
+    }
+
+    // Init Project Manager (multi-project 4-layer graph isolation)
+    if (g_dual && g_git) {
+        zeta_project::zeta_project_init(g_storage_dir);
+
+        // Wire current graph to "global" project context
+        if (zeta_project::g_project_manager) {
+            zeta_project::g_project_manager->switch_project("global");
+            if (zeta_project::g_project_manager->active_ctx) {
+                zeta_project::g_project_manager->active_ctx->graph = g_dual;
+                zeta_project::g_project_manager->active_ctx->git = g_git;
+                zeta_project::g_project_manager->active_ctx->manifest.node_count = g_dual->num_nodes;
+                zeta_project::g_project_manager->active_ctx->manifest.edge_count = g_dual->num_edges;
+                fprintf(stderr, "[PROJECT] Wired global project (nodes=%d, edges=%d)\n",
+                        g_dual->num_nodes, g_dual->num_edges);
+            }
+        }
     }
 
     // Create 3B/7B extraction context with runtime-configurable size
@@ -5038,7 +5234,17 @@ int main(int argc, char** argv) {
         const auto & mode_policy = zeta_modes::g_mode_controller.current_policy();
 
         // v5.2: Route CODE queries to 7B coder with algorithm knowledge
-        if (query_class == "CODE" && g_dual && g_dual->ctx_subconscious) {
+        // EXCEPTION: CREATIVE and RESEARCH modes always use 14B for story coherence / deliberation
+        auto current_mode = zeta_modes::g_mode_controller.current_mode();
+        bool mode_forces_14b = (current_mode == zeta_modes::Mode::CREATIVE ||
+                                current_mode == zeta_modes::Mode::RESEARCH);
+
+        if (mode_forces_14b && query_class == "CODE") {
+            fprintf(stderr, "[ROUTE] Mode %s forces 14B path (bypassing 7B for story/deliberation)\n",
+                    current_mode == zeta_modes::Mode::CREATIVE ? "CREATIVE" : "RESEARCH");
+        }
+
+        if (query_class == "CODE" && g_dual && g_dual->ctx_subconscious && !mode_forces_14b) {
             fprintf(stderr, "[ROUTE] CODE query -> 7B coder with algorithm knowledge\n");
             std::string code_output = generate_code_7b(prompt, max_tokens > 0 ? max_tokens : 1024);
             if (!code_output.empty()) {
@@ -5131,6 +5337,38 @@ int main(int argc, char** argv) {
             trm_context = trm_future.get();
             if (!trm_context.empty()) {
                 fprintf(stderr, "[TRM] Retrieved context: %zu chars\n", trm_context.size());
+
+                // CONTINUOUS TERNARY: Activate graph edges for nodes related to retrieved context
+                // Use the query embedding to find similar graph nodes and activate their edges
+                if (g_dual && g_stream_state.has_query_embedding) {
+                    const int EMBED_DIM = 2048;
+                    std::unordered_set<int64_t> activated_nodes;
+                    // Find top similar nodes
+                    for (int i = 0; i < g_dual->num_nodes; i++) {
+                        zeta_graph_node_t* node = &g_dual->nodes[i];
+                        if (!node->is_active) continue;
+                        float sim = zeta_cosine_sim(g_stream_state.query_embedding, node->embedding, EMBED_DIM);
+                        if (sim > 0.30f) {
+                            activated_nodes.insert(node->node_id);
+                        }
+                    }
+                    // Activate edges connected to similar nodes
+                    if (!activated_nodes.empty()) {
+                        uint32_t now = (uint32_t)time(NULL);
+                        int activated = 0;
+                        for (int i = 0; i < g_dual->num_edges; i++) {
+                            zeta_graph_edge_t& e = g_dual->edges[i];
+                            if (activated_nodes.count(e.source_id) || activated_nodes.count(e.target_id)) {
+                                e.activation_count++;
+                                e.last_activated = now;
+                                activated++;
+                            }
+                        }
+                        if (activated > 0) {
+                            fprintf(stderr, "[TERNARY] Activated %d edges (from %zu nodes)\n", activated, activated_nodes.size());
+                        }
+                    }
+                }
             }
         } else if (!run_trm) {
             fprintf(stderr, "[TRM] Skipped - benchmark mode (no_context=true)\n");
@@ -5774,8 +6012,46 @@ int main(int argc, char** argv) {
             return;
         }
 
+        // Fast path: acknowledge plain statements without full generation
+        auto is_statement = [](const std::string& msg) -> bool {
+            if (msg.empty()) return false;
+            // Trim trailing whitespace
+            size_t end = msg.find_last_not_of(" \t\r\n");
+            if (end == std::string::npos) return false;
+            char last = msg[end];
+            if (last == '?') return false;
+
+            // Lowercase prefix for question/imperative heuristics
+            std::string lower;
+            lower.reserve(msg.size());
+            for (char c : msg) lower.push_back((char)tolower((unsigned char)c));
+
+            const char* prefixes[] = {
+                "what ", "why ", "how ", "when ", "where ", "who ", "which ",
+                "can ", "could ", "should ", "would ", "do ", "does ", "did ",
+                "is ", "are ", "was ", "were ",
+                "explain ", "describe ", "summarize ", "summarise ", "tell me ",
+                "give me ", "show me ", "list ", "define ", "compare "
+            };
+            for (const char* p : prefixes) {
+                if (lower.rfind(p, 0) == 0) return false;
+            }
+            return true;
+        };
+
         fprintf(stderr, "[OPENAI-COMPAT] Model: %s, MaxTokens: %d, Prompt: %.100s...\n",
                 model.c_str(), max_tokens, prompt.c_str());
+
+        std::string output_text;
+        int tokens_used = 0;
+        bool output_is_already_json_escaped = false;
+
+        // Quick acknowledge for statement-only inputs
+        if (is_statement(last_user_message)) {
+            output_text = "Noted.";
+            tokens_used = 1;
+            output_is_already_json_escaped = false;
+        }
 
         auto research_start = std::chrono::steady_clock::now();
         int research_used_local = 0;
@@ -5827,11 +6103,7 @@ int main(int argc, char** argv) {
             research_evidence = evidence;
         }
 
-        std::string output_text;
-        int tokens_used = 0;
-        bool output_is_already_json_escaped = false;
-
-        if (research_allowed && !research_snippets.empty()) {
+        if (output_text.empty() && research_allowed && !research_snippets.empty()) {
             std::string deterministic;
             const std::string query_text = !last_user_message.empty() ? last_user_message : prompt;
             if (zeta_try_answer_constants_from_evidence(query_text, research_snippets, deterministic)) {
@@ -5912,7 +6184,10 @@ int main(int argc, char** argv) {
             }
         }
 
-        // Opportunistic KV capture for high-salience nodes touched this request
+        // DISABLED: Opportunistic KV capture clears entire KV cache (see zeta-graph-kv-integration.h)
+        // This adds 0.5+ second overhead and 4MB disk I/O per request
+        // Will be re-enabled when capture uses dedicated context or background thread
+        /*
         if (g_gkv_ctx) {
             int kv_cap = zeta_gkv_capture_high_salience(
                 g_dual, g_ctx_conscious, g_model_conscious, 0.9f, 2
@@ -5921,6 +6196,7 @@ int main(int argc, char** argv) {
                 fprintf(stderr, "[GKV-CAPTURE] Opportunistic capture for %d nodes (post-gen)\n", kv_cap);
             }
         }
+        */
 
         // Generate unique ID
         static std::atomic<uint64_t> completion_id{0};
@@ -7292,10 +7568,12 @@ int main(int argc, char** argv) {
             if (e.weight < 0.0f || e.weight > 1.0f) continue;
             if (edge_count > 0) json += ",";
             edge_count++;
-            char buf[128];
+            char buf[256];
+            // Include belief (-1 to +1), activation count, and last_activated timestamp
             snprintf(buf, sizeof(buf),
-                "{\"src\": %lld, \"tgt\": %lld, \"type\": %d, \"w\": %.2f}",
-                (long long)e.source_id, (long long)e.target_id, e.type, e.weight);
+                "{\"src\": %lld, \"tgt\": %lld, \"type\": %d, \"w\": %.2f, \"belief\": %.3f, \"activations\": %d, \"last_active\": %u}",
+                (long long)e.source_id, (long long)e.target_id, e.type, e.weight,
+                e.belief, (int)e.activation_count, (unsigned)e.last_activated);
             json += buf;
         }
         json += "]}";
@@ -8343,6 +8621,651 @@ int main(int argc, char** argv) {
     fprintf(stderr, "  POST /git/tag      - Tag current HEAD\n");
     fprintf(stderr, "  GET  /git/diff     - Diff two branches\n");
     fprintf(stderr, "  GET  /git/status   - Current branch status\n");
+
+    // =========================================================================
+    // Project Manager API (Multi-Project 4-Layer Graph Isolation)
+    // =========================================================================
+
+    svr.Post("/project/create", [](const httplib::Request& req, httplib::Response& res) {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        res.set_header("Access-Control-Allow-Origin", "*");
+
+        if (!zeta_project::g_project_manager) {
+            zeta_project::zeta_project_init();
+        }
+
+        std::string name = zeta_mcp::extract_json_string(req.body, "name");
+        std::string mode_str = zeta_mcp::extract_json_string(req.body, "mode");
+        std::string description = zeta_mcp::extract_json_string(req.body, "description");
+        std::string isolation_str = zeta_mcp::extract_json_string(req.body, "isolation");
+        std::string source_path = zeta_mcp::extract_json_string(req.body, "source_path");
+
+        if (name.empty()) {
+            res.set_content("{\"error\": \"name required\"}", "application/json");
+            return;
+        }
+
+        auto mode = zeta_project::string_to_mode(mode_str.empty() ? "CHAT" : mode_str);
+        auto isolation = zeta_project::string_to_isolation(isolation_str.empty() ? "full" : isolation_str);
+
+        bool ok = zeta_project::g_project_manager->create_project(
+            name, mode, description, isolation, source_path);
+
+        if (ok) {
+            char buf[512];
+            snprintf(buf, sizeof(buf),
+                "{\"status\": \"ok\", \"project\": \"%s\", \"mode\": \"%s\", \"isolation\": \"%s\"}",
+                name.c_str(), zeta_project::mode_to_string(mode),
+                zeta_project::isolation_to_string(isolation));
+            res.set_content(buf, "application/json");
+        } else {
+            res.set_content("{\"error\": \"Failed to create project\"}", "application/json");
+        }
+    });
+
+    svr.Post("/project/switch", [](const httplib::Request& req, httplib::Response& res) {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        res.set_header("Access-Control-Allow-Origin", "*");
+
+        if (!zeta_project::g_project_manager) {
+            res.set_content("{\"error\": \"Project manager not initialized\"}", "application/json");
+            return;
+        }
+
+        std::string name = zeta_mcp::extract_json_string(req.body, "name");
+        std::string branch = zeta_mcp::extract_json_string(req.body, "branch");
+
+        if (name.empty()) {
+            res.set_content("{\"error\": \"name required\"}", "application/json");
+            return;
+        }
+
+        std::string previous = zeta_project::g_project_manager->active_project;
+        bool ok = zeta_project::g_project_manager->switch_project(name, branch);
+
+        if (ok) {
+            auto* manifest = zeta_project::g_project_manager->get_active_manifest();
+            char buf[512];
+            snprintf(buf, sizeof(buf),
+                "{\"status\": \"ok\", \"previous\": \"%s\", \"current\": \"%s\", "
+                "\"mode\": \"%s\", \"nodes\": %lld, \"edges\": %lld}",
+                previous.c_str(), name.c_str(),
+                manifest ? zeta_project::mode_to_string(manifest->mode) : "CHAT",
+                manifest ? (long long)manifest->node_count : 0,
+                manifest ? (long long)manifest->edge_count : 0);
+            res.set_content(buf, "application/json");
+        } else {
+            res.set_content("{\"error\": \"Failed to switch project\"}", "application/json");
+        }
+    });
+
+    svr.Get("/project/list", [](const httplib::Request&, httplib::Response& res) {
+        res.set_header("Access-Control-Allow-Origin", "*");
+
+        if (!zeta_project::g_project_manager) {
+            zeta_project::zeta_project_init();
+        }
+
+        auto projects = zeta_project::g_project_manager->list_projects();
+        std::string active = zeta_project::g_project_manager->active_project;
+
+        std::ostringstream json;
+        json << "{\"projects\": [";
+        for (size_t i = 0; i < projects.size(); i++) {
+            if (i > 0) json << ",";
+            const auto& p = projects[i];
+            json << "{";
+            json << "\"name\": \"" << p.name << "\",";
+            json << "\"mode\": \"" << zeta_project::mode_to_string(p.mode) << "\",";
+            json << "\"description\": \"" << p.description << "\",";
+            json << "\"isolation\": \"" << zeta_project::isolation_to_string(p.isolation) << "\",";
+            json << "\"nodes\": " << p.node_count << ",";
+            json << "\"edges\": " << p.edge_count << ",";
+            json << "\"branches\": [";
+            for (size_t j = 0; j < p.branches.size(); j++) {
+                if (j > 0) json << ",";
+                json << "\"" << p.branches[j] << "\"";
+            }
+            json << "],";
+            json << "\"current_branch\": \"" << p.current_branch << "\",";
+            json << "\"is_active\": " << (p.name == active ? "true" : "false");
+            json << "}";
+        }
+        json << "], \"active\": \"" << active << "\"}";
+
+        res.set_content(json.str(), "application/json");
+    });
+
+    svr.Get("/project/status", [](const httplib::Request&, httplib::Response& res) {
+        res.set_header("Access-Control-Allow-Origin", "*");
+
+        if (!zeta_project::g_project_manager) {
+            res.set_content("{\"error\": \"Project manager not initialized\"}", "application/json");
+            return;
+        }
+
+        auto* manifest = zeta_project::g_project_manager->get_active_manifest();
+        if (!manifest) {
+            res.set_content("{\"error\": \"No active project\"}", "application/json");
+            return;
+        }
+
+        std::ostringstream json;
+        json << "{";
+        json << "\"name\": \"" << manifest->name << "\",";
+        json << "\"mode\": \"" << zeta_project::mode_to_string(manifest->mode) << "\",";
+        json << "\"description\": \"" << manifest->description << "\",";
+        json << "\"isolation\": \"" << zeta_project::isolation_to_string(manifest->isolation) << "\",";
+        json << "\"branch\": \"" << manifest->current_branch << "\",";
+        json << "\"source_path\": \"" << manifest->source_path << "\",";
+        json << "\"created_at\": " << manifest->created_at << ",";
+        json << "\"last_accessed\": " << manifest->last_accessed << ",";
+        json << "\"layers\": {";
+        json << "\"L1_nodes\": " << manifest->node_count << ",";
+        json << "\"L2_kv_segments\": " << manifest->kv_segment_count << ",";
+        json << "\"L3_edges\": " << manifest->edge_count << ",";
+        json << "\"L4_operations\": " << manifest->operation_count;
+        json << "},";
+        json << "\"branches\": [";
+        for (size_t i = 0; i < manifest->branches.size(); i++) {
+            if (i > 0) json << ",";
+            json << "\"" << manifest->branches[i] << "\"";
+        }
+        json << "]";
+        json << "}";
+
+        res.set_content(json.str(), "application/json");
+    });
+
+    svr.Post("/project/delete", [](const httplib::Request& req, httplib::Response& res) {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        res.set_header("Access-Control-Allow-Origin", "*");
+
+        if (!zeta_project::g_project_manager) {
+            res.set_content("{\"error\": \"Project manager not initialized\"}", "application/json");
+            return;
+        }
+
+        std::string name = zeta_mcp::extract_json_string(req.body, "name");
+        std::string confirm_str = zeta_mcp::extract_json_string(req.body, "confirm");
+        bool confirm = (confirm_str == "true" || confirm_str == "yes");
+
+        if (name.empty()) {
+            res.set_content("{\"error\": \"name required\"}", "application/json");
+            return;
+        }
+
+        bool ok = zeta_project::g_project_manager->delete_project(name, confirm);
+        if (ok) {
+            char buf[256];
+            snprintf(buf, sizeof(buf), "{\"status\": \"ok\", \"deleted\": \"%s\"}", name.c_str());
+            res.set_content(buf, "application/json");
+        } else {
+            res.set_content("{\"error\": \"Failed to delete project (use confirm: true)\"}", "application/json");
+        }
+    });
+
+    fprintf(stderr, "  POST /project/create - Create new project\n");
+    fprintf(stderr, "  POST /project/switch - Switch active project\n");
+    fprintf(stderr, "  GET  /project/list   - List all projects\n");
+    fprintf(stderr, "  GET  /project/status - Current project info\n");
+    fprintf(stderr, "  POST /project/delete - Delete project (requires confirm)\n");
+
+    // =========================================================================
+    // Corpus API (Source Material for Graph Ingestion)
+    // =========================================================================
+    // Corpus contains source files (code, docs) that get INGESTED to build
+    // the project's 4-layer graph. Not for runtime RAG - the graph IS the
+    // retrieval mechanism.
+    //
+    // Flow: corpus/raw/ -> /corpus/index -> L1 nodes + L3 edges
+    // =========================================================================
+
+    // Add file to corpus (staging area for ingestion)
+    svr.Post("/corpus/add", [](const httplib::Request& req, httplib::Response& res) {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        res.set_header("Access-Control-Allow-Origin", "*");
+
+        if (!zeta_project::g_project_manager || !zeta_project::g_project_manager->active_ctx) {
+            res.set_content("{\"error\": \"No active project\"}", "application/json");
+            return;
+        }
+
+        std::string filename = zeta_mcp::extract_json_string(req.body, "filename");
+        std::string content = zeta_mcp::extract_json_string(req.body, "content");
+        std::string path = zeta_mcp::extract_json_string(req.body, "path");  // Optional subdirectory
+
+        if (filename.empty() || content.empty()) {
+            res.set_content("{\"error\": \"filename and content required\"}", "application/json");
+            return;
+        }
+
+        auto* ctx = zeta_project::g_project_manager->active_ctx;
+        std::string target_dir = ctx->corpus_raw;
+        if (!path.empty()) {
+            target_dir += path + "/";
+            mkdir(target_dir.c_str(), 0755);
+        }
+
+        std::string filepath = target_dir + filename;
+        std::ofstream f(filepath);
+        if (!f.is_open()) {
+            res.set_content("{\"error\": \"Failed to write file\"}", "application/json");
+            return;
+        }
+        f << content;
+        f.close();
+
+        // Update stats
+        ctx->manifest.corpus_file_count++;
+        ctx->manifest.corpus_size_bytes += content.size();
+        ctx->is_dirty = true;
+
+        char buf[512];
+        snprintf(buf, sizeof(buf),
+            "{\"status\": \"ok\", \"file\": \"%s\", \"size\": %zu, \"corpus_files\": %lld}",
+            filepath.c_str(), content.size(), (long long)ctx->manifest.corpus_file_count);
+        res.set_content(buf, "application/json");
+
+        fprintf(stderr, "[CORPUS] Added file: %s (%zu bytes)\n", filepath.c_str(), content.size());
+    });
+
+    // List corpus files
+    svr.Get("/corpus/list", [](const httplib::Request&, httplib::Response& res) {
+        res.set_header("Access-Control-Allow-Origin", "*");
+
+        if (!zeta_project::g_project_manager || !zeta_project::g_project_manager->active_ctx) {
+            res.set_content("{\"error\": \"No active project\"}", "application/json");
+            return;
+        }
+
+        auto* ctx = zeta_project::g_project_manager->active_ctx;
+
+        std::ostringstream json;
+        json << "{\"corpus_path\": \"" << ctx->corpus_path << "\",";
+        json << "\"files\": [";
+
+        // List files in corpus/raw/
+        DIR* dir = opendir(ctx->corpus_raw.c_str());
+        if (dir) {
+            struct dirent* entry;
+            bool first = true;
+            while ((entry = readdir(dir)) != NULL) {
+                if (entry->d_name[0] == '.') continue;
+                if (!first) json << ",";
+                first = false;
+                json << "\"" << entry->d_name << "\"";
+            }
+            closedir(dir);
+        }
+
+        json << "],";
+        json << "\"total_files\": " << ctx->manifest.corpus_file_count << ",";
+        json << "\"indexed_files\": " << ctx->manifest.corpus_indexed_count << ",";
+        json << "\"size_bytes\": " << ctx->manifest.corpus_size_bytes;
+        json << "}";
+
+        res.set_content(json.str(), "application/json");
+    });
+
+    // Trigger corpus indexing (extract entities and add to graph via 7B pipeline)
+    svr.Post("/corpus/index", [](const httplib::Request& req, httplib::Response& res) {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        res.set_header("Access-Control-Allow-Origin", "*");
+
+        if (!zeta_project::g_project_manager || !zeta_project::g_project_manager->active_ctx) {
+            res.set_content("{\"error\": \"No active project\"}", "application/json");
+            return;
+        }
+
+        auto* ctx = zeta_project::g_project_manager->active_ctx;
+
+        // Use project's graph if available, otherwise fall back to global
+        zeta_dual_ctx_t* target_graph = ctx->graph ? ctx->graph : g_dual;
+        if (!target_graph) {
+            res.set_content("{\"error\": \"No graph context available\"}", "application/json");
+            return;
+        }
+
+        // Optional: limit to specific file or process all
+        std::string target_file = zeta_mcp::extract_json_string(req.body, "file");
+        bool commit = true;
+        if (req.body.find("\"commit\":false") != std::string::npos ||
+            req.body.find("\"commit\": false") != std::string::npos) {
+            commit = false;
+        }
+
+        // Supported code extensions
+        static const std::unordered_set<std::string> CODE_EXTENSIONS = {
+            ".h", ".hpp", ".c", ".cpp", ".cc", ".cxx",
+            ".py", ".js", ".ts", ".tsx", ".jsx",
+            ".go", ".rs", ".java", ".cs", ".rb", ".lua",
+            ".cu", ".cuh", ".m", ".mm", ".swift"
+        };
+
+        auto is_code_file = [](const std::string& filename) -> bool {
+            size_t dot = filename.rfind('.');
+            if (dot == std::string::npos) return false;
+            std::string ext = filename.substr(dot);
+            for (auto& c : ext) c = tolower(c);
+            return CODE_EXTENSIONS.count(ext) > 0;
+        };
+
+        int files_processed = 0;
+        int entities_extracted = 0;
+        int nodes_committed = 0;
+        int64_t start_time = (int64_t)time(NULL);
+        std::vector<std::string> errors;
+
+        // Process files in corpus_raw
+        std::function<void(const std::string&)> process_directory;
+        process_directory = [&](const std::string& dir_path) {
+            DIR* dir = opendir(dir_path.c_str());
+            if (!dir) return;
+
+            struct dirent* entry;
+            while ((entry = readdir(dir)) != NULL) {
+                if (entry->d_name[0] == '.') continue;
+
+                std::string full_path = dir_path + "/" + entry->d_name;
+
+                if (entry->d_type == DT_DIR) {
+                    // Recurse into subdirectories
+                    process_directory(full_path);
+                } else if (entry->d_type == DT_REG) {
+                    // Skip if targeting specific file and this isn't it
+                    if (!target_file.empty() && entry->d_name != target_file) continue;
+
+                    // Skip non-code files
+                    if (!is_code_file(entry->d_name)) continue;
+
+                    // Read file content
+                    std::ifstream f(full_path);
+                    if (!f.is_open()) {
+                        errors.push_back("Failed to open: " + std::string(entry->d_name));
+                        continue;
+                    }
+                    std::stringstream buffer;
+                    buffer << f.rdbuf();
+                    std::string code = buffer.str();
+                    f.close();
+
+                    // Skip tiny files
+                    if (code.size() < 50) continue;
+
+                    fprintf(stderr, "[CORPUS] Extracting: %s (%zu bytes)\n",
+                            entry->d_name, code.size());
+
+                    // Extract entities using regex (fast path, no model call)
+                    zeta_extract_result* result = zeta_extract_code(
+                        code.c_str(), entry->d_name);
+
+                    if (result) {
+                        entities_extracted += result->num_entities;
+
+                        // Commit to project graph
+                        if (commit) {
+                            int64_t file_node_id = 0;
+                            for (int i = 0; i < result->num_entities; i++) {
+                                if (result->entities[i].type == CODE_ENTITY_FILE) {
+                                    file_node_id = result->entities[i].id;
+                                    break;
+                                }
+                            }
+                            nodes_committed += zeta_commit_code_to_graph(
+                                target_graph, result, file_node_id);
+                        }
+
+                        // Copy to indexed directory (mark as processed)
+                        std::string indexed_path = ctx->corpus_indexed + entry->d_name;
+                        std::ofstream idx_f(indexed_path);
+                        if (idx_f.is_open()) {
+                            idx_f << code;
+                            idx_f.close();
+                        }
+
+                        zeta_extract_result_free(result);
+                        files_processed++;
+                    } else {
+                        errors.push_back("Extraction failed: " + std::string(entry->d_name));
+                    }
+                }
+            }
+            closedir(dir);
+        };
+
+        process_directory(ctx->corpus_raw);
+
+        // Update manifest
+        ctx->manifest.corpus_indexed_count += files_processed;
+        ctx->manifest.node_count += nodes_committed;
+        ctx->is_dirty = true;
+
+        int64_t elapsed = (int64_t)time(NULL) - start_time;
+
+        // Build response
+        std::ostringstream json;
+        json << "{\"status\": \"ok\"";
+        json << ", \"project\": \"" << ctx->manifest.name << "\"";
+        json << ", \"files_processed\": " << files_processed;
+        json << ", \"entities_extracted\": " << entities_extracted;
+        json << ", \"nodes_committed\": " << nodes_committed;
+        json << ", \"elapsed_seconds\": " << elapsed;
+        if (!errors.empty()) {
+            json << ", \"errors\": [";
+            for (size_t i = 0; i < errors.size() && i < 10; i++) {
+                if (i > 0) json << ", ";
+                json << "\"" << errors[i] << "\"";
+            }
+            if (errors.size() > 10) json << ", \"...\"";
+            json << "]";
+        }
+        json << "}";
+
+        res.set_content(json.str(), "application/json");
+
+        fprintf(stderr, "[CORPUS] Indexed %d files -> %d entities -> %d nodes for '%s' (%llds)\n",
+                files_processed, entities_extracted, nodes_committed,
+                ctx->manifest.name.c_str(), (long long)elapsed);
+    });
+
+    fprintf(stderr, "  POST /corpus/add     - Add file to project corpus\n");
+    fprintf(stderr, "  GET  /corpus/list    - List corpus files\n");
+    fprintf(stderr, "  POST /corpus/index   - Index corpus (extract to graph)\n");
+
+    // =========================================================================
+    // Dream API (Per-Project Idle Consolidation)
+    // =========================================================================
+
+    // Trigger a dream cycle for current project
+    svr.Post("/dream/trigger", [](const httplib::Request& req, httplib::Response& res) {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        res.set_header("Access-Control-Allow-Origin", "*");
+
+        if (!zeta_project::g_project_manager || !zeta_project::g_project_manager->active_ctx) {
+            res.set_content("{\"error\": \"No active project\"}", "application/json");
+            return;
+        }
+
+        auto* ctx = zeta_project::g_project_manager->active_ctx;
+
+        if (!ctx->dream_state.enabled) {
+            res.set_content("{\"error\": \"Dreams disabled for this project\"}", "application/json");
+            return;
+        }
+
+        // Optional: number of iterations
+        int iterations = 5;  // default
+        if (req.body.find("\"iterations\"") != std::string::npos) {
+            iterations = zeta_mcp::extract_json_int(req.body, "iterations", 5);
+            if (iterations < 1) iterations = 1;
+            if (iterations > 20) iterations = 20;
+        }
+
+        // Configure dream system for this project
+        std::string original_dreams_dir = g_dream_config.dreams_dir;
+        g_dream_config.dreams_dir = ctx->dream_path;
+        g_dream_config.max_dream_iterations = iterations;
+
+        // Ensure project dream directories exist
+        mkdir(ctx->dream_path.c_str(), 0755);
+        mkdir(ctx->dream_pending.c_str(), 0755);
+        mkdir(ctx->dream_archive.c_str(), 0755);
+
+        // Use project's graph if available, otherwise global
+        zeta_dual_ctx_t* target_graph = ctx->graph ? ctx->graph : g_dual;
+
+        fprintf(stderr, "[DREAM] Starting dream cycle for project '%s'\n",
+                ctx->manifest.name.c_str());
+        fprintf(stderr, "[DREAM] Dream path: %s | Iterations: %d\n",
+                ctx->dream_path.c_str(), iterations);
+
+        int64_t start_time = (int64_t)time(NULL);
+        int dreams_before = g_dream_state.get_session_dreams();
+
+        // Temporarily update dream state context if project has its own graph
+        // Note: g_dream_state was initialized with g_dual at startup
+        // For per-project dreaming, we run with the global config pointed at project dirs
+
+        // Trigger dream cycle by simulating idle (sets last_activity to 0)
+        // The dream thread checks should_dream() which looks at idle time
+        // For manual trigger, we directly run memory consolidation + dream generation
+
+        // Phase 1: Memory consolidation (pruning + pattern detection)
+        if (target_graph && target_graph->num_nodes > 0) {
+            fprintf(stderr, "[DREAM] Phase 1: Memory consolidation (%d nodes, %d edges)\n",
+                    target_graph->num_nodes, target_graph->num_edges);
+            g_dream_state.run_memory_consolidation();
+        }
+
+        // Phase 2: Generate dreams from recent memories
+        // We use the existing dream generation callback that was set at init
+        // The g_dream_state will use g_dream_config.dreams_dir for saving
+
+        // Gather recent memories from project graph for dream seed
+        std::string context = "";
+        if (target_graph && target_graph->num_nodes > 0) {
+            int recent_count = std::min(target_graph->num_nodes, 20);
+            for (int i = target_graph->num_nodes - recent_count; i < target_graph->num_nodes; i++) {
+                if (i >= 0 && target_graph->nodes[i].is_active) {
+                    context += "- [" + std::string(target_graph->nodes[i].label) + "]: " +
+                               std::string(target_graph->nodes[i].value).substr(0, 100) + "\n";
+                }
+            }
+        }
+
+        int dreams_generated = 0;
+        if (!context.empty()) {
+            fprintf(stderr, "[DREAM] Phase 2: Dream generation from %zu bytes of context\n",
+                    context.size());
+
+            // Run dream iterations using the global dream state's generate function
+            // The actual dreams are saved to g_dream_config.dreams_dir (now pointing to project)
+            for (int iter = 0; iter < iterations; iter++) {
+                // Check for pending dreams in project directory
+                auto pending = g_dream_state.scan_pending_dreams();
+                dreams_generated = (int)pending.size();
+
+                fprintf(stderr, "[DREAM] Iteration %d/%d - pending dreams: %d\n",
+                        iter + 1, iterations, dreams_generated);
+
+                // Sleep briefly between iterations to allow background thread to generate
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            }
+        }
+
+        // Get final count
+        int dreams_after = g_dream_state.get_session_dreams();
+        int new_dreams = dreams_after - dreams_before;
+
+        // Scan project pending directory for actual count
+        auto final_pending = g_dream_state.scan_pending_dreams();
+
+        // Update project state
+        ctx->dream_state.last_dream_at = (int64_t)time(NULL);
+        ctx->dream_state.dream_count += new_dreams;
+        ctx->manifest.last_dream_at = ctx->dream_state.last_dream_at;
+        ctx->manifest.dream_count_pending = (int64_t)final_pending.size();
+        ctx->is_dirty = true;
+
+        // Restore original config
+        g_dream_config.dreams_dir = original_dreams_dir;
+
+        int64_t elapsed = (int64_t)time(NULL) - start_time;
+
+        // Build response
+        std::ostringstream json;
+        json << "{\"status\": \"ok\"";
+        json << ", \"project\": \"" << ctx->manifest.name << "\"";
+        json << ", \"iterations\": " << iterations;
+        json << ", \"dreams_generated\": " << new_dreams;
+        json << ", \"pending_dreams\": " << final_pending.size();
+        json << ", \"elapsed_seconds\": " << elapsed;
+        json << ", \"dream_path\": \"" << ctx->dream_path << "\"";
+        json << "}";
+
+        res.set_content(json.str(), "application/json");
+
+        fprintf(stderr, "[DREAM] Cycle complete for '%s': %d dreams in %llds\n",
+                ctx->manifest.name.c_str(), new_dreams, (long long)elapsed);
+    });
+
+    // Get dream status for current project
+    svr.Get("/dream/status", [](const httplib::Request&, httplib::Response& res) {
+        res.set_header("Access-Control-Allow-Origin", "*");
+
+        if (!zeta_project::g_project_manager || !zeta_project::g_project_manager->active_ctx) {
+            res.set_content("{\"error\": \"No active project\"}", "application/json");
+            return;
+        }
+
+        auto* ctx = zeta_project::g_project_manager->active_ctx;
+
+        std::ostringstream json;
+        json << "{";
+        json << "\"project\": \"" << ctx->manifest.name << "\",";
+        json << "\"enabled\": " << (ctx->dream_state.enabled ? "true" : "false") << ",";
+        json << "\"last_dream_at\": " << ctx->dream_state.last_dream_at << ",";
+        json << "\"dream_count\": " << ctx->dream_state.dream_count << ",";
+        json << "\"pending\": " << ctx->manifest.dream_count_pending << ",";
+        json << "\"archived\": " << ctx->manifest.dream_count_archived << ",";
+        json << "\"dream_path\": \"" << ctx->dream_path << "\"";
+        json << "}";
+
+        res.set_content(json.str(), "application/json");
+    });
+
+    // Enable/disable dreams for current project
+    svr.Post("/dream/toggle", [](const httplib::Request& req, httplib::Response& res) {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        res.set_header("Access-Control-Allow-Origin", "*");
+
+        if (!zeta_project::g_project_manager || !zeta_project::g_project_manager->active_ctx) {
+            res.set_content("{\"error\": \"No active project\"}", "application/json");
+            return;
+        }
+
+        std::string enabled_str = zeta_mcp::extract_json_string(req.body, "enabled");
+        bool enabled = (enabled_str == "true" || enabled_str == "yes" || enabled_str == "1");
+
+        auto* ctx = zeta_project::g_project_manager->active_ctx;
+        ctx->dream_state.enabled = enabled;
+        ctx->manifest.dream_enabled = enabled;
+        ctx->is_dirty = true;
+
+        char buf[256];
+        snprintf(buf, sizeof(buf),
+            "{\"status\": \"ok\", \"project\": \"%s\", \"dream_enabled\": %s}",
+            ctx->manifest.name.c_str(), enabled ? "true" : "false");
+        res.set_content(buf, "application/json");
+
+        fprintf(stderr, "[DREAM] %s dreams for project '%s'\n",
+                enabled ? "Enabled" : "Disabled", ctx->manifest.name.c_str());
+    });
+
+    fprintf(stderr, "  POST /dream/trigger  - Trigger dream cycle\n");
+    fprintf(stderr, "  GET  /dream/status   - Get dream status\n");
+    fprintf(stderr, "  POST /dream/toggle   - Enable/disable dreams\n");
 
     // =========================================================================
     // Swarm Intelligence API (Distributed Consensus & Offloading)
