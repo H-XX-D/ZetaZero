@@ -308,20 +308,18 @@ static inline int zeta_gkv_lazy_capture(
         if (n_tokens <= 0 || n_tokens >= 512) continue;
         tokens.resize(n_tokens);
 
-        // DISABLED: Inline capture clears entire main KV cache (4096 tokens)
-        // causing ~4MB disk I/O and forcing next request to rebuild from scratch
-        // This creates 0.5+ second overhead per request
-        //
-        // KV capture will happen:
-        // 1. In dedicated capture context (future improvement)
-        // 2. During idle time in background thread
-        // 3. On actual cache miss when node is needed
-        //
-        // For now: skip capture to keep requests fast
-        continue;
+        // Capture KV for this node using v2 native API
+        // This builds the cache based on actual usage patterns
+        int cap_result = zeta_gkv_capture_v2(
+            g_gkv_ctx, llama_ctx, 0, node_id, tokens.data(), n_tokens
+        );
+        if (cap_result > 0) {
+            captured++;
+            fprintf(stderr, "[LAZY-KV] Captured %d tokens for node %lld\n",
+                    n_tokens, (long long)node_id);
+        }
     }
 
-    // Return count (currently always 0 since captures are disabled)
     return captured;
 }
 

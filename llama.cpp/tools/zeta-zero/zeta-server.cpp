@@ -6184,11 +6184,8 @@ int main(int argc, char** argv) {
             }
         }
 
-        // DISABLED: Opportunistic KV capture clears entire KV cache (see zeta-graph-kv-integration.h)
-        // This adds 0.5+ second overhead and 4MB disk I/O per request
-        // Will be re-enabled when capture uses dedicated context or background thread
-        /*
-        if (g_gkv_ctx) {
+        // Opportunistic KV capture for high-salience nodes after generation
+        if (g_gkv_ctx && g_dual) {
             int kv_cap = zeta_gkv_capture_high_salience(
                 g_dual, g_ctx_conscious, g_model_conscious, 0.9f, 2
             );
@@ -6196,7 +6193,6 @@ int main(int argc, char** argv) {
                 fprintf(stderr, "[GKV-CAPTURE] Opportunistic capture for %d nodes (post-gen)\n", kv_cap);
             }
         }
-        */
 
         // Generate unique ID
         static std::atomic<uint64_t> completion_id{0};
@@ -7578,6 +7574,92 @@ int main(int argc, char** argv) {
         }
         json += "]}";
         res.set_content(json, "application/json");
+    });
+
+    // =========================================================================
+    // Story Integration API (for stress testing)
+    // =========================================================================
+
+    svr.Get("/story/stats", [](const httplib::Request&, httplib::Response& res) {
+        res.set_header("Access-Control-Allow-Origin", "*");
+
+        char buf[1024];
+        zeta_story_stats_json(buf, sizeof(buf));
+        res.set_content(buf, "application/json");
+    });
+
+    svr.Get("/story/characters", [](const httplib::Request&, httplib::Response& res) {
+        res.set_header("Access-Control-Allow-Origin", "*");
+
+        char buf[4096];
+        zeta_story_characters_json(buf, sizeof(buf));
+        res.set_content(buf, "application/json");
+    });
+
+    svr.Post("/story/init", [](const httplib::Request& req, httplib::Response& res) {
+        res.set_header("Access-Control-Allow-Origin", "*");
+
+        std::string title;
+        size_t pos = req.body.find("\"title\":");
+        if (pos != std::string::npos) {
+            size_t ts = req.body.find('"', pos + 8);
+            if (ts != std::string::npos) {
+                size_t te = req.body.find('"', ts + 1);
+                if (te != std::string::npos) {
+                    title = req.body.substr(ts + 1, te - ts - 1);
+                }
+            }
+        }
+
+        zeta_story_ctx_t* ctx = zeta_story_init(g_git, title.empty() ? "StressTest" : title.c_str());
+        if (ctx) {
+            res.set_content("{\"status\": \"ok\", \"title\": \"" + title + "\"}", "application/json");
+        } else {
+            res.status = 500;
+            res.set_content("{\"error\": \"Failed to init story context\"}", "application/json");
+        }
+    });
+
+    svr.Post("/story/extract", [](const httplib::Request& req, httplib::Response& res) {
+        res.set_header("Access-Control-Allow-Origin", "*");
+
+        if (!g_dual) {
+            res.status = 500;
+            res.set_content("{\"error\": \"Graph not initialized\"}", "application/json");
+            return;
+        }
+
+        // Extract chapter number from request
+        int chapter = 1;
+        size_t pos = req.body.find("\"chapter\":");
+        if (pos != std::string::npos) {
+            chapter = atoi(req.body.c_str() + pos + 10);
+        }
+
+        // Extract text from request
+        std::string text;
+        pos = req.body.find("\"text\":");
+        if (pos != std::string::npos) {
+            size_t ts = req.body.find('"', pos + 7);
+            if (ts != std::string::npos) {
+                size_t te = req.body.rfind('"');
+                if (te > ts) {
+                    text = req.body.substr(ts + 1, te - ts - 1);
+                }
+            }
+        }
+
+        if (text.empty()) {
+            res.status = 400;
+            res.set_content("{\"error\": \"Missing 'text' field\"}", "application/json");
+            return;
+        }
+
+        int extracted = zeta_story_extract_all(g_dual, text.c_str(), chapter);
+
+        char buf[256];
+        snprintf(buf, sizeof(buf), "{\"extracted\": %d, \"chapter\": %d}", extracted, chapter);
+        res.set_content(buf, "application/json");
     });
 
 
