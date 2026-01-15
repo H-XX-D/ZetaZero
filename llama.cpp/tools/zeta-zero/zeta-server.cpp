@@ -5796,6 +5796,18 @@ int main(int argc, char** argv) {
                         }
                     } else {
                         fprintf(stderr, "[EXTRACT] Skipped - creative mode (epistemic scoping)\n");
+
+                        // STORY EXTRACTION: Extract story elements in creative mode
+                        // This captures characters, locations, relationships from generated content
+                        auto policy = zeta_modes::get_policy(zeta_modes::g_mode_controller.current_mode());
+                        if (policy.use_story_coherence && g_story_ctx && g_dual) {
+                            int chapter = g_story_ctx->current_chapter > 0 ? g_story_ctx->current_chapter : 1;
+                            int extracted = zeta_story_extract_all(g_dual, output_text.c_str(), chapter);
+                            if (extracted > 0) {
+                                fprintf(stderr, "[STORY] Extracted %d elements from /generate output (ch%d)\n",
+                                        extracted, chapter);
+                            }
+                        }
                     }
                 }
             }
