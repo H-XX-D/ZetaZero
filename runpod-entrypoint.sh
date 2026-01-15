@@ -30,21 +30,26 @@ NEED_EMBED=0
 [ ! -f "$MODELS_DIR/qwen2.5-7b-coder-q4_k_m.gguf" ] && NEED_7B=1
 [ ! -f "$MODELS_DIR/qwen3-embedding-4b-q4_k_m.gguf" ] && NEED_EMBED=1
 
+# Define huggingface download function using python module
+hf_download() {
+    python3 -m huggingface_hub.commands.huggingface_cli download "$@"
+}
+
 if [ "$NEED_14B" -eq 1 ] || [ "$NEED_7B" -eq 1 ] || [ "$NEED_EMBED" -eq 1 ]; then
-    echo "[RUNPOD] Installing huggingface-cli..."
-    pip install -U huggingface_hub --quiet
+    echo "[RUNPOD] Installing huggingface_hub..."
+    pip install -U huggingface_hub --quiet || pip3 install -U huggingface_hub --quiet
     
     cd "$MODELS_DIR"
     
     if [ "$NEED_14B" -eq 1 ]; then
         echo "[RUNPOD] Downloading Qwen2.5-14B-Instruct Q4_K_M from HuggingFace..."
-        huggingface-cli download Qwen/Qwen2.5-14B-Instruct-GGUF \
+        hf_download Qwen/Qwen2.5-14B-Instruct-GGUF \
             --include "qwen2.5-14b-instruct-q4_k_m*.gguf" \
             --local-dir . --local-dir-use-symlinks False
         # Merge if split and rename
         if [ -f "qwen2.5-14b-instruct-q4_k_m-00001-of-00002.gguf" ]; then
-            llama-gguf-split --merge qwen2.5-14b-instruct-q4_k_m-00001-of-00002.gguf qwen2.5-14b-instruct-q4.gguf
-            rm -f qwen2.5-14b-instruct-q4_k_m-*.gguf
+            /app/llama.cpp/build/bin/llama-gguf-split --merge qwen2.5-14b-instruct-q4_k_m-00001-of-00002.gguf qwen2.5-14b-instruct-q4.gguf || true
+            rm -f qwen2.5-14b-instruct-q4_k_m-*.gguf 2>/dev/null || true
         else
             mv qwen2.5-14b-instruct-q4_k_m.gguf qwen2.5-14b-instruct-q4.gguf 2>/dev/null || true
         fi
@@ -52,13 +57,13 @@ if [ "$NEED_14B" -eq 1 ] || [ "$NEED_7B" -eq 1 ] || [ "$NEED_EMBED" -eq 1 ]; the
     
     if [ "$NEED_7B" -eq 1 ]; then
         echo "[RUNPOD] Downloading Qwen2.5-Coder-7B-Instruct Q4_K_M from HuggingFace..."
-        huggingface-cli download Qwen/Qwen2.5-Coder-7B-Instruct-GGUF \
+        hf_download Qwen/Qwen2.5-Coder-7B-Instruct-GGUF \
             --include "qwen2.5-coder-7b-instruct-q4_k_m*.gguf" \
             --local-dir . --local-dir-use-symlinks False
         # Merge if split and rename
         if [ -f "qwen2.5-coder-7b-instruct-q4_k_m-00001-of-00002.gguf" ]; then
-            llama-gguf-split --merge qwen2.5-coder-7b-instruct-q4_k_m-00001-of-00002.gguf qwen2.5-7b-coder-q4_k_m.gguf
-            rm -f qwen2.5-coder-7b-instruct-q4_k_m-*.gguf
+            /app/llama.cpp/build/bin/llama-gguf-split --merge qwen2.5-coder-7b-instruct-q4_k_m-00001-of-00002.gguf qwen2.5-7b-coder-q4_k_m.gguf || true
+            rm -f qwen2.5-coder-7b-instruct-q4_k_m-*.gguf 2>/dev/null || true
         else
             mv qwen2.5-coder-7b-instruct-q4_k_m.gguf qwen2.5-7b-coder-q4_k_m.gguf 2>/dev/null || true
         fi
@@ -66,16 +71,16 @@ if [ "$NEED_14B" -eq 1 ] || [ "$NEED_7B" -eq 1 ] || [ "$NEED_EMBED" -eq 1 ]; the
     
     if [ "$NEED_EMBED" -eq 1 ]; then
         echo "[RUNPOD] Downloading Qwen3-Embedding-4B Q4_K_M from HuggingFace..."
-        huggingface-cli download Qwen/Qwen3-Embedding-4B-GGUF \
+        hf_download Qwen/Qwen3-Embedding-4B-GGUF \
             --include "qwen3-embedding-4b-q4_k_m.gguf" \
             --local-dir . --local-dir-use-symlinks False
     fi
     
     echo "[RUNPOD] Download complete. Models:"
-    ls -lh "$MODELS_DIR/"*.gguf
+    ls -lh "$MODELS_DIR/"*.gguf 2>/dev/null || echo "No models found yet"
 else
     echo "[RUNPOD] All models present:"
-    ls -lh "$MODELS_DIR/"*.gguf
+    ls -lh "$MODELS_DIR/"*.gguf 2>/dev/null || echo "Checking models..."
 fi
 
 # Ensure config is in a location the server will find
