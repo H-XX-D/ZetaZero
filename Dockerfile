@@ -50,10 +50,9 @@ RUN mkdir -p /models /storage /storage/dreams/pending /storage/dreams/archive /s
 ENV ZETA_HOST="0.0.0.0"
 ENV ZETA_PORT="8080"
 # Defaults are overridable via docker-compose.yml or a mounted zeta.conf.
-# Keep these filenames aligned with common single-file GGUF downloads.
 ENV MODEL_MAIN="/models/qwen2.5-14b-instruct-q4.gguf"
-ENV MODEL_CODER="/models/qwen2.5-7b-instruct-q4_k_m-00002-of-00002.gguf"
-ENV MODEL_EMBED="/models/nomic-embed-text-v1.5-q4_k_m.gguf"
+ENV MODEL_CODER="/models/qwen2.5-7b-coder-q4_k_m.gguf"
+ENV MODEL_EMBED="/models/qwen3-embedding-4b-q4_k_m.gguf"
 ENV ZETA_STORAGE="/storage"
 ENV ZETA_DREAM_INTERVAL="300"
 ENV ZETA_DREAM_DIR="/storage/dreams"
@@ -68,8 +67,9 @@ EXPOSE 8080
 
 # Copy entrypoint script and utilities
 COPY docker-entrypoint.sh /app/
+COPY runpod-entrypoint.sh /app/
 COPY scripts/index_codebase.py /app/scripts/
-RUN chmod +x /app/docker-entrypoint.sh
+RUN chmod +x /app/docker-entrypoint.sh /app/runpod-entrypoint.sh
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
