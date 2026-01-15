@@ -71,8 +71,9 @@ COPY runpod-entrypoint.sh /app/
 COPY scripts/index_codebase.py /app/scripts/
 RUN chmod +x /app/docker-entrypoint.sh /app/runpod-entrypoint.sh
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+# Health check - extended start period for model downloads
+HEALTHCHECK --interval=30s --timeout=10s --start-period=600s --retries=3 \
     CMD curl -f http://localhost:8080/health || exit 1
 
-ENTRYPOINT ["/app/docker-entrypoint.sh"]
+# Use runpod-entrypoint which downloads models then calls docker-entrypoint
+ENTRYPOINT ["/app/runpod-entrypoint.sh"]
