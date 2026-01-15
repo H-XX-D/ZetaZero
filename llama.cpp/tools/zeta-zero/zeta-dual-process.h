@@ -169,9 +169,22 @@ typedef struct {
     int64_t source_id;
     int64_t target_id;
     zeta_edge_type_t type;
-    zeta_edge_polarity_t polarity;  // Ternary: +1=corroborates, 0=unknown, -1=contradicts
-    float weight;              // Edge strength (0.0-1.0)
-    float confidence;          // Confidence in polarity (0.0-1.0)
+    zeta_edge_polarity_t polarity;  // LEGACY: Ternary: +1=corroborates, 0=unknown, -1=contradicts
+    float weight;              // LEGACY: Edge strength (0.0-1.0)
+    float confidence;          // LEGACY: Confidence in polarity (0.0-1.0)
+
+    // === CONTINUOUS TERNARY BELIEF (NEW) ===
+    // Single value: -1.0 to +1.0
+    //   +1.0 = strongly believe this relationship is true
+    //    0.0 = unknown / no information / neutral
+    //   -1.0 = strongly believe this relationship is false
+    // This replaces the separate polarity + weight + confidence fields
+    float belief;
+
+    // Activation tracking for decay
+    uint32_t last_activated;   // Unix timestamp of last traversal
+    uint16_t activation_count; // How often this edge was used
+
     int64_t created_at;
     int version;               // For versioning
 } zeta_graph_edge_t;
@@ -309,12 +322,60 @@ static inline float zeta_cosine_sim_early(const float* a, const float* b, int di
     return dot / (sqrtf(norm_a) * sqrtf(norm_b) + 1e-8f);
 }
 
+// Normalize labels for better deduplication
+static inline void zeta_normalize_label(const char* in, char* out, size_t out_sz) {
+    if (!in || !out || out_sz == 0) return;
+    size_t j = 0;
+    bool last_underscore = false;
+    for (size_t i = 0; in[i] && j + 1 < out_sz; i++) {
+        char c = in[i];
+        if (c >= 'A' && c <= 'Z') c = (char)(c - 'A' + 'a');
+        if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')) {
+            out[j++] = c;
+            last_underscore = false;
+        } else if (c == ' ' || c == '-' || c == '_') {
+            if (!last_underscore && j > 0) {
+                out[j++] = '_';
+                last_underscore = true;
+            }
+        }
+    }
+    if (j > 0 && out[j - 1] == '_') j--;  // trim trailing underscore
+    out[j] = '\0';
+}
+
 // Check if label is generic (needs semantic deduplication)
 static inline bool zeta_is_generic_label(const char* label) {
+    if (!label || !label[0]) return true;
     return strcmp(label, "raw_memory") == 0 ||
            strcmp(label, "memory") == 0 ||
            strcmp(label, "fact") == 0 ||
-           strcmp(label, "statement") == 0;
+           strcmp(label, "statement") == 0 ||
+           strcmp(label, "sport") == 0 ||
+           strcmp(label, "favorite_sport") == 0 ||
+           strcmp(label, "favorite_color") == 0 ||
+           strcmp(label, "weight") == 0 ||
+           strcmp(label, "distance_to_work") == 0 ||
+           strcmp(label, "distance_from_house") == 0 ||
+           strcmp(label, "airline") == 0 ||
+           strcmp(label, "keyboard_switch") == 0 ||
+           strcmp(label, "birth_year") == 0 ||
+           strcmp(label, "salary") == 0 ||
+           strcmp(label, "location") == 0 ||
+           strcmp(label, "workplace") == 0 ||
+           strcmp(label, "pet_name") == 0 ||
+           strcmp(label, "pet_type") == 0 ||
+           strcmp(label, "pet_status") == 0 ||
+           strcmp(label, "manager") == 0 ||
+           strcmp(label, "status_update_day") == 0 ||
+           strcmp(label, "status_update_frequency") == 0 ||
+           strcmp(label, "editor_preference") == 0 ||
+           strcmp(label, "bike_model") == 0 ||
+           strcmp(label, "vacation_request") == 0 ||
+           strcmp(label, "trick") == 0 ||
+           strcmp(label, "oauth_implementation") == 0 ||
+           strcmp(label, "authentication_module") == 0 ||
+           strcmp(label, "language") == 0;
 }
 
 // Git-style versioned node creation
@@ -331,6 +392,10 @@ static inline int64_t zeta_create_node_with_source(
     if (!ctx || ctx->num_nodes >= ZETA_MAX_GRAPH_NODES) return -1;
     if (!label || !value || strlen(value) == 0) return -1;
 
+    char label_norm[64] = {0};
+    zeta_normalize_label(label, label_norm, sizeof(label_norm));
+    if (label_norm[0] == '\0') snprintf(label_norm, sizeof(label_norm), "fact");
+
     // Pre-compute embedding for the new value (needed for semantic dedup)
     float new_embedding[2048];
     zeta_subconscious_embed(ctx, value, new_embedding, 2048);
@@ -339,13 +404,15 @@ static inline int64_t zeta_create_node_with_source(
     int64_t existing_id = -1;
     int existing_idx = -1;
     float best_similarity = 0.0f;
-    bool is_generic = zeta_is_generic_label(label);
+    bool is_generic = zeta_is_generic_label(label_norm);
 
     for (int i = 0; i < ctx->num_nodes; i++) {
         if (!ctx->nodes[i].is_active) continue;
 
         // Exact label match (always check)
-        if (strcmp(ctx->nodes[i].label, label) == 0) {
+        char existing_norm[64] = {0};
+        zeta_normalize_label(ctx->nodes[i].label, existing_norm, sizeof(existing_norm));
+        if (strcmp(existing_norm, label_norm) == 0) {
             // For non-generic labels, label match is enough
             if (!is_generic) {
                 existing_id = ctx->nodes[i].node_id;
@@ -370,6 +437,23 @@ static inline int64_t zeta_create_node_with_source(
                 fprintf(stderr, "[3B] Semantic match: %.2f sim with node %d '%s'\n",
                         sim, i, ctx->nodes[i].label);
             }
+        }
+    }
+
+    // For user facts, allow cross-label semantic deduplication to reduce graph bloat
+    if (existing_idx < 0 && source == SOURCE_USER) {
+        for (int i = 0; i < ctx->num_nodes; i++) {
+            if (!ctx->nodes[i].is_active) continue;
+            float sim = zeta_cosine_sim_early(new_embedding, ctx->nodes[i].embedding, 2048);
+            if (sim > best_similarity && sim > 0.90f) {
+                best_similarity = sim;
+                existing_id = ctx->nodes[i].node_id;
+                existing_idx = i;
+            }
+        }
+        if (existing_idx >= 0) {
+            fprintf(stderr, "[3B] Cross-label dedup: %.2f sim with node %lld '%s'\n",
+                    best_similarity, (long long)existing_id, ctx->nodes[existing_idx].label);
         }
     }
 
@@ -402,7 +486,7 @@ static inline int64_t zeta_create_node_with_source(
         zeta_graph_node_t* new_node = &ctx->nodes[ctx->num_nodes];
         new_node->node_id = ctx->next_node_id++;
         new_node->type = type;
-        strncpy(new_node->label, label, sizeof(new_node->label) - 1);
+        strncpy(new_node->label, label_norm, sizeof(new_node->label) - 1);
         strncpy(new_node->value, value, sizeof(new_node->value) - 1);
         new_node->salience = salience;
         new_node->momentum = 1.0f;
@@ -576,6 +660,12 @@ static inline int64_t zeta_create_edge(
     edge->polarity = POLARITY_CORROBORATES;  // Default: positive assertion
     edge->weight = weight;
     edge->confidence = weight;  // Use weight as initial confidence
+
+    // NEW: Set continuous belief (positive = corroborates, scaled by weight)
+    edge->belief = weight;  // Default: positive belief equal to weight
+    edge->last_activated = (uint32_t)time(NULL);
+    edge->activation_count = 1;
+
     edge->created_at = (int64_t)time(NULL);
     edge->version = 1;
 
@@ -583,7 +673,7 @@ static inline int64_t zeta_create_edge(
     return edge->edge_id;
 }
 
-// Create edge with explicit ternary polarity
+// Create edge with explicit ternary polarity (LEGACY - prefer zeta_create_edge_belief)
 static inline int64_t zeta_create_edge_ternary(
     zeta_dual_ctx_t* ctx,
     int64_t source_id,
@@ -602,11 +692,156 @@ static inline int64_t zeta_create_edge_ternary(
     edge->polarity = polarity;
     edge->weight = confidence;  // Weight = confidence for compatibility
     edge->confidence = confidence;
+
+    // NEW: Convert discrete polarity + confidence to continuous belief
+    edge->belief = (float)polarity * confidence;  // -1/0/+1 * confidence
+    edge->last_activated = (uint32_t)time(NULL);
+    edge->activation_count = 1;
+
     edge->created_at = (int64_t)time(NULL);
     edge->version = 1;
 
     ctx->num_edges++;
     return edge->edge_id;
+}
+
+// ============================================================================
+// CONTINUOUS TERNARY BELIEF EDGE (NEW PRIMARY API)
+// ============================================================================
+// belief: -1.0 to +1.0
+//   +1.0 = strongly believe relationship is true
+//    0.0 = unknown / neutral / no information
+//   -1.0 = strongly believe relationship is false
+//
+// This is the preferred way to create edges - single value captures everything.
+
+static inline int64_t zeta_create_edge_belief(
+    zeta_dual_ctx_t* ctx,
+    int64_t source_id,
+    int64_t target_id,
+    zeta_edge_type_t type,
+    float belief  // -1.0 to +1.0
+) {
+    if (!ctx || ctx->num_edges >= ZETA_MAX_EDGES) return -1;
+
+    // Clamp belief to valid range
+    if (belief > 1.0f) belief = 1.0f;
+    if (belief < -1.0f) belief = -1.0f;
+
+    // Limit edges per source (except structural edges)
+    if (type == EDGE_RELATED) {
+        int source_edges = zeta_count_source_edges(ctx, source_id);
+        if (source_edges >= ZETA_MAX_EDGES_PER_SOURCE) {
+            return -1;
+        }
+    }
+
+    zeta_graph_edge_t* edge = &ctx->edges[ctx->num_edges];
+    edge->edge_id = ctx->next_edge_id++;
+    edge->source_id = source_id;
+    edge->target_id = target_id;
+    edge->type = type;
+
+    // Set continuous belief as primary
+    edge->belief = belief;
+    edge->last_activated = (uint32_t)time(NULL);
+    edge->activation_count = 1;
+
+    // Set legacy fields for backwards compatibility
+    if (belief > 0.05f) {
+        edge->polarity = POLARITY_CORROBORATES;
+    } else if (belief < -0.05f) {
+        edge->polarity = POLARITY_CONTRADICTS;
+    } else {
+        edge->polarity = POLARITY_UNKNOWN;
+    }
+    edge->weight = fabsf(belief);
+    edge->confidence = fabsf(belief);
+
+    edge->created_at = (int64_t)time(NULL);
+    edge->version = 1;
+
+    ctx->num_edges++;
+    return edge->edge_id;
+}
+
+// Helper: Get belief polarity as integer (-1, 0, +1)
+static inline int zeta_belief_polarity(float belief) {
+    if (belief > 0.05f) return 1;
+    if (belief < -0.05f) return -1;
+    return 0;
+}
+
+// Helper: Get belief confidence (magnitude)
+static inline float zeta_belief_confidence(float belief) {
+    return fabsf(belief);
+}
+
+// Helper: Is this belief uncertain? (in neutral zone)
+static inline bool zeta_belief_is_uncertain(float belief) {
+    return fabsf(belief) < 0.3f;
+}
+
+// Helper: Combine two beliefs (weighted average with conflict handling)
+static inline float zeta_belief_combine(float a, float b) {
+    // If one is neutral, use the other
+    if (fabsf(a) < 0.05f) return b;
+    if (fabsf(b) < 0.05f) return a;
+
+    // Same direction: reinforce
+    if ((a > 0) == (b > 0)) {
+        float wa = fabsf(a);
+        float wb = fabsf(b);
+        return (a * wa + b * wb) / (wa + wb);
+    }
+
+    // Opposite directions: conflict
+    float diff = a + b;
+    float penalty = 0.3f * fminf(fabsf(a), fabsf(b));
+    if (fabsf(diff) < penalty) return 0.0f;  // Uncertain
+    return diff > 0 ? fmaxf(0.0f, diff - penalty) : fminf(0.0f, diff + penalty);
+}
+
+// Helper: Decay belief toward neutral over time
+static inline float zeta_belief_decay(float belief, float days_elapsed, float half_life) {
+    if (half_life <= 0.0f) return belief;
+    float decay = powf(0.5f, days_elapsed / half_life);
+    return belief * decay;
+}
+
+// Update edge belief with new evidence
+static inline void zeta_edge_update_belief(
+    zeta_graph_edge_t* edge,
+    float new_evidence,
+    float learning_rate
+) {
+    if (!edge) return;
+    if (learning_rate < 0.0f) learning_rate = 0.0f;
+    if (learning_rate > 1.0f) learning_rate = 1.0f;
+
+    edge->belief = edge->belief * (1.0f - learning_rate) + new_evidence * learning_rate;
+
+    // Clamp
+    if (edge->belief > 1.0f) edge->belief = 1.0f;
+    if (edge->belief < -1.0f) edge->belief = -1.0f;
+
+    // Update legacy fields
+    if (edge->belief > 0.05f) {
+        edge->polarity = POLARITY_CORROBORATES;
+    } else if (edge->belief < -0.05f) {
+        edge->polarity = POLARITY_CONTRADICTS;
+    } else {
+        edge->polarity = POLARITY_UNKNOWN;
+    }
+    edge->weight = fabsf(edge->belief);
+    edge->confidence = fabsf(edge->belief);
+}
+
+// Activate edge (call when traversed)
+static inline void zeta_edge_activate(zeta_graph_edge_t* edge) {
+    if (!edge) return;
+    edge->last_activated = (uint32_t)time(NULL);
+    if (edge->activation_count < 65535) edge->activation_count++;
 }
 
 // CONSENSUS: Merge two edges with ternary logic
@@ -686,7 +921,7 @@ static inline int zeta_find_edge(
     return -1;
 }
 
-// Create edge only if it doesn't already exist, otherwise update weight
+// Create edge only if it doesn't already exist, otherwise combine beliefs
 static inline int64_t zeta_create_edge_dedup(
     zeta_dual_ctx_t* ctx,
     int64_t source_id,
@@ -699,12 +934,23 @@ static inline int64_t zeta_create_edge_dedup(
     // Check for existing edge
     int existing = zeta_find_edge(ctx, source_id, target_id, type);
     if (existing >= 0) {
-        // Reinforce existing edge (weighted average, cap at 1.0)
-        float new_weight = ctx->edges[existing].weight * 0.7f + weight * 0.3f;
+        zeta_graph_edge_t* edge = &ctx->edges[existing];
+
+        // CONTINUOUS TERNARY: Combine beliefs using weighted averaging with conflict detection
+        float new_belief = weight;  // New evidence as belief
+        edge->belief = zeta_belief_combine(edge->belief, new_belief);
+
+        // Also update legacy weight field for compatibility
+        float new_weight = edge->weight * 0.7f + weight * 0.3f;
         if (new_weight > 1.0f) new_weight = 1.0f;
-        ctx->edges[existing].weight = new_weight;
-        ctx->edges[existing].version++;
-        return ctx->edges[existing].edge_id;
+        edge->weight = new_weight;
+
+        // Track activation
+        edge->activation_count++;
+        edge->last_activated = (uint32_t)time(NULL);
+        edge->version++;
+
+        return edge->edge_id;
     }
 
     // Create new edge
@@ -1379,6 +1625,23 @@ static inline int zeta_subconscious_extract_facts(
     for (size_t i = 0; i < tlen; i++) lower_text[i] = tolower(text[i]);
     lower_text[tlen] = '\0';
 
+    // Skip extraction for summary requests (reduces hallucinated facts)
+    if (from_user && (strstr(lower_text, "summarize") != NULL ||
+                      strstr(lower_text, "summary") != NULL ||
+                      strstr(lower_text, "everything you know about me") != NULL)) {
+        fprintf(stderr, "[EXTRACT] Skipped summary request to avoid new nodes\n");
+        return facts_created;
+    }
+
+    // Skip extraction for pure questions (avoid storing non-facts)
+    if (from_user) {
+        size_t len = strlen(text);
+        if (len > 0 && text[len - 1] == '?') {
+            fprintf(stderr, "[EXTRACT] Skipped question prompt (no facts)\n");
+            return facts_created;
+        }
+    }
+
     // Helper lambda to find LAST occurrence
     auto find_last = [](const char* haystack, const char* needle) -> const char* {
         const char* last = NULL;
@@ -1488,11 +1751,45 @@ static inline int zeta_subconscious_extract_facts(
                 final_label += ":" + theme_tag;
             }
 
+            // === ONTOLOGY CHECK: Authority-based fact validation ===
+            zeta_domain_result_t domain_result = zeta_classify_fact_domain(clean_norm.c_str(), from_user);
+
+            if (domain_result.should_block) {
+                // SYSTEM domain claim from user - BLOCK (prevents privilege escalation)
+                fprintf(stderr, "[ONTOLOGY] BLOCKED: User claimed SYSTEM domain: '%s' -> %.60s...\n",
+                        domain_result.matched_pattern ? domain_result.matched_pattern : "unknown",
+                        clean_norm.c_str());
+                return facts_created;
+            }
+
+            // === BELIEF CAPPING: Adjust salience based on domain + authority ===
+            float max_salience = 1.0f;
+            if (domain_result.domain == FACT_DOMAIN_PERSONAL && !from_user) {
+                // LLM trying to assert personal facts about user - CAP at 0.40
+                max_salience = 0.40f;
+                fprintf(stderr, "[ONTOLOGY] LLM-inferred PERSONAL fact: capping salience 0.40\n");
+            } else if (domain_result.domain == FACT_DOMAIN_WORLD) {
+                // External claims need verification - CAP at 0.70
+                max_salience = 0.70f;
+            } else if (domain_result.domain == FACT_DOMAIN_PERSONAL && from_user) {
+                // User is authoritative about their own facts - FULL confidence
+                max_salience = 0.95f;
+            }
+
+            if (salience > max_salience) {
+                fprintf(stderr, "[ONTOLOGY] Capped salience: %.2f -> %.2f (domain=%s)\n",
+                        salience, max_salience, zeta_fact_domain_to_string(domain_result.domain));
+                salience = max_salience;
+            }
+
             // Use dedup commit - touches existing if duplicate, creates new otherwise
             int64_t result = zeta_commit_dedup(ctx, node_type, final_label.c_str(), clean_norm, salience, source);
             if (result >= 0) {
                 facts_created++;
-                fprintf(stderr, "[REMEMBER] [%s] (sal=%.2f) %.60s...\n", final_label.c_str(), salience, clean_norm.c_str());
+                fprintf(stderr, "[REMEMBER] [%s] (sal=%.2f, domain=%s) %.60s...\n",
+                        final_label.c_str(), salience,
+                        zeta_fact_domain_to_string(domain_result.domain),
+                        clean_norm.c_str());
             } else {
                 fprintf(stderr, "[REMEMBER] BLOCKED: %.60s...\n", clean_norm.c_str());
             }
@@ -1689,6 +1986,10 @@ static inline int zeta_subconscious_extract_facts(
                         while (vlen > 0 && value[vlen-1] == ' ') value[--vlen] = 0;
 
                         if (vlen > 0) {
+                            char type_norm[64] = {0};
+                            zeta_normalize_label(type, type_norm, sizeof(type_norm));
+                            if (type_norm[0] == '\0') snprintf(type_norm, sizeof(type_norm), "fact");
+
                             float sal = (strstr(type,"user") ? 1.0f :
                                         strstr(type,"project") ? 0.9f : 0.85f);
                             zeta_node_type_t nt = (strstr(type,"user") || strstr(type,"project"))
@@ -1696,7 +1997,7 @@ static inline int zeta_subconscious_extract_facts(
 
                             // VERSION CHAIN: Handle location| facts with concept_key
                             char concept_key[64] = {0};
-                            if (strncmp(type, "location", 8) == 0) {
+                            if (strncmp(type_norm, "location", 8) == 0) {
                                 // Format: location|concept:module -> concept_key = concept
                                 char* colon = strchr(value, ':');
                                 if (colon) {
@@ -1708,7 +2009,7 @@ static inline int zeta_subconscious_extract_facts(
                                 }
                             }
                             // For func_spec, func_rule - use name as concept_key
-                            else if (strncmp(type, "func_", 5) == 0) {
+                            else if (strncmp(type_norm, "func_", 5) == 0) {
                                 char* pipe = strchr(value, '|');
                                 if (pipe) {
                                     size_t klen = pipe - value;
@@ -1739,7 +2040,9 @@ static inline int zeta_subconscious_extract_facts(
                                         (long long)superseded_count, concept_key);
                             }
 
-                            int64_t new_id = zeta_commit_fact(ctx, nt, type, value, sal, SOURCE_MODEL);
+                            std::string clean_value_norm = zeta_norm(value);
+                            zeta_source_t src = from_user ? SOURCE_USER : SOURCE_MODEL;
+                            int64_t new_id = zeta_commit_dedup(ctx, nt, type_norm, clean_value_norm, sal, src);
 
                             // Set concept_key on new node
                             if (concept_key[0] && new_id > 0) {

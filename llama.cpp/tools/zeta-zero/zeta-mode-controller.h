@@ -106,6 +106,16 @@ struct ModePolicy {
     bool use_trm_context;
     bool use_hrm_decomposition;
 
+    // === DELIBERATION (grounded generation) ===
+    bool use_deliberation;          // Enable 6-phase verification pipeline
+    float deliberation_confidence;  // Min confidence for claims (default 0.8)
+
+    // === STORY COHERENCE (narrative consistency for CREATIVE mode) ===
+    bool use_story_coherence;       // Enable character/plot/location tracking
+    bool story_extract_on_plan;     // Extract elements during planning phase
+    bool story_surface_on_generate; // Surface facts before each generation chunk
+    bool story_check_on_output;     // Check for contradictions post-generation
+
     // === VALIDATORS (which must pass for commits) ===
     ValidatorProfile validators;
 };
@@ -174,6 +184,12 @@ inline ModePolicy get_policy(Mode m) {
             p.persist_to_gitgraph = true;
             p.use_trm_context = true;
             p.use_hrm_decomposition = true;
+            p.use_deliberation = false;  // Fast responses in CHAT
+            p.deliberation_confidence = 0.7f;
+            p.use_story_coherence = false;  // Not narrative
+            p.story_extract_on_plan = false;
+            p.story_surface_on_generate = false;
+            p.story_check_on_output = false;
 
             p.validators = ValidatorProfile{};
             p.validators.require_facts_validator = true;
@@ -238,6 +254,13 @@ inline ModePolicy get_policy(Mode m) {
             p.persist_to_gitgraph = false;
             p.use_trm_context = false;
             p.use_hrm_decomposition = false;
+            p.use_deliberation = false;  // Free association, no verification
+            p.deliberation_confidence = 0.0f;
+            // STORY COHERENCE: Track characters, locations, plot for consistency
+            p.use_story_coherence = true;
+            p.story_extract_on_plan = true;   // Extract during planning phase
+            p.story_surface_on_generate = true; // Surface [STORY FACTS] before generation
+            p.story_check_on_output = true;   // Check for name drift post-generation
 
             p.validators = ValidatorProfile{};
             p.validators.require_style_check = true;
@@ -307,6 +330,12 @@ inline ModePolicy get_policy(Mode m) {
             p.persist_to_gitgraph = true;
             p.use_trm_context = true;
             p.use_hrm_decomposition = false;  // Research has its own decomposition
+            p.use_deliberation = true;   // GROUNDED GENERATION: verify claims against graph
+            p.deliberation_confidence = 0.80f;  // High bar for claims
+            p.use_story_coherence = false;  // Not narrative
+            p.story_extract_on_plan = false;
+            p.story_surface_on_generate = false;
+            p.story_check_on_output = false;
 
             p.validators = ValidatorProfile{};
             p.validators.require_facts_validator = true;
@@ -378,6 +407,12 @@ inline ModePolicy get_policy(Mode m) {
             p.persist_to_gitgraph = true;
             p.use_trm_context = true;
             p.use_hrm_decomposition = true;
+            p.use_deliberation = false;  // Exploration mode - less strict
+            p.deliberation_confidence = 0.7f;
+            p.use_story_coherence = false;  // Not narrative
+            p.story_extract_on_plan = false;
+            p.story_surface_on_generate = false;
+            p.story_check_on_output = false;
 
             p.validators = ValidatorProfile{};
             p.validators.require_facts_validator = true;
@@ -445,6 +480,12 @@ inline ModePolicy get_policy(Mode m) {
             p.persist_to_gitgraph = true;
             p.use_trm_context = true;
             p.use_hrm_decomposition = false;
+            p.use_deliberation = false;  // Code generation - compile check is the validator
+            p.deliberation_confidence = 0.8f;
+            p.use_story_coherence = false;  // Not narrative
+            p.story_extract_on_plan = false;
+            p.story_surface_on_generate = false;
+            p.story_check_on_output = false;
 
             p.validators = ValidatorProfile{};
             p.validators.require_compile_check = true;
@@ -512,6 +553,12 @@ inline ModePolicy get_policy(Mode m) {
             p.persist_to_gitgraph = true;  // Persist dreams for review
             p.use_trm_context = true;  // Replay memories
             p.use_hrm_decomposition = false;
+            p.use_deliberation = false;  // Free association - no verification
+            p.deliberation_confidence = 0.0f;
+            p.use_story_coherence = false;  // Free association, no story constraints
+            p.story_extract_on_plan = false;
+            p.story_surface_on_generate = false;
+            p.story_check_on_output = false;
 
             p.validators = ValidatorProfile{};
             p.validators.require_lucid_gate = true;
@@ -964,6 +1011,9 @@ public:
         }
         return serialize_session();
     }
+
+    bool session_active() const { return session_.active; }
+    const std::string& session_id() const { return session_.session_id; }
 
     // Access engine directly (for advanced use)
     BranchingEngine& engine() { return session_.engine; }

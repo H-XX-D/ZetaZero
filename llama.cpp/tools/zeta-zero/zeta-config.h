@@ -35,6 +35,7 @@ struct zeta_config_t {
     std::string host;
     int port;
     int gpu_layers;
+    int embed_gpu_layers;  // GPU layers for embedding model (0 = CPU, 99 = all on GPU)
     int ctx_14b;
     int ctx_7b;
     int ctx_embed;
@@ -123,6 +124,7 @@ static zeta_config_t g_config = {
     "0.0.0.0",      // host
     8080,           // port
     999,            // gpu_layers
+    99,             // embed_gpu_layers (default: all on GPU)
     4096,           // ctx_14b
     2048,           // ctx_7b (reduced from 8192 to fit extraction context in VRAM)
     512,            // ctx_embed
@@ -278,6 +280,7 @@ static inline bool zeta_load_config() {
     if (config.count("ZETA_HOST")) g_config.host = config["ZETA_HOST"];
     if (config.count("ZETA_PORT")) g_config.port = atoi(config["ZETA_PORT"].c_str());
     if (config.count("GPU_LAYERS")) g_config.gpu_layers = atoi(config["GPU_LAYERS"].c_str());
+    if (config.count("EMBED_GPU_LAYERS")) g_config.embed_gpu_layers = atoi(config["EMBED_GPU_LAYERS"].c_str());
     if (config.count("CTX_14B")) g_config.ctx_14b = atoi(config["CTX_14B"].c_str());
     if (config.count("CTX_7B")) {
         g_config.ctx_7b = atoi(config["CTX_7B"].c_str());

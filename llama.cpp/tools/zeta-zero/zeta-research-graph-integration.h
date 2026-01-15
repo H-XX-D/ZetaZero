@@ -17,7 +17,11 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
+#include <fstream>
+#include <filesystem>
+#include <system_error>
 #include "zeta-research.h"
+#include "zeta-branching-engine.h"
 // Forward declarations for existing headers
 // #include "zeta-gitgraph-persist.h"
 // #include "zeta-graph-kv-integration.h"
@@ -100,6 +104,41 @@ inline ResearchNode branch_to_node(
     return node;
 }
 
+// BranchingEngine branch -> ResearchNode (for RESEARCH mode wiring)
+inline ResearchNode branch_to_node(
+    const zeta_branching::Branch& branch,
+    const std::string& session_id,
+    const std::string& parent_id = ""
+) {
+    ResearchNode node;
+
+    node.node_id = "research_" + session_id + "_" + branch.id;
+    node.branch_id = branch.id;
+
+    std::string content;
+    if (!branch.summary.empty()) {
+        content = branch.summary;
+    } else {
+        for (const auto& c : branch.concepts) {
+            content += c + "\n---\n";
+        }
+    }
+
+    size_t h = 0;
+    for (char ch : content) h = h * 31 + ch;
+    char hash_buf[32];
+    snprintf(hash_buf, sizeof(hash_buf), "%016zx", h);
+    node.block_hash = hash_buf;
+
+    node.topic = content.empty() ? "" : content.substr(0, 100);
+    node.entropy = branch.entropy;
+    node.concept_count = branch.concepts.size();
+    node.is_summary = !branch.summary.empty();
+    node.parent_node_id = parent_id.empty() ? "" : ("research_" + session_id + "_" + parent_id);
+
+    return node;
+}
+
 // ============================================================================
 // RESEARCH → GITGRAPH EDGE MAPPING
 // ============================================================================
@@ -140,6 +179,33 @@ inline ResearchEdge tension_to_edge(
     }
     edge.metadata_json += "}";
     
+    return edge;
+}
+
+// BranchingEngine tension -> ResearchEdge (for RESEARCH mode wiring)
+inline ResearchEdge tension_to_edge(
+    const zeta_branching::Tension& tension,
+    const std::string& session_id,
+    const std::string& node_a_id,
+    const std::string& node_b_id
+) {
+    ResearchEdge edge;
+
+    edge.edge_id = "edge_" + tension.id;
+    edge.from_node_id = node_a_id;
+    edge.to_node_id = node_b_id;
+    edge.edge_type = tension.resolved ? "resolved_tension" : "active_tension";
+    edge.weight = tension.severity;
+
+    edge.metadata_json = "{";
+    edge.metadata_json += "\"description\": \"" + escape_json(tension.description.substr(0, 500)) + "\", ";
+    edge.metadata_json += "\"severity\": " + std::to_string(tension.severity) + ", ";
+    edge.metadata_json += "\"resolved\": " + std::string(tension.resolved ? "true" : "false");
+    if (tension.resolved && !tension.resolution.empty()) {
+        edge.metadata_json += ", \"resolution\": \"" + escape_json(tension.resolution.substr(0, 200)) + "\"";
+    }
+    edge.metadata_json += "}";
+
     return edge;
 }
 
@@ -246,6 +312,12 @@ public:
         branch_to_node_map_[branch.id] = node.node_id;
         pending_nodes_.push_back(node);
     }
+
+    void persist_branch(const zeta_branching::Branch& branch) {
+        ResearchNode node = branch_to_node(branch, session_id_, branch.parent_id);
+        branch_to_node_map_[branch.id] = node.node_id;
+        pending_nodes_.push_back(node);
+    }
     
     void persist_tension(const zeta_research::Tension& tension) {
         // Get node IDs for the branches involved
@@ -257,6 +329,18 @@ public:
             return;
         }
         
+        ResearchEdge edge = tension_to_edge(tension, session_id_, it_a->second, it_b->second);
+        pending_edges_.push_back(edge);
+    }
+
+    void persist_tension(const zeta_branching::Tension& tension) {
+        auto it_a = branch_to_node_map_.find(tension.branch_a);
+        auto it_b = branch_to_node_map_.find(tension.branch_b);
+
+        if (it_a == branch_to_node_map_.end() || it_b == branch_to_node_map_.end()) {
+            return;
+        }
+
         ResearchEdge edge = tension_to_edge(tension, session_id_, it_a->second, it_b->second);
         pending_edges_.push_back(edge);
     }
@@ -281,7 +365,12 @@ private:
         if (pending_nodes_.empty()) return;
         
         std::string nodes_dir = gitgraph_root_ + "/" + g_config.research_subdir + "/nodes";
-        // TODO: Create directory if needed
+        std::error_code ec;
+        std::filesystem::create_directories(nodes_dir, ec);
+        if (ec) {
+            fprintf(stderr, "[RESEARCH-GRAPH] Failed to create nodes dir: %s (%s)\n",
+                    nodes_dir.c_str(), ec.message().c_str());
+        }
         
         for (const auto& node : pending_nodes_) {
             std::string node_file = nodes_dir + "/" + node.node_id + ".json";
@@ -297,9 +386,13 @@ private:
             json += "  \"parent_node_id\": \"" + node.parent_node_id + "\"\n";
             json += "}\n";
             
-            // TODO: Actually write to file
-            // std::ofstream f(node_file);
-            // f << json;
+            std::ofstream f(node_file, std::ios::binary);
+            if (f.is_open()) {
+                f << json;
+                f.close();
+            } else {
+                fprintf(stderr, "[RESEARCH-GRAPH] Failed to write node: %s\n", node_file.c_str());
+            }
             
             fprintf(stderr, "[RESEARCH-GRAPH] Node: %s -> %s\n", 
                     node.branch_id.c_str(), node.node_id.c_str());
@@ -312,6 +405,12 @@ private:
         if (pending_edges_.empty()) return;
         
         std::string edges_dir = gitgraph_root_ + "/" + g_config.research_subdir + "/edges";
+        std::error_code ec;
+        std::filesystem::create_directories(edges_dir, ec);
+        if (ec) {
+            fprintf(stderr, "[RESEARCH-GRAPH] Failed to create edges dir: %s (%s)\n",
+                    edges_dir.c_str(), ec.message().c_str());
+        }
         
         for (const auto& edge : pending_edges_) {
             std::string edge_file = edges_dir + "/" + edge.edge_id + ".json";
@@ -325,7 +424,13 @@ private:
             json += "  \"metadata\": " + edge.metadata_json + "\n";
             json += "}\n";
             
-            // TODO: Actually write to file
+            std::ofstream f(edge_file, std::ios::binary);
+            if (f.is_open()) {
+                f << json;
+                f.close();
+            } else {
+                fprintf(stderr, "[RESEARCH-GRAPH] Failed to write edge: %s\n", edge_file.c_str());
+            }
             
             fprintf(stderr, "[RESEARCH-GRAPH] Edge: %s [%s] %s (%.2f)\n",
                     edge.from_node_id.c_str(), edge.edge_type.c_str(),
@@ -339,6 +444,12 @@ private:
         if (pending_kv_segments_.empty()) return;
         
         std::string kv_dir = g_config.graphkv_root + "/research";
+        std::error_code ec;
+        std::filesystem::create_directories(kv_dir, ec);
+        if (ec) {
+            fprintf(stderr, "[RESEARCH-GKV] Failed to create kv dir: %s (%s)\n",
+                    kv_dir.c_str(), ec.message().c_str());
+        }
         
         for (const auto& seg : pending_kv_segments_) {
             std::string kv_file = kv_dir + "/" + seg.segment_id + ".lkv";
@@ -450,6 +561,18 @@ inline void persist_research_state(const zeta_research::ResearchState& state) {
     }
     
     // Flush to storage
+    g_research_bridge.flush();
+}
+
+inline void persist_branching_state(const zeta_branching::BranchingEngine& engine) {
+    for (const auto& branch : engine.branches()) {
+        g_research_bridge.persist_branch(branch);
+    }
+
+    for (const auto& tension : engine.tensions()) {
+        g_research_bridge.persist_tension(tension);
+    }
+
     g_research_bridge.flush();
 }
 

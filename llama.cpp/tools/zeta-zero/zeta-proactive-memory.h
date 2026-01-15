@@ -194,6 +194,9 @@ static float proactive_get_edge_weight(int64_t from, int64_t to, void* ctx) {
     zeta_dual_ctx_t* dual = (zeta_dual_ctx_t*)ctx;
     for (int i = 0; i < dual->num_edges; i++) {
         if (dual->edges[i].source_id == from && dual->edges[i].target_id == to) {
+            // CONTINUOUS TERNARY: Activate edge on access
+            dual->edges[i].activation_count++;
+            dual->edges[i].last_activated = (uint32_t)time(NULL);
             return dual->edges[i].weight;
         }
     }
@@ -206,6 +209,10 @@ static int proactive_get_neighbors(int64_t node_id, int64_t* neighbors,
     int count = 0;
     for (int i = 0; i < dual->num_edges && count < max_neighbors; i++) {
         if (dual->edges[i].source_id == node_id) {
+            // CONTINUOUS TERNARY: Activate edge on neighbor traversal
+            dual->edges[i].activation_count++;
+            dual->edges[i].last_activated = (uint32_t)time(NULL);
+
             neighbors[count] = dual->edges[i].target_id;
             weights[count] = dual->edges[i].weight;
             count++;

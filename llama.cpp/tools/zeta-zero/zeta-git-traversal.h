@@ -324,6 +324,10 @@ static inline zeta_surface_result_t zeta_git_surface(
         for (int e = 0; e < git->graph->num_edges && hop_count < max_hops; e++) {
             zeta_graph_edge_t* edge = &git->graph->edges[e];
             if (edge->source_id == node_id || edge->target_id == node_id) {
+                // CONTINUOUS TERNARY: Activate edge on traversal
+                edge->activation_count++;
+                edge->last_activated = (uint32_t)time(NULL);
+
                 int64_t related = (edge->source_id == node_id) ? edge->target_id : edge->source_id;
 
                 // Don't include if already in primary

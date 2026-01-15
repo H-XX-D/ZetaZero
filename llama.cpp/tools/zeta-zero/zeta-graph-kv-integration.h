@@ -308,39 +308,20 @@ static inline int zeta_gkv_lazy_capture(
         if (n_tokens <= 0 || n_tokens >= 512) continue;
         tokens.resize(n_tokens);
 
-        // Clear KV and decode to fill it
-        llama_memory_t mem = llama_get_memory(llama_ctx);
-        llama_memory_clear(mem, false);
-
-        llama_batch batch = llama_batch_init(n_tokens, 0, 1);
-        for (int t = 0; t < n_tokens; t++) {
-            batch.token[t] = tokens[t];
-            batch.pos[t] = t;
-            batch.n_seq_id[t] = 1;
-            batch.seq_id[t][0] = 0;
-            batch.logits[t] = (t == n_tokens - 1);
-        }
-        batch.n_tokens = n_tokens;
-
-        if (llama_decode(llama_ctx, batch) == 0) {
-            // Capture KV using V2 native API (llama_state_seq_save_file)
-            int cap_result = zeta_gkv_capture_v2(
-                g_gkv_ctx, llama_ctx, 0, node_id, tokens.data(), n_tokens
-            );
-            if (cap_result > 0) {
-                captured++;
-                fprintf(stderr, "[LAZY-KV-v2] Captured %d tokens for node %lld (%s)\n",
-                        n_tokens, (long long)node_id, node->label);
-            }
-        }
-        llama_batch_free(batch);
+        // DISABLED: Inline capture clears entire main KV cache (4096 tokens)
+        // causing ~4MB disk I/O and forcing next request to rebuild from scratch
+        // This creates 0.5+ second overhead per request
+        //
+        // KV capture will happen:
+        // 1. In dedicated capture context (future improvement)
+        // 2. During idle time in background thread
+        // 3. On actual cache miss when node is needed
+        //
+        // For now: skip capture to keep requests fast
+        continue;
     }
 
-    // No flush needed for v2 - already saved to disk
-    if (captured > 0) {
-        fprintf(stderr, "[LAZY-KV-v2] Saved %d new native KV states to disk\n", captured);
-    }
-
+    // Return count (currently always 0 since captures are disabled)
     return captured;
 }
 
