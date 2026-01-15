@@ -267,6 +267,64 @@ static std::string g_research_graph_session_id;
 // Deliberation engine toggle (off by default)
 static bool g_deliberation_enabled = false;
 
+// Fast-path optimization for simple queries (enabled by default)
+// Skips 3B extraction, embedding, and proactive prefetch for short/trivial queries
+static bool g_fast_path_enabled = true;
+static int g_fast_path_token_threshold = 25;  // Queries under this token count use fast path
+
+// Detect if a query is "simple" and can skip heavy graph operations
+// Simple queries: short, no remember: commands, no complex instructions
+static inline bool zeta_is_simple_query(const std::string& prompt, int token_count = -1) {
+    if (!g_fast_path_enabled) return false;
+
+    // Check token count if provided (more accurate than char count)
+    if (token_count > 0 && token_count > g_fast_path_token_threshold) return false;
+
+    // Fallback to char-based heuristic if token count not available
+    // ~4 chars per token approximation
+    if (token_count < 0 && prompt.size() > (size_t)(g_fast_path_token_threshold * 4)) return false;
+
+    // Build lowercase copy for searching
+    std::string lower;
+    lower.reserve(prompt.size());
+    for (char c : prompt) lower.push_back((char)tolower((unsigned char)c));
+
+    // NEVER fast-path if user wants to store something
+    if (lower.find("remember:") != std::string::npos ||
+        lower.find("remember this:") != std::string::npos ||
+        lower.find("my name is") != std::string::npos ||
+        lower.find("i am ") != std::string::npos ||
+        lower.find("i'm ") != std::string::npos) {
+        return false;
+    }
+
+    // NEVER fast-path complex instructions
+    const char* complex_patterns[] = {
+        "analyze", "research", "investigate", "compare", "contrast",
+        "summarize everything", "what do you know about me",
+        "implement", "write code", "create a", "build a",
+        "based on our", "from our conversation", "earlier you said"
+    };
+    for (const char* p : complex_patterns) {
+        if (lower.find(p) != std::string::npos) return false;
+    }
+
+    // Simple questions/greetings qualify for fast path
+    const char* simple_patterns[] = {
+        "hello", "hi", "hey", "thanks", "thank you", "ok", "okay",
+        "yes", "no", "sure", "got it", "understood"
+    };
+    for (const char* p : simple_patterns) {
+        if (lower == p || lower.find(p) == 0) {
+            return true;  // Definitely simple
+        }
+    }
+
+    // Short factual questions without memory context can use fast path
+    // These don't need graph retrieval - model can answer directly
+    return prompt.size() < 80;  // Very short queries
+}
+
 // Research budget helpers (conservative, stub-safe)
 static inline bool zeta_research_budget_allows() {
     if (!g_research_mode_enabled) return false;
@@ -3083,6 +3141,12 @@ static std::string generate(const std::string& prompt, int max_tokens) {
     std::string deliberation_overlay;
     std::string branching_overlay;
 
+    // FAST PATH DETECTION: Check if query is simple enough to skip heavy operations
+    bool use_fast_path = zeta_is_simple_query(prompt);
+    if (use_fast_path) {
+        fprintf(stderr, "[FAST-PATH] Simple query detected - skipping 3B/embedding/prefetch\n");
+    }
+
     fprintf(stderr, "[GENERATE] Received prompt (len=%zu): %.60s...\n", prompt.size(), prompt.c_str());
 
     // MODE CONTROLLER: Decide effective mode and apply sampling policy.
@@ -3134,6 +3198,9 @@ static std::string generate(const std::string& prompt, int max_tokens) {
     std::string story_overlay;
     {
         auto policy = zeta_modes::get_policy(zeta_modes::g_mode_controller.current_mode());
+        fprintf(stderr, "[STORY-DEBUG] Mode=%d use_story=%d surface=%d\n",
+                (int)zeta_modes::g_mode_controller.current_mode(),
+                policy.use_story_coherence, policy.story_surface_on_generate);
         if (policy.use_story_coherence && policy.story_surface_on_generate) {
             // Initialize story context if needed
             if (!g_story_ctx && g_git) {
@@ -3289,8 +3356,8 @@ static std::string generate(const std::string& prompt, int max_tokens) {
         }
     }
 
-    // === PUSH INPUT TO 3B QUEUE (non-blocking, unless blocked) ===
-    if (!block_memory_write) {
+    // === PUSH INPUT TO 3B QUEUE (non-blocking, unless blocked or fast-path) ===
+    if (!block_memory_write && !use_fast_path) {
         // Check if password-authorized update - use higher salience
         float push_salience = 0.5f;
         if (zeta_has_override_password(prompt.c_str())) {
@@ -3298,6 +3365,8 @@ static std::string generate(const std::string& prompt, int max_tokens) {
             fprintf(stderr, "[AUTH] Password-authorized update - boosting salience to %.2f\n", push_salience);
         }
         zeta_cyclic_push(prompt.c_str(), true, push_salience);
+    } else if (use_fast_path) {
+        fprintf(stderr, "[FAST-PATH] Skipping 3B extraction for simple query\n");
     } else {
         fprintf(stderr, "[MEMORY_PROTECT] Skipping 3B extraction - fact contradiction without password\n");
         // Apply conflict discount to any false claims that slipped through
@@ -3310,21 +3379,28 @@ static std::string generate(const std::string& prompt, int max_tokens) {
     // Reset per-query streaming state (preserves conversation history)
     zeta_stream_reset(&g_stream_state);
 
-    // Pre-embed query ONCE before surfacing loop (avoids repeated embedding)
-    if (!g_stream_state.has_query_embedding && g_embed_ctx && g_embed_ctx->initialized) {
-        int dim = zeta_embed_text(prompt.c_str(), g_stream_state.query_embedding, 3072);
-        if (dim > 0) {
-            g_stream_state.has_query_embedding = true;
-            g_stream_state.query_embedding_dim = dim;
-            fprintf(stderr, "[STREAM] Query pre-embedded: %d dims\n", dim);
-            g_speed_receipt.mark_embed();  // Speed Receipt: CPU embed complete
-        }
-    }
-
     char stream_context[2048];
     stream_context[0] = '\0';
 
-    if (g_dual) {
+    // FAST PATH: Skip embedding and prefetch for simple queries
+    if (use_fast_path) {
+        fprintf(stderr, "[FAST-PATH] Skipping embedding and memory prefetch\n");
+        // Jump directly to generation without graph operations
+    } else {
+        // Pre-embed query ONCE before surfacing loop (avoids repeated embedding)
+        if (!g_stream_state.has_query_embedding && g_embed_ctx && g_embed_ctx->initialized) {
+            int dim = zeta_embed_text(prompt.c_str(), g_stream_state.query_embedding, 3072);
+            if (dim > 0) {
+                g_stream_state.has_query_embedding = true;
+                g_stream_state.query_embedding_dim = dim;
+                fprintf(stderr, "[STREAM] Query pre-embedded: %d dims\n", dim);
+                g_speed_receipt.mark_embed();  // Speed Receipt: CPU embed complete
+            }
+        }
+    }
+
+    // FAST PATH: Skip memory prefetch for simple queries
+    if (g_dual && !use_fast_path) {
         // PROACTIVE PREFETCH: Use momentum-driven tunneling to pre-fetch nodes
         // This happens BEFORE 14B generation, using initial momentum estimate
         float initial_momentum = 0.5f;  // Start with neutral momentum
@@ -3424,6 +3500,10 @@ static std::string generate(const std::string& prompt, int max_tokens) {
         augmented_prompt += "[STORY CONTEXT]\n";
         augmented_prompt += story_overlay;
         augmented_prompt += "\n[/STORY CONTEXT]\n";
+        fprintf(stderr, "[STORY] Injected %zu chars of story context\n", story_overlay.size());
+    } else if (!story_overlay.empty()) {
+        fprintf(stderr, "[STORY] SKIPPED injection: overlay=%zu, prompt=%zu, max=%d\n",
+                story_overlay.size(), augmented_prompt.size(), max_context_chars);
     }
     if (!branching_overlay.empty() && augmented_prompt.size() + branching_overlay.size() < (size_t)max_context_chars) {
         augmented_prompt += branching_overlay;
@@ -3465,8 +3545,9 @@ static std::string generate(const std::string& prompt, int max_tokens) {
 
     // === GRAPH-KV INJECTION: Inject cached KV states for retrieved nodes ===
     // This skips prefill computation for concepts we've seen before
+    // FAST PATH: Skip GKV for simple queries (no memory retrieval needed)
     int gkv_injected = 0;
-    if (g_gkv_ctx && g_stream_state.num_active > 0) {
+    if (!use_fast_path && g_gkv_ctx && g_stream_state.num_active > 0) {
         gkv_injected = zeta_gkv_inject_for_stream(
             g_ctx_conscious, &g_stream_state, 0, 0  // seq_id=0, base_pos=0
         );
@@ -3477,6 +3558,8 @@ static std::string generate(const std::string& prompt, int max_tokens) {
             fprintf(stderr, "[GKV] No cached KV found for %d active nodes\n",
                     g_stream_state.num_active);
         }
+    } else if (use_fast_path) {
+        fprintf(stderr, "[FAST-PATH] Skipped GKV injection\n");
     } else if (g_gkv_ctx) {
         fprintf(stderr, "[GKV] Skipped - no active nodes from prefetch\n");
     }
@@ -3637,7 +3720,12 @@ static std::string generate(const std::string& prompt, int max_tokens) {
     immune_track_request(avg_momentum);
 
     // === PUSH OUTPUT TO 3B QUEUE (cyclic feedback) ===
-    zeta_cyclic_push(output.c_str(), false, avg_momentum);
+    // FAST PATH: Also skip output extraction for simple queries
+    if (!use_fast_path) {
+        zeta_cyclic_push(output.c_str(), false, avg_momentum);
+    } else {
+        fprintf(stderr, "[FAST-PATH] Skipped output extraction\n");
+    }
 
     // === PUSH TO CONVERSATION HISTORY (short-term memory) ===
     zeta_conv_push(&g_stream_state, prompt.c_str(), output.c_str());
@@ -4498,6 +4586,9 @@ int main(int argc, char** argv) {
         else if (strcmp(argv[i], "--token-cache-entries") == 0 && i+1 < argc) g_token_cache_cap_entries = (size_t)std::max(0, atoi(argv[++i]));
         else if (strcmp(argv[i], "--research-enable") == 0 || strcmp(argv[i], "--enable-research") == 0) g_research_mode_enabled = true;
         else if (strcmp(argv[i], "--deliberation-enable") == 0) g_deliberation_enabled = true;
+        else if (strcmp(argv[i], "--fast-path-disable") == 0) g_fast_path_enabled = false;
+        else if (strcmp(argv[i], "--fast-path-enable") == 0) g_fast_path_enabled = true;
+        else if (strcmp(argv[i], "--fast-path-threshold") == 0 && i+1 < argc) g_fast_path_token_threshold = atoi(argv[++i]);
         // Context size flags
         else if (strcmp(argv[i], "--ctx-14b") == 0 && i+1 < argc) g_ctx_size_14b = atoi(argv[++i]);
         else if (strcmp(argv[i], "--ctx-3b") == 0 && i+1 < argc) g_ctx_size_3b = atoi(argv[++i]);
@@ -4533,6 +4624,7 @@ int main(int argc, char** argv) {
             g_embed_cache.ttl_seconds,
             g_embed_cache.min_text_len);
     fprintf(stderr, "Tunnel search: %s\n", g_tunnel_enabled ? "on" : "off");
+    fprintf(stderr, "Fast path: %s (threshold=%d tokens)\n", g_fast_path_enabled ? "on" : "off", g_fast_path_token_threshold);
     fprintf(stderr, "Token cache: %s (cap=%zu tokens, %zu entries)\n",
             g_token_cache_enabled ? "on" : "off", g_token_cache_cap_tokens, g_token_cache_cap_entries);
     fprintf(stderr, "Research mode: %s (branches=%d, depth=%d, time_ms=%d)\n",
@@ -4875,7 +4967,7 @@ int main(int argc, char** argv) {
 
         // Parse JSON body
         std::string prompt;
-        std::string mode = "chat";
+        std::string mode = "";  // Empty default - let detect_mode handle sticky behavior
         std::string project_id;
         int max_tokens = 2048;  // Increased default from 100
         std::string working_dir;
