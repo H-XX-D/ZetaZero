@@ -206,3 +206,15 @@ data/sft/
 data/dpo/
 *.training.jsonl
 *_training_*.json
+
+# Large external projects/tools
+kilocode/
+
+# Turbo cache
+.turbo/
+
+# Logs
+logs/
+
+# Tools directory
+tools/
