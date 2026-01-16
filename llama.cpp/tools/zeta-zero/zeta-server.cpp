@@ -123,6 +123,9 @@ extern "C" {
 #include "zeta-branching-engine.h"
 #include "zeta-mode-controller.h"
 #include "zeta-deliberation.h"
+#include "zeta-research.h"         // Research mode: epistemic search with compression
+#include "zeta-discovery.h"        // Discovery mode: isolated hypothesis generation from research gaps
+#include "zeta-research-project.h" // Project-scoped research graphs
 #include "zeta-project-manager.h"  // Multi-project 4-layer graph isolation
 #include "zeta-story-integration.h" // Story coherence for CREATIVE mode
 
@@ -224,6 +227,10 @@ static ZetaSwarmManager g_swarm;
 // Conscious model (14B reasoning)
 static llama_model* g_model_conscious = nullptr;
 static llama_context* g_ctx_conscious = nullptr;
+
+// GKV Capture context (separate from generation to avoid corruption)
+static llama_context* g_ctx_gkv_capture = nullptr;
+static std::mutex g_gkv_capture_mutex;  // Serialize capture operations
 
 // Subconscious model (7B memory/extraction)
 static llama_model* g_model_subconscious = nullptr;
@@ -446,15 +453,93 @@ static int zeta_tokenize_cached(
 // 3B worker thread
 static pthread_t g_subconscious_worker_tid;
 static bool g_subconscious_worker_running = false;
-// Utility: capture KV for high-salience nodes not yet cached (branch-scoped via node_id)
+
+// ============================================================================
+// GKV CAPTURE: Uses dedicated context to avoid corrupting active generation
+// ============================================================================
+
+// Safe capture using dedicated g_ctx_gkv_capture (does not touch g_ctx_conscious)
+static int zeta_gkv_capture_safe(
+    zeta_dual_ctx_t* dual_ctx,
+    float salience_threshold,
+    int max_captures
+) {
+    if (!g_gkv_ctx || !dual_ctx || !g_ctx_gkv_capture || !g_model_conscious) return 0;
+
+    // Serialize capture operations
+    std::lock_guard<std::mutex> lock(g_gkv_capture_mutex);
+
+    int captured = 0;
+    const llama_vocab* vocab = llama_model_get_vocab(g_model_conscious);
+    llama_memory_t mem = llama_get_memory(g_ctx_gkv_capture);
+
+    for (int i = 0; i < dual_ctx->num_nodes && captured < max_captures; i++) {
+        zeta_graph_node_t* node = &dual_ctx->nodes[i];
+        if (!node->is_active) continue;
+        if (node->salience < salience_threshold) continue;
+        if (node->value[0] == '\0' || strlen(node->value) < 10) continue;
+
+        // Skip if already cached
+        if (zeta_gkv_find(g_gkv_ctx, node->node_id)) continue;
+
+        // Tokenize node content
+        std::vector<llama_token> tokens;
+        int n_tokens = zeta_tokenize_cached(
+            vocab,
+            node->value,
+            node->node_id,
+            tokens,
+            false,  // add_special
+            true    // parse_special
+        );
+
+        if (n_tokens <= 0 || n_tokens >= 512) continue;
+        tokens.resize(n_tokens);
+
+        // Clear capture context KV and decode to fill it
+        llama_memory_clear(mem, false);
+
+        llama_batch batch = llama_batch_init(n_tokens, 0, 1);
+        for (int t = 0; t < n_tokens; t++) {
+            batch.token[t] = tokens[t];
+            batch.pos[t] = t;
+            batch.n_seq_id[t] = 1;
+            batch.seq_id[t][0] = 0;
+            batch.logits[t] = (t == n_tokens - 1);
+        }
+        batch.n_tokens = n_tokens;
+
+        if (llama_decode(g_ctx_gkv_capture, batch) == 0) {
+            int cap_result = zeta_gkv_capture_v2(
+                g_gkv_ctx, g_ctx_gkv_capture, 0, node->node_id, tokens.data(), n_tokens
+            );
+            if (cap_result > 0) {
+                captured++;
+                fprintf(stderr, "[GKV-CAPTURE] %d tokens for node %lld (sal=%.2f)\n",
+                        n_tokens, (long long)node->node_id, node->salience);
+            }
+        }
+        llama_batch_free(batch);
+    }
+
+    if (captured > 0) {
+        fprintf(stderr, "[GKV-CAPTURE] Captured %d high-salience nodes\n", captured);
+    }
+    return captured;
+}
+
+// Legacy function - redirects to safe capture
 static int zeta_gkv_capture_high_salience(
     zeta_dual_ctx_t* dual_ctx,
     struct llama_context* llama_ctx,
     const struct llama_model* model,
     float salience_threshold,
-    int max_captures
+    int max_captures,
+    bool allow_kv_clear = false
 ) {
-    if (!g_gkv_ctx || !dual_ctx || !llama_ctx || !model) return 0;
+    (void)llama_ctx; (void)model; (void)allow_kv_clear;  // Unused now
+    // Always use the safe capture context
+    return zeta_gkv_capture_safe(dual_ctx, salience_threshold, max_captures);
 
     int captured = 0;
 
@@ -3620,7 +3705,7 @@ static std::string generate(const std::string& prompt, int max_tokens) {
 
     // === GRAPH-KV INJECTION: Inject cached KV states for retrieved nodes ===
     // This skips prefill computation for concepts we've seen before
-    // FAST PATH: Skip GKV for simple queries (no memory retrieval needed)
+    // FIXED: Rebasing now tracks existing positions before loading to avoid corruption
     int gkv_injected = 0;
     if (!use_fast_path && g_gkv_ctx && g_stream_state.num_active > 0) {
         gkv_injected = zeta_gkv_inject_for_stream(
@@ -3629,14 +3714,9 @@ static std::string generate(const std::string& prompt, int max_tokens) {
         if (gkv_injected > 0) {
             fprintf(stderr, "[GKV] Injected %d cached tokens from %d nodes\n",
                     gkv_injected, g_stream_state.num_active);
-        } else {
-            fprintf(stderr, "[GKV] No cached KV found for %d active nodes\n",
-                    g_stream_state.num_active);
         }
     } else if (use_fast_path) {
         fprintf(stderr, "[FAST-PATH] Skipped GKV injection\n");
-    } else if (g_gkv_ctx) {
-        fprintf(stderr, "[GKV] Skipped - no active nodes from prefetch\n");
     }
 
     // Speed Receipt: GKV stage complete (whether or not anything was injected)
@@ -3744,6 +3824,10 @@ static std::string generate(const std::string& prompt, int max_tokens) {
         // Stop on chat template tokens (prevents repetition)
         if (strstr(piece, "<|im_start") || strstr(piece, "<|im_end")) break;
 
+        // === EARLY STOP DISABLED FOR FAIR BENCHMARKING ===
+        // Let max_tokens control output length instead of heuristics
+        // This ensures Zeta and baseline produce equal token counts
+#if 0  // Disabled for fair benchmarking
         // Early stop on repetition patterns (verbose loop detection)
         if (output.size() > 200) {
             // Check if last 200 chars contain repeated conclusion/answer phrases
@@ -3771,6 +3855,7 @@ static std::string generate(const std::string& prompt, int max_tokens) {
                 if (prev != std::string::npos && output.size() - prev < 500) break;
             }
         }
+#endif
 
         // Prepare next - use kv_next_pos for consistent position tracking
         common_batch_clear(batch);
@@ -4822,6 +4907,18 @@ int main(int argc, char** argv) {
     g_ctx_conscious = llama_init_from_model(g_model_conscious, cparams);
     if (!g_ctx_conscious) { fprintf(stderr, "Failed to create 14B context\n"); return 1; }
 
+    // Init dedicated GKV capture context (separate from generation to avoid KV corruption)
+    llama_context_params cap_cparams = llama_context_default_params();
+    cap_cparams.n_ctx = 512;  // Small context for capture only
+    cap_cparams.n_batch = 512;
+    cap_cparams.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_ENABLED;
+    g_ctx_gkv_capture = llama_init_from_model(g_model_conscious, cap_cparams);
+    if (g_ctx_gkv_capture) {
+        fprintf(stderr, "[GKV-CAPTURE] Dedicated capture context initialized (512 tokens)\n");
+    } else {
+        fprintf(stderr, "[GKV-CAPTURE] WARNING: Failed to create capture context, GKV disabled\n");
+    }
+
     g_vocab = llama_model_get_vocab(g_model_conscious);
     zeta_set_vocab(g_vocab);  // Enable tokenization at storage
     g_n_embd = llama_model_n_embd(g_model_conscious);
@@ -5443,6 +5540,131 @@ int main(int argc, char** argv) {
             fprintf(stderr, "[ROUTE] 7B coder failed, falling back to 14B\n");
         }
 
+        // ==================================================================
+        // RESEARCH MODE: Epistemic search with progressive compression
+        // Uses 5-phase iterative loop: explore -> compress -> tension -> merge -> conclude
+        // ==================================================================
+        if (current_mode == zeta_modes::Mode::RESEARCH && g_model_conscious && g_ctx_conscious) {
+            fprintf(stderr, "[RESEARCH] ═══════════════════════════════════════════\n");
+            fprintf(stderr, "[RESEARCH] Starting Research Mode for: %.60s...\n", prompt.c_str());
+
+            // Create generate callback that uses 14B model WITH graph memory surfacing
+            auto research_generate_fn = [&](const std::string& gen_prompt, float temp, int gen_max_tokens) -> std::string {
+                // Use existing 14B generation infrastructure
+                std::string result;
+
+                // Surface relevant context from knowledge graph
+                std::string memory_context;
+                if (g_dual && g_dual->num_nodes > 0) {
+                    zeta_surfaced_context_t surfaced;
+                    zeta_surface_context(g_dual, gen_prompt.c_str(), &surfaced);
+                    if (surfaced.num_nodes > 0) {
+                        memory_context = surfaced.formatted_context;
+                        fprintf(stderr, "[RESEARCH] Surfaced %d nodes from graph memory\n", surfaced.num_nodes);
+                    }
+                }
+
+                // Build prompt with surfaced memory context
+                std::string full_prompt;
+                if (!memory_context.empty()) {
+                    full_prompt = memory_context + gen_prompt;
+                } else {
+                    full_prompt = gen_prompt;
+                }
+
+                // Get tokens using g_vocab
+                std::vector<llama_token> tokens(4096);
+                int n_tokens = llama_tokenize(g_vocab, full_prompt.c_str(), full_prompt.length(),
+                                              tokens.data(), tokens.size(), true, true);
+                if (n_tokens <= 0) return "";
+                tokens.resize(n_tokens);
+
+                // Limit input context
+                int ctx_size = llama_n_ctx(g_ctx_conscious);
+                if (n_tokens > ctx_size - gen_max_tokens - 64) {
+                    tokens.resize(ctx_size - gen_max_tokens - 64);
+                    n_tokens = tokens.size();
+                }
+
+                // Clear KV cache before generation
+                llama_memory_t mem = llama_get_memory(g_ctx_conscious);
+                llama_memory_clear(mem, true);
+
+                // Batch decode
+                llama_batch batch = llama_batch_init(n_tokens + gen_max_tokens, 0, 1);
+                for (int i = 0; i < n_tokens; i++) {
+                    common_batch_add(batch, tokens[i], i, {0}, i == n_tokens - 1);
+                }
+
+                if (llama_decode(g_ctx_conscious, batch) != 0) {
+                    llama_batch_free(batch);
+                    return "";
+                }
+
+                // Sample tokens
+                llama_sampler* smpl = llama_sampler_chain_init(llama_sampler_chain_default_params());
+                llama_sampler_chain_add(smpl, llama_sampler_init_temp(temp));
+                llama_sampler_chain_add(smpl, llama_sampler_init_top_p(0.9f, 1));
+                llama_sampler_chain_add(smpl, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
+
+                int n_cur = n_tokens;
+                for (int i = 0; i < gen_max_tokens; i++) {
+                    llama_token new_token = llama_sampler_sample(smpl, g_ctx_conscious, -1);
+
+                    if (llama_vocab_is_eog(g_vocab, new_token)) break;
+
+                    char piece[256];
+                    int len = llama_token_to_piece(g_vocab, new_token, piece, sizeof(piece), 0, true);
+                    if (len > 0) result.append(piece, len);
+
+                    // Prepare next batch
+                    common_batch_clear(batch);
+                    common_batch_add(batch, new_token, n_cur++, {0}, true);
+
+                    if (llama_decode(g_ctx_conscious, batch) != 0) break;
+                }
+
+                llama_sampler_free(smpl);
+                llama_batch_free(batch);
+
+                return result;
+            };
+
+            // Configure research parameters from mode policy
+            zeta_research::ResearchConfig research_config;
+            research_config.max_iterations = mode_policy.branch_budget.max_iterations;
+            research_config.max_branches = mode_policy.branch_budget.max_branches;
+            research_config.max_depth = mode_policy.branch_budget.max_depth;
+            research_config.initial_temperature = mode_policy.temperature;
+
+            // Run research mode
+            std::string research_output = zeta_research::run_research_mode(prompt, research_generate_fn, research_config);
+
+            // Escape for JSON
+            std::string escaped;
+            for (const char* p = research_output.c_str(); *p; p++) {
+                if (*p == '"') escaped += "\\\"";
+                else if (*p == '\\') escaped += "\\\\";
+                else if (*p == '\n') escaped += "\\n";
+                else if (*p == '\r') escaped += "\\r";
+                else if (*p == '\t') escaped += "\\t";
+                else escaped += *p;
+            }
+
+            int graph_nodes = g_dual ? g_dual->num_nodes : 0;
+            int graph_edges = g_dual ? g_dual->num_edges : 0;
+            char result[32768];
+            snprintf(result, sizeof(result),
+                "{\"output\": \"%s\", \"tokens\": %zu, \"route\": \"RESEARCH\", "
+                "\"mode\": \"RESEARCH\", \"graph_nodes\": %d, \"graph_edges\": %d}",
+                escaped.c_str(), research_output.size(), graph_nodes, graph_edges);
+            res.set_content(result, "application/json");
+
+            fprintf(stderr, "[RESEARCH] ═══════════════════════════════════════════\n");
+            fprintf(stderr, "[RESEARCH] Completed (%zu chars output)\n", research_output.size());
+            return;
+        }
+
         // Apply task-aware sampling parameters BEFORE generation
         // This fixes CODE/MATH hallucinations (reTurn, 左平衡) caused by high repetition penalty
         apply_task_sampling(query_class);
@@ -5768,11 +5990,10 @@ int main(int argc, char** argv) {
                     // Scratch Buffer: Finalize generation (via decode hook)
                     ZETA_SCRATCH_END_GENERATION();
 
-                    // LAZY KV CAPTURE: Capture KV for retrieved nodes that didn't have cached KV
-                    // This warms the cache based on actual usage patterns
-                    if (g_gkv_ctx && g_stream_state.num_active > 0) {
+                    // LAZY KV CAPTURE: Uses dedicated g_ctx_gkv_capture to avoid corruption
+                    if (g_gkv_ctx && g_ctx_gkv_capture && g_stream_state.num_active > 0) {
                         int kv_captured = zeta_gkv_lazy_capture(
-                            g_dual, g_ctx_conscious, g_model_conscious, &g_stream_state, 3  // max 3 per request
+                            g_dual, g_ctx_gkv_capture, g_model_conscious, &g_stream_state, 3
                         );
                         if (kv_captured > 0) {
                             fprintf(stderr, "[LAZY-KV] Captured KV for %d nodes this request\n", kv_captured);
@@ -5787,6 +6008,7 @@ int main(int argc, char** argv) {
                             fprintf(stderr, "[EXTRACT] Captured %d facts from generation\n", facts);
 
                             // Capture KV for high-salience nodes created/updated by extraction
+                            // SAFE: Uses dedicated g_ctx_gkv_capture, not generation context
                             int kv_cap = zeta_gkv_capture_high_salience(
                                 g_dual, g_ctx_conscious, g_model_conscious, 0.85f, 3
                             );
@@ -6230,12 +6452,14 @@ int main(int argc, char** argv) {
         int tokens_used = 0;
         bool output_is_already_json_escaped = false;
 
-        // Quick acknowledge for statement-only inputs
-        if (is_statement(last_user_message)) {
-            output_text = "Noted.";
-            tokens_used = 1;
-            output_is_already_json_escaped = false;
-        }
+        // DISABLED: Statement detection was too aggressive - missing many imperative verbs
+        // like "name", "calculate", "write", "create", "build", "make", etc.
+        // This caused valid questions to return "Noted." instead of real answers.
+        // if (is_statement(last_user_message)) {
+        //     output_text = "Noted.";
+        //     tokens_used = 1;
+        //     output_is_already_json_escaped = false;
+        // }
 
         auto research_start = std::chrono::steady_clock::now();
         int research_used_local = 0;
@@ -6357,11 +6581,10 @@ int main(int argc, char** argv) {
             output_text = zeta_escape_json_string(output_text);
         }
 
-        // LAZY KV CAPTURE: Capture KV for retrieved nodes that didn't have cached KV
-        // This warms the cache based on actual usage patterns
-        if (g_gkv_ctx && g_stream_state.num_active > 0) {
+        // LAZY KV CAPTURE: Uses dedicated g_ctx_gkv_capture to avoid corrupting generation
+        if (g_gkv_ctx && g_ctx_gkv_capture && g_stream_state.num_active > 0) {
             int kv_captured = zeta_gkv_lazy_capture(
-                g_dual, g_ctx_conscious, g_model_conscious, &g_stream_state, 3  // max 3 per request
+                g_dual, g_ctx_gkv_capture, g_model_conscious, &g_stream_state, 3  // max 3 per request
             );
             if (kv_captured > 0) {
                 fprintf(stderr, "[LAZY-KV] Captured KV for %d nodes this request\n", kv_captured);
@@ -6369,6 +6592,7 @@ int main(int argc, char** argv) {
         }
 
         // Opportunistic KV capture for high-salience nodes after generation
+        // SAFE: Uses dedicated g_ctx_gkv_capture, not generation context
         if (g_gkv_ctx && g_dual) {
             int kv_cap = zeta_gkv_capture_high_salience(
                 g_dual, g_ctx_conscious, g_model_conscious, 0.9f, 2
@@ -9675,6 +9899,1780 @@ int main(int argc, char** argv) {
                       best_node_id.c_str(), escaped.c_str());
              res.set_content(json, "application/json");
         }
+    });
+
+    // ==========================================================================
+    // RESEARCH PROJECT ENDPOINTS
+    // Each research project gets its own isolated graph for materials
+    // ==========================================================================
+
+    // Initialize research project manager
+    zeta_research_project::init_research_projects("/mnt/GitGraph/research_projects");
+
+    // Create new research project
+    svr.Post("/research/project/create", [](const httplib::Request& req, httplib::Response& res) {
+        std::string name = zeta_mcp::extract_json_string(req.body, "name");
+        std::string desc = zeta_mcp::extract_json_string(req.body, "description");
+
+        if (name.empty()) {
+            res.set_content("{\"error\": \"name is required\"}", "application/json");
+            return;
+        }
+
+        std::string project_id = zeta_research_project::create_research_project(name, desc);
+        if (project_id.empty()) {
+            res.set_content("{\"error\": \"failed to create project\"}", "application/json");
+            return;
+        }
+
+        char result[256];
+        snprintf(result, sizeof(result), "{\"project_id\": \"%s\", \"name\": \"%s\"}",
+                 project_id.c_str(), name.c_str());
+        res.set_content(result, "application/json");
+    });
+
+    // List all research projects
+    svr.Get("/research/projects", [](const httplib::Request&, httplib::Response& res) {
+        std::string json = zeta_research_project::g_project_manager.list_projects_json();
+        res.set_content(json, "application/json");
+    });
+
+    // Get project details
+    svr.Get(R"(/research/project/([^/]+))", [](const httplib::Request& req, httplib::Response& res) {
+        std::string project_id = req.matches[1];
+        auto* project = zeta_research_project::get_research_project(project_id);
+
+        if (!project) {
+            res.set_content("{\"error\": \"project not found\"}", "application/json");
+            return;
+        }
+
+        std::string json = zeta_research_project::g_project_manager.project_to_json(project);
+        res.set_content(json, "application/json");
+    });
+
+    // Ingest material into project (with 14B intelligent extraction)
+    svr.Post(R"(/research/project/([^/]+)/ingest)", [](const httplib::Request& req, httplib::Response& res) {
+        std::string project_id = req.matches[1];
+        std::string title = zeta_mcp::extract_json_string(req.body, "title");
+        std::string content = zeta_mcp::extract_json_string(req.body, "content");
+        std::string source = zeta_mcp::extract_json_string(req.body, "source");
+
+        if (title.empty() || content.empty()) {
+            res.set_content("{\"error\": \"title and content required\"}", "application/json");
+            return;
+        }
+
+        auto* project = zeta_research_project::get_research_project(project_id);
+        if (!project || !project->graph) {
+            res.set_content("{\"error\": \"project not found\"}", "application/json");
+            return;
+        }
+
+        // Use 14B model for intelligent fact extraction
+        if (!g_model_conscious || !g_ctx_conscious) {
+            // Fallback to simple extraction if 14B not available
+            bool success = zeta_research_project::ingest_to_project(project_id, title, content, source);
+            if (!success) {
+                res.set_content("{\"error\": \"ingest failed\"}", "application/json");
+                return;
+            }
+        } else {
+            // Determine material type from request or default
+            std::string material_type = zeta_mcp::extract_json_string(req.body, "type");
+            if (material_type.empty()) material_type = "paper";
+
+            fprintf(stderr, "[RESEARCH-INGEST] Using 14B structured extraction for %s '%s'\n",
+                    material_type.c_str(), title.c_str());
+
+            std::lock_guard<std::mutex> lock(g_mutex);
+
+            // Build appropriate extraction prompt based on material type
+            std::string prompt;
+            if (material_type == "dataset") {
+                prompt = zeta_research_project::get_dataset_extraction_prompt(content);
+            } else {
+                prompt = zeta_research_project::get_paper_extraction_prompt(content);
+            }
+
+            // Tokenize and generate extraction
+            std::vector<llama_token> tokens(4096);
+            int n_tokens = llama_tokenize(g_vocab, prompt.c_str(), prompt.length(),
+                                          tokens.data(), tokens.size(), true, true);
+            if (n_tokens <= 0) {
+                res.set_content("{\"error\": \"tokenization failed\"}", "application/json");
+                return;
+            }
+            tokens.resize(n_tokens);
+
+            int ctx_size = llama_n_ctx(g_ctx_conscious);
+            if (n_tokens > ctx_size - 500) {
+                tokens.resize(ctx_size - 500);
+                n_tokens = tokens.size();
+            }
+
+            llama_memory_t mem = llama_get_memory(g_ctx_conscious);
+            llama_memory_clear(mem, true);
+
+            llama_batch batch = llama_batch_init(n_tokens + 500, 0, 1);
+            for (int i = 0; i < n_tokens; i++) {
+                common_batch_add(batch, tokens[i], i, {0}, i == n_tokens - 1);
+            }
+
+            if (llama_decode(g_ctx_conscious, batch) != 0) {
+                llama_batch_free(batch);
+                res.set_content("{\"error\": \"decode failed\"}", "application/json");
+                return;
+            }
+
+            llama_sampler* smpl = llama_sampler_chain_init(llama_sampler_chain_default_params());
+            llama_sampler_chain_add(smpl, llama_sampler_init_temp(0.2f));  // Lower temp for structured output
+            llama_sampler_chain_add(smpl, llama_sampler_init_top_p(0.95f, 1));
+            llama_sampler_chain_add(smpl, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
+
+            std::string extraction;
+            int n_cur = n_tokens;
+            for (int i = 0; i < 500; i++) {  // More tokens for structured output
+                llama_token new_token = llama_sampler_sample(smpl, g_ctx_conscious, -1);
+                if (llama_vocab_is_eog(g_vocab, new_token)) break;
+
+                char piece[256];
+                int len = llama_token_to_piece(g_vocab, new_token, piece, sizeof(piece), 0, true);
+                if (len > 0) extraction.append(piece, len);
+
+                common_batch_clear(batch);
+                common_batch_add(batch, new_token, n_cur++, {0}, true);
+                if (llama_decode(g_ctx_conscious, batch) != 0) break;
+            }
+
+            llama_sampler_free(smpl);
+            llama_batch_free(batch);
+
+            fprintf(stderr, "[RESEARCH-INGEST] Raw extraction (%zu chars):\n%s\n",
+                    extraction.size(), extraction.substr(0, 500).c_str());
+
+            // Parse extraction into entities and relations
+            std::vector<zeta_research_project::ExtractedEntity> entities;
+            std::vector<zeta_research_project::ExtractedRelation> relations;
+
+            if (material_type == "dataset") {
+                zeta_research_project::parse_dataset_extraction(extraction, source, entities, relations);
+            } else {
+                zeta_research_project::parse_paper_extraction(extraction, title, source, entities, relations);
+            }
+
+            fprintf(stderr, "[RESEARCH-INGEST] Parsed %zu entities and %zu relations\n",
+                    entities.size(), relations.size());
+
+            // Create paper/dataset node first
+            int64_t material_node_id = zeta_create_node(
+                project->graph,
+                NODE_ENTITY,
+                material_type == "dataset" ? zeta_research_project::LABEL_DATASET
+                                           : zeta_research_project::LABEL_PAPER,
+                (title + " [" + source + "]").c_str(),
+                0.95f
+            );
+            project->entity_index[title] = material_node_id;
+
+            // Create entity nodes and track their IDs
+            int entities_created = 0;
+            for (auto& entity : entities) {
+                // Choose node type based on label
+                zeta_node_type_t node_type = NODE_ENTITY;
+                if (entity.label == zeta_research_project::LABEL_RESULT ||
+                    entity.label == zeta_research_project::LABEL_METRIC) {
+                    node_type = NODE_FACT;
+                }
+
+                int64_t node_id = zeta_create_node(
+                    project->graph,
+                    node_type,
+                    entity.label.c_str(),
+                    (entity.name + ": " + entity.details).c_str(),
+                    entity.salience
+                );
+
+                if (node_id >= 0) {
+                    entity.node_id = node_id;
+                    project->entity_index[entity.name] = node_id;
+                    entities_created++;
+                    fprintf(stderr, "[RESEARCH-INGEST] Entity: [%s] %s\n",
+                            entity.label.c_str(), entity.name.c_str());
+                }
+            }
+
+            // Create relationship edges
+            int edges_created = 0;
+            for (auto& rel : relations) {
+                // Look up source and target node IDs
+                auto src_it = project->entity_index.find(rel.source_name);
+                auto tgt_it = project->entity_index.find(rel.target_name);
+
+                if (src_it != project->entity_index.end() && tgt_it != project->entity_index.end()) {
+                    int64_t edge_id = zeta_create_edge(
+                        project->graph,
+                        src_it->second,
+                        tgt_it->second,
+                        EDGE_RELATED,  // Use generic relation, store type in label
+                        rel.weight
+                    );
+
+                    if (edge_id >= 0) {
+                        rel.edge_id = edge_id;
+                        edges_created++;
+                        fprintf(stderr, "[RESEARCH-INGEST] Relation: %s -[%s]-> %s\n",
+                                rel.source_name.c_str(), rel.relation.c_str(), rel.target_name.c_str());
+                    }
+                }
+            }
+
+            // Update material record
+            zeta_research_project::ResearchMaterial mat;
+            mat.id = "mat_" + std::to_string(time(nullptr));
+            mat.title = title;
+            mat.source = source;
+            mat.content = content;
+            mat.material_type = material_type;
+            mat.ingested_at = time(nullptr);
+            mat.node_count = entities_created + 1;
+            mat.entities = entities;
+            mat.relations = relations;
+            project->materials.push_back(mat);
+            project->total_facts_extracted += mat.node_count;
+            project->total_entities += entities_created;
+            project->total_relations += edges_created;
+
+            fprintf(stderr, "[RESEARCH-INGEST] Completed: %d entities, %d relations from '%s'\n",
+                    entities_created, edges_created, title.c_str());
+        }
+
+        char result[1024];
+        snprintf(result, sizeof(result),
+                "{\"status\": \"ingested\", \"project_id\": \"%s\", \"graph_nodes\": %d, \"graph_edges\": %d, "
+                "\"total_entities\": %d, \"total_relations\": %d, \"extraction\": \"structured\"}",
+                project_id.c_str(), project->graph->num_nodes, project->graph->num_edges,
+                project->total_entities, project->total_relations);
+        res.set_content(result, "application/json");
+    });
+
+    // Query project graph (surface context)
+    svr.Post(R"(/research/project/([^/]+)/query)", [](const httplib::Request& req, httplib::Response& res) {
+        std::string project_id = req.matches[1];
+        std::string query = zeta_mcp::extract_json_string(req.body, "query");
+
+        if (query.empty()) {
+            res.set_content("{\"error\": \"query required\"}", "application/json");
+            return;
+        }
+
+        std::string context = zeta_research_project::surface_project_context(project_id, query);
+
+        // Escape for JSON
+        std::string escaped;
+        for (char c : context) {
+            if (c == '"') escaped += "\\\"";
+            else if (c == '\n') escaped += "\\n";
+            else if (c == '\r') continue;
+            else escaped += c;
+        }
+
+        char result[8192];
+        snprintf(result, sizeof(result),
+                "{\"project_id\": \"%s\", \"query\": \"%s\", \"context\": \"%s\"}",
+                project_id.c_str(), query.c_str(), escaped.c_str());
+        res.set_content(result, "application/json");
+    });
+
+    // Run research mode on project
+    svr.Post(R"(/research/project/([^/]+)/run)", [](const httplib::Request& req, httplib::Response& res) {
+        std::string project_id = req.matches[1];
+        std::string prompt = zeta_mcp::extract_json_string(req.body, "prompt");
+
+        if (prompt.empty()) {
+            res.set_content("{\"error\": \"prompt required\"}", "application/json");
+            return;
+        }
+
+        auto* project = zeta_research_project::get_research_project(project_id);
+        if (!project || !project->graph) {
+            res.set_content("{\"error\": \"project not found\"}", "application/json");
+            return;
+        }
+
+        if (!g_model_conscious || !g_ctx_conscious) {
+            res.set_content("{\"error\": \"14B model not loaded\"}", "application/json");
+            return;
+        }
+
+        fprintf(stderr, "[RESEARCH-PROJECT] Running research on '%s': %.50s...\n",
+                project->name.c_str(), prompt.c_str());
+
+        // Create generate callback that uses project graph for context
+        auto research_generate_fn = [&project](const std::string& gen_prompt, float temp, int gen_max_tokens) -> std::string {
+            std::string result;
+
+            // Surface context from PROJECT graph (not global)
+            std::string memory_context;
+            if (project->graph && project->graph->num_nodes > 0) {
+                zeta_surfaced_context_t surfaced;
+                zeta_surface_context(project->graph, gen_prompt.c_str(), &surfaced);
+                if (surfaced.num_nodes > 0) {
+                    memory_context = surfaced.formatted_context;
+                    fprintf(stderr, "[RESEARCH-PROJECT] Surfaced %d nodes from project graph\n", surfaced.num_nodes);
+                }
+            }
+
+            // Build prompt with project context
+            std::string full_prompt;
+            if (!memory_context.empty()) {
+                full_prompt = memory_context + gen_prompt;
+            } else {
+                full_prompt = gen_prompt;
+            }
+
+            // Generate using 14B
+            std::vector<llama_token> tokens(4096);
+            int n_tokens = llama_tokenize(g_vocab, full_prompt.c_str(), full_prompt.length(),
+                                          tokens.data(), tokens.size(), true, true);
+            if (n_tokens <= 0) return "";
+            tokens.resize(n_tokens);
+
+            int ctx_size = llama_n_ctx(g_ctx_conscious);
+            if (n_tokens > ctx_size - gen_max_tokens - 64) {
+                tokens.resize(ctx_size - gen_max_tokens - 64);
+                n_tokens = tokens.size();
+            }
+
+            llama_memory_t mem = llama_get_memory(g_ctx_conscious);
+            llama_memory_clear(mem, true);
+
+            llama_batch batch = llama_batch_init(n_tokens + gen_max_tokens, 0, 1);
+            for (int i = 0; i < n_tokens; i++) {
+                common_batch_add(batch, tokens[i], i, {0}, i == n_tokens - 1);
+            }
+
+            if (llama_decode(g_ctx_conscious, batch) != 0) {
+                llama_batch_free(batch);
+                return "";
+            }
+
+            llama_sampler* smpl = llama_sampler_chain_init(llama_sampler_chain_default_params());
+            llama_sampler_chain_add(smpl, llama_sampler_init_temp(temp));
+            llama_sampler_chain_add(smpl, llama_sampler_init_top_p(0.9f, 1));
+            llama_sampler_chain_add(smpl, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
+
+            int n_cur = n_tokens;
+            for (int i = 0; i < gen_max_tokens; i++) {
+                llama_token new_token = llama_sampler_sample(smpl, g_ctx_conscious, -1);
+                if (llama_vocab_is_eog(g_vocab, new_token)) break;
+
+                char piece[256];
+                int len = llama_token_to_piece(g_vocab, new_token, piece, sizeof(piece), 0, true);
+                if (len > 0) result.append(piece, len);
+
+                common_batch_clear(batch);
+                common_batch_add(batch, new_token, n_cur++, {0}, true);
+                if (llama_decode(g_ctx_conscious, batch) != 0) break;
+            }
+
+            llama_sampler_free(smpl);
+            llama_batch_free(batch);
+            return result;
+        };
+
+        // Configure and run research
+        zeta_research::ResearchConfig config;
+        config.max_iterations = 3;
+        config.max_branches = 4;
+        config.max_depth = 2;
+
+        std::string output = zeta_research::run_research_mode(prompt, research_generate_fn, config);
+
+        // Escape for JSON
+        std::string escaped;
+        for (char c : output) {
+            if (c == '"') escaped += "\\\"";
+            else if (c == '\n') escaped += "\\n";
+            else if (c == '\r') continue;
+            else escaped += c;
+        }
+
+        char result[32768];
+        snprintf(result, sizeof(result),
+                "{\"project_id\": \"%s\", \"output\": \"%s\", \"graph_nodes\": %d}",
+                project_id.c_str(), escaped.c_str(), project->graph->num_nodes);
+        res.set_content(result, "application/json");
+    });
+
+    // Direct analysis - simpler than /run, uses 14B with graph context directly
+    svr.Post(R"(/research/project/([^/]+)/analyze)", [](const httplib::Request& req, httplib::Response& res) {
+        std::string project_id = req.matches[1];
+        std::string query = zeta_mcp::extract_json_string(req.body, "query");
+
+        if (query.empty()) {
+            res.set_content("{\"error\": \"query required\"}", "application/json");
+            return;
+        }
+
+        auto* project = zeta_research_project::get_research_project(project_id);
+        if (!project || !project->graph) {
+            res.set_content("{\"error\": \"project not found\"}", "application/json");
+            return;
+        }
+
+        if (!g_model_conscious || !g_ctx_conscious) {
+            res.set_content("{\"error\": \"14B model not loaded\"}", "application/json");
+            return;
+        }
+
+        fprintf(stderr, "[RESEARCH-ANALYZE] Query: %.80s...\n", query.c_str());
+
+        // Surface relevant context from project graph
+        std::string context;
+        int nodes_used = 0;
+        if (project->graph->num_nodes > 0) {
+            zeta_surfaced_context_t surfaced;
+            zeta_surface_context(project->graph, query.c_str(), &surfaced);
+            if (surfaced.num_nodes > 0) {
+                context = surfaced.formatted_context;
+                nodes_used = surfaced.num_nodes;
+                fprintf(stderr, "[RESEARCH-ANALYZE] Surfaced %d nodes\n", nodes_used);
+            }
+        }
+
+        // Build focused analysis prompt - request concise answer
+        std::string full_prompt = "You are a research assistant. Answer the question using ONLY the extracted data below. Be concise (2-4 sentences). Include specific numbers, metrics, or facts when available.\n\n";
+        full_prompt += "EXTRACTED DATA:\n" + context + "\n\n";
+        full_prompt += "QUESTION: " + query + "\n\n";
+        full_prompt += "CONCISE ANSWER:\n";
+
+        // Generate using 14B
+        std::vector<llama_token> tokens(4096);
+        int n_tokens = llama_tokenize(g_vocab, full_prompt.c_str(), full_prompt.length(),
+                                      tokens.data(), tokens.size(), true, true);
+        if (n_tokens <= 0) {
+            res.set_content("{\"error\": \"tokenization failed\"}", "application/json");
+            return;
+        }
+        tokens.resize(n_tokens);
+
+        int ctx_size = llama_n_ctx(g_ctx_conscious);
+        int max_gen = 300;  // Concise answers only
+        if (n_tokens > ctx_size - max_gen - 64) {
+            tokens.resize(ctx_size - max_gen - 64);
+            n_tokens = tokens.size();
+        }
+
+        llama_memory_t mem = llama_get_memory(g_ctx_conscious);
+        llama_memory_clear(mem, true);
+
+        llama_batch batch = llama_batch_init(n_tokens + max_gen, 0, 1);
+        for (int i = 0; i < n_tokens; i++) {
+            common_batch_add(batch, tokens[i], i, {0}, i == n_tokens - 1);
+        }
+
+        if (llama_decode(g_ctx_conscious, batch) != 0) {
+            llama_batch_free(batch);
+            res.set_content("{\"error\": \"decode failed\"}", "application/json");
+            return;
+        }
+
+        llama_sampler* smpl = llama_sampler_chain_init(llama_sampler_chain_default_params());
+        llama_sampler_chain_add(smpl, llama_sampler_init_temp(0.4f));
+        llama_sampler_chain_add(smpl, llama_sampler_init_top_p(0.9f, 1));
+        // Add repetition penalty to prevent looping
+        llama_sampler_chain_add(smpl, llama_sampler_init_penalties(64, 1.15f, 0.0f, 0.0f));
+        llama_sampler_chain_add(smpl, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
+
+        std::string answer;
+        std::string last_50_chars;  // For repetition detection
+        int n_cur = n_tokens;
+        int repeat_count = 0;
+        for (int i = 0; i < max_gen; i++) {
+            llama_token new_token = llama_sampler_sample(smpl, g_ctx_conscious, -1);
+            if (llama_vocab_is_eog(g_vocab, new_token)) break;
+
+            char piece[256];
+            int len = llama_token_to_piece(g_vocab, new_token, piece, sizeof(piece), 0, true);
+            if (len > 0) {
+                std::string token_str(piece, len);
+                answer.append(token_str);
+
+                // Repetition detection: check if we're generating the same content
+                if (answer.size() > 100) {
+                    std::string recent = answer.substr(answer.size() - 50);
+                    if (recent == last_50_chars) {
+                        repeat_count++;
+                        if (repeat_count > 2) {
+                            fprintf(stderr, "[RESEARCH-ANALYZE] Stopping: repetition detected\n");
+                            // Trim the repeated content
+                            answer = answer.substr(0, answer.size() - 50);
+                            break;
+                        }
+                    } else {
+                        repeat_count = 0;
+                    }
+                    last_50_chars = recent;
+                }
+
+                // Stop on clear end patterns
+                if (answer.size() > 50) {
+                    std::string tail = answer.substr(answer.size() - 20);
+                    if (tail.find("\n\nSources:") != std::string::npos ||
+                        tail.find("\n\nIn summary") != std::string::npos ||
+                        tail.find("\n\nConclusion") != std::string::npos) {
+                        break;
+                    }
+                }
+            }
+
+            common_batch_clear(batch);
+            common_batch_add(batch, new_token, n_cur++, {0}, true);
+            if (llama_decode(g_ctx_conscious, batch) != 0) break;
+        }
+
+        llama_sampler_free(smpl);
+        llama_batch_free(batch);
+
+        // Escape for JSON
+        std::string escaped;
+        for (char c : answer) {
+            if (c == '"') escaped += "\\\"";
+            else if (c == '\n') escaped += "\\n";
+            else if (c == '\r') continue;
+            else if (c == '\\') escaped += "\\\\";
+            else escaped += c;
+        }
+
+        char result[32768];
+        snprintf(result, sizeof(result),
+                "{\"project_id\": \"%s\", \"answer\": \"%s\", \"nodes_used\": %d}",
+                project_id.c_str(), escaped.c_str(), nodes_used);
+        res.set_content(result, "application/json");
+    });
+
+    // Compare/synthesize across papers on a specific topic
+    svr.Post(R"(/research/project/([^/]+)/compare)", [](const httplib::Request& req, httplib::Response& res) {
+        std::string project_id = req.matches[1];
+        std::string topic = zeta_mcp::extract_json_string(req.body, "topic");
+
+        if (topic.empty()) {
+            res.set_content("{\"error\": \"topic required\"}", "application/json");
+            return;
+        }
+
+        auto* project = zeta_research_project::get_research_project(project_id);
+        if (!project || !project->graph) {
+            res.set_content("{\"error\": \"project not found\"}", "application/json");
+            return;
+        }
+
+        if (!g_model_conscious || !g_ctx_conscious) {
+            res.set_content("{\"error\": \"14B model not loaded\"}", "application/json");
+            return;
+        }
+
+        fprintf(stderr, "[RESEARCH-COMPARE] Topic: %.80s...\n", topic.c_str());
+
+        // Surface context specifically about the topic
+        std::string context;
+        int nodes_used = 0;
+        if (project->graph->num_nodes > 0) {
+            zeta_surfaced_context_t surfaced;
+            zeta_surface_context(project->graph, topic.c_str(), &surfaced);
+            if (surfaced.num_nodes > 0) {
+                context = surfaced.formatted_context;
+                nodes_used = surfaced.num_nodes;
+            }
+        }
+
+        // Build comparison prompt
+        std::string full_prompt = "You are comparing research findings across multiple papers on a specific topic.\n\n";
+        full_prompt += "TOPIC: " + topic + "\n\n";
+        full_prompt += "EXTRACTED DATA FROM MULTIPLE PAPERS:\n" + context + "\n\n";
+        full_prompt += "Provide a synthesis that:\n";
+        full_prompt += "1. Lists different approaches/methods found\n";
+        full_prompt += "2. Compares results where available\n";
+        full_prompt += "3. Notes any contradictions or agreements\n\n";
+        full_prompt += "SYNTHESIS:\n";
+
+        // Generate
+        std::vector<llama_token> tokens(4096);
+        int n_tokens = llama_tokenize(g_vocab, full_prompt.c_str(), full_prompt.length(),
+                                      tokens.data(), tokens.size(), true, true);
+        if (n_tokens <= 0) {
+            res.set_content("{\"error\": \"tokenization failed\"}", "application/json");
+            return;
+        }
+        tokens.resize(n_tokens);
+
+        int ctx_size = llama_n_ctx(g_ctx_conscious);
+        int max_gen = 500;  // Slightly longer for synthesis
+        if (n_tokens > ctx_size - max_gen - 64) {
+            tokens.resize(ctx_size - max_gen - 64);
+            n_tokens = tokens.size();
+        }
+
+        llama_memory_t mem = llama_get_memory(g_ctx_conscious);
+        llama_memory_clear(mem, true);
+
+        llama_batch batch = llama_batch_init(n_tokens + max_gen, 0, 1);
+        for (int i = 0; i < n_tokens; i++) {
+            common_batch_add(batch, tokens[i], i, {0}, i == n_tokens - 1);
+        }
+
+        if (llama_decode(g_ctx_conscious, batch) != 0) {
+            llama_batch_free(batch);
+            res.set_content("{\"error\": \"decode failed\"}", "application/json");
+            return;
+        }
+
+        llama_sampler* smpl = llama_sampler_chain_init(llama_sampler_chain_default_params());
+        llama_sampler_chain_add(smpl, llama_sampler_init_temp(0.5f));
+        llama_sampler_chain_add(smpl, llama_sampler_init_top_p(0.9f, 1));
+        llama_sampler_chain_add(smpl, llama_sampler_init_penalties(64, 1.15f, 0.0f, 0.0f));
+        llama_sampler_chain_add(smpl, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
+
+        std::string synthesis;
+        std::string last_50;
+        int n_cur = n_tokens;
+        int repeat_count = 0;
+        for (int i = 0; i < max_gen; i++) {
+            llama_token new_token = llama_sampler_sample(smpl, g_ctx_conscious, -1);
+            if (llama_vocab_is_eog(g_vocab, new_token)) break;
+
+            char piece[256];
+            int len = llama_token_to_piece(g_vocab, new_token, piece, sizeof(piece), 0, true);
+            if (len > 0) {
+                synthesis.append(piece, len);
+                // Repetition check
+                if (synthesis.size() > 100) {
+                    std::string recent = synthesis.substr(synthesis.size() - 50);
+                    if (recent == last_50) {
+                        repeat_count++;
+                        if (repeat_count > 2) {
+                            synthesis = synthesis.substr(0, synthesis.size() - 50);
+                            break;
+                        }
+                    } else {
+                        repeat_count = 0;
+                    }
+                    last_50 = recent;
+                }
+            }
+
+            common_batch_clear(batch);
+            common_batch_add(batch, new_token, n_cur++, {0}, true);
+            if (llama_decode(g_ctx_conscious, batch) != 0) break;
+        }
+
+        llama_sampler_free(smpl);
+        llama_batch_free(batch);
+
+        // Escape for JSON
+        std::string escaped;
+        for (char c : synthesis) {
+            if (c == '"') escaped += "\\\"";
+            else if (c == '\n') escaped += "\\n";
+            else if (c == '\r') continue;
+            else if (c == '\\') escaped += "\\\\";
+            else escaped += c;
+        }
+
+        char result[65536];
+        snprintf(result, sizeof(result),
+                "{\"project_id\": \"%s\", \"topic\": \"%s\", \"synthesis\": \"%s\", \"nodes_used\": %d}",
+                project_id.c_str(), topic.c_str(), escaped.c_str(), nodes_used);
+        res.set_content(result, "application/json");
+    });
+
+    // Run exploratory research and commit findings to project graph
+    svr.Post(R"(/research/project/([^/]+)/explore)", [](const httplib::Request& req, httplib::Response& res) {
+        std::string project_id = req.matches[1];
+        std::string topic = zeta_mcp::extract_json_string(req.body, "topic");
+
+        // Optional config parameters
+        int max_iterations = 5;  // Default
+        std::string iter_str = zeta_mcp::extract_json_string(req.body, "max_iterations");
+        if (!iter_str.empty()) {
+            max_iterations = std::atoi(iter_str.c_str());
+            if (max_iterations < 1) max_iterations = 3;
+            if (max_iterations > 10) max_iterations = 10;
+        }
+
+        if (topic.empty()) {
+            res.set_content("{\"error\": \"topic required\"}", "application/json");
+            return;
+        }
+
+        auto* project = zeta_research_project::get_research_project(project_id);
+        if (!project || !project->graph) {
+            res.set_content("{\"error\": \"project not found\"}", "application/json");
+            return;
+        }
+
+        if (!g_model_conscious || !g_ctx_conscious) {
+            res.set_content("{\"error\": \"14B model not loaded\"}", "application/json");
+            return;
+        }
+
+        fprintf(stderr, "[RESEARCH-EXPLORE] Starting exploration on topic: %.80s...\n", topic.c_str());
+        fprintf(stderr, "[RESEARCH-EXPLORE] Project: %s, max_iterations: %d\n", project_id.c_str(), max_iterations);
+
+        // Create generate function using 14B model
+        auto generate_fn = [](const std::string& prompt, float temp, int max_tokens) -> std::string {
+            if (!g_model_conscious || !g_ctx_conscious || !g_vocab) {
+                return "";
+            }
+
+            std::vector<llama_token> tokens(4096);
+            int n_tokens = llama_tokenize(g_vocab, prompt.c_str(), prompt.length(),
+                                          tokens.data(), tokens.size(), true, true);
+            if (n_tokens <= 0) return "";
+            tokens.resize(n_tokens);
+
+            int ctx_size = llama_n_ctx(g_ctx_conscious);
+            if (n_tokens > ctx_size - max_tokens - 64) {
+                tokens.resize(ctx_size - max_tokens - 64);
+                n_tokens = tokens.size();
+            }
+
+            llama_memory_t mem = llama_get_memory(g_ctx_conscious);
+            llama_memory_clear(mem, true);
+
+            llama_batch batch = llama_batch_init(n_tokens + max_tokens, 0, 1);
+            for (int i = 0; i < n_tokens; i++) {
+                common_batch_add(batch, tokens[i], i, {0}, i == n_tokens - 1);
+            }
+
+            if (llama_decode(g_ctx_conscious, batch) != 0) {
+                llama_batch_free(batch);
+                return "";
+            }
+
+            llama_sampler* smpl = llama_sampler_chain_init(llama_sampler_chain_default_params());
+            llama_sampler_chain_add(smpl, llama_sampler_init_temp(temp));
+            llama_sampler_chain_add(smpl, llama_sampler_init_top_p(0.9f, 1));
+            llama_sampler_chain_add(smpl, llama_sampler_init_penalties(64, 1.1f, 0.0f, 0.0f));
+            llama_sampler_chain_add(smpl, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
+
+            std::string result;
+            int n_cur = n_tokens;
+            for (int i = 0; i < max_tokens; i++) {
+                llama_token new_token = llama_sampler_sample(smpl, g_ctx_conscious, -1);
+                if (llama_vocab_is_eog(g_vocab, new_token)) break;
+
+                char piece[256];
+                int len = llama_token_to_piece(g_vocab, new_token, piece, sizeof(piece), 0, true);
+                if (len > 0) {
+                    result.append(piece, len);
+                }
+
+                common_batch_clear(batch);
+                common_batch_add(batch, new_token, n_cur++, {0}, true);
+                if (llama_decode(g_ctx_conscious, batch) != 0) break;
+            }
+
+            llama_sampler_free(smpl);
+            llama_batch_free(batch);
+            return result;
+        };
+
+        // Configure research
+        zeta_research::ResearchConfig config;
+        config.max_iterations = max_iterations;
+        config.max_branches = 4;  // Keep it focused
+        config.max_depth = 3;
+
+        // Initialize and run research
+        zeta_research::ResearchState state;
+        state.config = config;
+        state.generate_fn = generate_fn;
+        zeta_research::initialize_state(state, topic);
+
+        for (int iter = 0; iter < config.max_iterations; iter++) {
+            fprintf(stderr, "[RESEARCH-EXPLORE] Iteration %d/%d\n", iter + 1, config.max_iterations);
+
+            zeta_research::explore(state);
+            zeta_research::adjust_temperature(state);
+            zeta_research::compress_branches(state);
+            state.graph.rebuild_semantic_links(state.active_branches, state.buffer, state.config);
+            zeta_research::detect_and_record_tensions(state);
+            zeta_research::merge_branches(state);
+
+            if (state.global_entropy < 0.2f || state.active_branches.size() <= 1) {
+                fprintf(stderr, "[RESEARCH-EXPLORE] Converged at iteration %d\n", iter + 1);
+                break;
+            }
+        }
+
+        zeta_research::summarize_merges(state);
+
+        // Produce conclusion
+        std::string conclusion;
+        zeta_research::produce_conclusion(state, conclusion);
+
+        // Commit to project graph
+        auto commit_result = zeta_research_project_integration::commit_research_to_project(
+            state, conclusion, project);
+
+        // Build response
+        std::string escaped_conclusion;
+        for (char c : conclusion) {
+            if (c == '"') escaped_conclusion += "\\\"";
+            else if (c == '\n') escaped_conclusion += "\\n";
+            else if (c == '\r') continue;
+            else if (c == '\\') escaped_conclusion += "\\\\";
+            else escaped_conclusion += c;
+        }
+
+        char result[65536];
+        snprintf(result, sizeof(result),
+                "{"
+                "\"project_id\": \"%s\", "
+                "\"topic\": \"%s\", "
+                "\"success\": %s, "
+                "\"concepts_committed\": %d, "
+                "\"summaries_committed\": %d, "
+                "\"tensions_committed\": %d, "
+                "\"edges_created\": %d, "
+                "\"graph_nodes\": %d, "
+                "\"graph_edges\": %d, "
+                "\"conclusion\": \"%s\""
+                "}",
+                project_id.c_str(),
+                topic.c_str(),
+                commit_result.success() ? "true" : "false",
+                commit_result.concepts_committed,
+                commit_result.summaries_committed,
+                commit_result.tensions_committed,
+                commit_result.edges_created,
+                project->graph->num_nodes,
+                project->graph->num_edges,
+                escaped_conclusion.substr(0, 2000).c_str());
+
+        res.set_content(result, "application/json");
+    });
+
+    // Run dream/discovery cycle on research project graph
+    svr.Post(R"(/research/project/([^/]+)/dream)", [](const httplib::Request& req, httplib::Response& res) {
+        std::string project_id = req.matches[1];
+
+        auto* project = zeta_research_project::get_research_project(project_id);
+        if (!project || !project->graph) {
+            res.set_content("{\"error\": \"project not found\"}", "application/json");
+            return;
+        }
+
+        // Optional: number of cycles
+        int max_cycles = 2;
+        std::string cycles_str = zeta_mcp::extract_json_string(req.body, "max_cycles");
+        if (!cycles_str.empty()) {
+            max_cycles = std::atoi(cycles_str.c_str());
+            if (max_cycles < 1) max_cycles = 1;
+            if (max_cycles > 5) max_cycles = 5;
+        }
+
+        zeta_dual_ctx_t* graph = project->graph;
+        fprintf(stderr, "[RESEARCH-DREAM] Starting dream cycle on project '%s'\n", project->name.c_str());
+        fprintf(stderr, "[RESEARCH-DREAM] Graph: %d nodes, %d edges\n", graph->num_nodes, graph->num_edges);
+
+        int64_t start_time = (int64_t)time(NULL);
+
+        // Phase 1: Memory consolidation (pruning weak edges, strengthening recurring patterns)
+        fprintf(stderr, "[RESEARCH-DREAM] Phase 1: Memory consolidation\n");
+
+        int edges_pruned = 0;
+        int edges_strengthened = 0;
+
+        // Prune weak edges using built-in function
+        edges_pruned = zeta_prune_edges(graph, 0.2f, 100);
+
+        // Strengthen edges to high-salience nodes
+        for (int i = 0; i < graph->num_nodes; i++) {
+            if (!graph->nodes[i].is_active) continue;
+            if (graph->nodes[i].salience > 0.7f) {
+                int64_t node_id = graph->nodes[i].node_id;
+                for (int j = 0; j < graph->num_edges; j++) {
+                    if (graph->edges[j].source_id == node_id ||
+                        graph->edges[j].target_id == node_id) {
+                        graph->edges[j].weight = std::min(1.0f, graph->edges[j].weight * 1.1f);
+                        edges_strengthened++;
+                    }
+                }
+            }
+        }
+
+        fprintf(stderr, "[RESEARCH-DREAM] Consolidation: %d pruned, %d strengthened\n",
+                edges_pruned, edges_strengthened);
+
+        // Phase 2: Pattern detection - find clusters of related concepts
+        fprintf(stderr, "[RESEARCH-DREAM] Phase 2: Pattern detection\n");
+
+        std::vector<std::string> patterns_found;
+
+        // Find nodes with many connections (hubs)
+        for (int i = 0; i < graph->num_nodes; i++) {
+            if (!graph->nodes[i].is_active) continue;
+
+            int connection_count = 0;
+            int64_t node_id = graph->nodes[i].node_id;
+            for (int j = 0; j < graph->num_edges; j++) {
+                if (graph->edges[j].source_id == node_id ||
+                    graph->edges[j].target_id == node_id) {
+                    connection_count++;
+                }
+            }
+
+            if (connection_count >= 5) {
+                std::string pattern = "Hub: " + std::string(graph->nodes[i].label) +
+                                     " (" + std::to_string(connection_count) + " connections)";
+                patterns_found.push_back(pattern);
+                fprintf(stderr, "[RESEARCH-DREAM] Found pattern: %s\n", pattern.c_str());
+            }
+        }
+
+        // Phase 3: Dream generation - synthesize new hypotheses from patterns
+        fprintf(stderr, "[RESEARCH-DREAM] Phase 3: Dream generation (%d cycles)\n", max_cycles);
+
+        int hypotheses_generated = 0;
+
+        if (g_model_conscious && g_ctx_conscious && patterns_found.size() > 0) {
+            // Build context from patterns and high-salience nodes
+            std::string dream_context = "Research knowledge patterns:\n";
+            for (const auto& p : patterns_found) {
+                dream_context += "- " + p + "\n";
+            }
+
+            // Add top concepts
+            dream_context += "\nKey concepts:\n";
+            int concepts_added = 0;
+            for (int i = graph->num_nodes - 1; i >= 0 && concepts_added < 10; i--) {
+                if (graph->nodes[i].is_active && graph->nodes[i].salience > 0.6f) {
+                    dream_context += "- " + std::string(graph->nodes[i].value).substr(0, 150) + "\n";
+                    concepts_added++;
+                }
+            }
+
+            // Generate hypotheses for each cycle
+            for (int cycle = 0; cycle < max_cycles; cycle++) {
+                std::string prompt = dream_context +
+                    "\nBased on these patterns and concepts, propose a novel hypothesis that connects "
+                    "multiple ideas in an unexpected way. Be specific and testable.\n\nHypothesis:";
+
+                // Simple generation using 14B
+                std::vector<llama_token> tokens(4096);
+                int n_tokens = llama_tokenize(g_vocab, prompt.c_str(), prompt.length(),
+                                              tokens.data(), tokens.size(), true, true);
+                if (n_tokens <= 0) continue;
+                tokens.resize(n_tokens);
+
+                int ctx_size = llama_n_ctx(g_ctx_conscious);
+                if (n_tokens > ctx_size - 200) {
+                    tokens.resize(ctx_size - 200);
+                    n_tokens = tokens.size();
+                }
+
+                llama_memory_t mem = llama_get_memory(g_ctx_conscious);
+                llama_memory_clear(mem, true);
+
+                llama_batch batch = llama_batch_init(n_tokens + 200, 0, 1);
+                for (int i = 0; i < n_tokens; i++) {
+                    common_batch_add(batch, tokens[i], i, {0}, i == n_tokens - 1);
+                }
+
+                if (llama_decode(g_ctx_conscious, batch) != 0) {
+                    llama_batch_free(batch);
+                    continue;
+                }
+
+                llama_sampler* smpl = llama_sampler_chain_init(llama_sampler_chain_default_params());
+                llama_sampler_chain_add(smpl, llama_sampler_init_temp(0.8f));
+                llama_sampler_chain_add(smpl, llama_sampler_init_top_p(0.9f, 1));
+                llama_sampler_chain_add(smpl, llama_sampler_init_dist(LLAMA_DEFAULT_SEED + cycle));
+
+                std::string hypothesis;
+                int n_cur = n_tokens;
+                for (int i = 0; i < 150; i++) {
+                    llama_token new_token = llama_sampler_sample(smpl, g_ctx_conscious, -1);
+                    if (llama_vocab_is_eog(g_vocab, new_token)) break;
+
+                    char piece[256];
+                    int len = llama_token_to_piece(g_vocab, new_token, piece, sizeof(piece), 0, true);
+                    if (len > 0) hypothesis.append(piece, len);
+
+                    common_batch_clear(batch);
+                    common_batch_add(batch, new_token, n_cur++, {0}, true);
+                    if (llama_decode(g_ctx_conscious, batch) != 0) break;
+                }
+
+                llama_sampler_free(smpl);
+                llama_batch_free(batch);
+
+                if (!hypothesis.empty()) {
+                    // Save hypothesis to markdown file (not graph)
+                    // Following zeta-dream.h pattern but to hypotheses/ directory
+
+                    // Create hypotheses directory for this project
+                    // Use GitGraph NVMe mount point
+                    std::string hyp_dir = "/mnt/GitGraph/dreams/hypotheses/" + project_id;
+                    mkdir("/mnt/GitGraph/dreams", 0755);
+                    mkdir("/mnt/GitGraph/dreams/hypotheses", 0755);
+                    mkdir(hyp_dir.c_str(), 0755);
+
+                    // Generate timestamp
+                    time_t now = time(NULL);
+                    char timestamp[64];
+                    strftime(timestamp, sizeof(timestamp), "%Y%m%d_%H%M%S", localtime(&now));
+
+                    // Build filename
+                    std::string filename = hyp_dir + "/hypothesis_" + std::string(timestamp) +
+                                          "_" + std::to_string(cycle) + ".md";
+
+                    // Build markdown content
+                    std::string md_content = "# Dream Hypothesis\n\n";
+                    md_content += "**Project:** " + project->name + " (`" + project_id + "`)\n";
+                    md_content += "**Generated:** " + std::string(timestamp) + "\n";
+                    md_content += "**Cycle:** " + std::to_string(cycle + 1) + "/" + std::to_string(max_cycles) + "\n\n";
+                    md_content += "## Hypothesis\n\n";
+                    md_content += hypothesis + "\n\n";
+                    md_content += "## Source Patterns\n\n";
+                    for (const auto& p : patterns_found) {
+                        md_content += "- " + p + "\n";
+                    }
+                    md_content += "\n## Graph Context\n\n";
+                    md_content += "- Nodes: " + std::to_string(graph->num_nodes) + "\n";
+                    md_content += "- Edges: " + std::to_string(graph->num_edges) + "\n";
+
+                    // Write file
+                    std::ofstream file(filename);
+                    if (file.is_open()) {
+                        file << md_content;
+                        file.close();
+                        hypotheses_generated++;
+                        fprintf(stderr, "[RESEARCH-DREAM] Saved hypothesis to: %s\n", filename.c_str());
+                        fprintf(stderr, "[RESEARCH-DREAM] Content: %.80s...\n", hypothesis.c_str());
+                    } else {
+                        fprintf(stderr, "[RESEARCH-DREAM] Failed to write: %s\n", filename.c_str());
+                    }
+                }
+            }
+        }
+
+        int64_t elapsed = (int64_t)time(NULL) - start_time;
+
+        // Build response
+        std::string hyp_dir = "/mnt/GitGraph/dreams/hypotheses/" + project_id;
+        char result[4096];
+        snprintf(result, sizeof(result),
+                "{"
+                "\"project_id\": \"%s\", "
+                "\"project_name\": \"%s\", "
+                "\"graph_nodes\": %d, "
+                "\"graph_edges\": %d, "
+                "\"edges_pruned\": %d, "
+                "\"edges_strengthened\": %d, "
+                "\"patterns_found\": %zu, "
+                "\"hypotheses_generated\": %d, "
+                "\"hypotheses_dir\": \"%s\", "
+                "\"cycles\": %d, "
+                "\"elapsed_seconds\": %ld"
+                "}",
+                project_id.c_str(),
+                project->name.c_str(),
+                graph->num_nodes,
+                graph->num_edges,
+                edges_pruned,
+                edges_strengthened,
+                patterns_found.size(),
+                hypotheses_generated,
+                hyp_dir.c_str(),
+                max_cycles,
+                (long)elapsed);
+
+        res.set_content(result, "application/json");
+        fprintf(stderr, "[RESEARCH-DREAM] Complete: %d hypotheses in %lds\n",
+                hypotheses_generated, (long)elapsed);
+    });
+
+    // =========================================================================
+    // INCEPTION: Cross-project synthesis - finds connections between domains
+    // =========================================================================
+    svr.Post("/research/inception", [](const httplib::Request& req, httplib::Response& res) {
+        // Parse project IDs from JSON array
+        std::vector<std::string> project_ids;
+        std::string body = req.body;
+
+        // Simple JSON array parsing for project_ids
+        size_t arr_start = body.find("\"project_ids\"");
+        if (arr_start != std::string::npos) {
+            size_t bracket_start = body.find('[', arr_start);
+            size_t bracket_end = body.find(']', bracket_start);
+            if (bracket_start != std::string::npos && bracket_end != std::string::npos) {
+                std::string arr = body.substr(bracket_start + 1, bracket_end - bracket_start - 1);
+                size_t pos = 0;
+                while ((pos = arr.find('"', pos)) != std::string::npos) {
+                    size_t end = arr.find('"', pos + 1);
+                    if (end != std::string::npos) {
+                        project_ids.push_back(arr.substr(pos + 1, end - pos - 1));
+                        pos = end + 1;
+                    } else break;
+                }
+            }
+        }
+
+        if (project_ids.size() < 2) {
+            res.set_content("{\"error\": \"inception requires at least 2 project_ids\"}", "application/json");
+            return;
+        }
+
+        int cycles = 2;
+        std::string cycles_str = zeta_mcp::extract_json_string(req.body, "cycles");
+        if (!cycles_str.empty()) cycles = std::stoi(cycles_str);
+
+        fprintf(stderr, "[INCEPTION] Starting cross-project synthesis across %zu projects\n", project_ids.size());
+        auto start_time = std::chrono::steady_clock::now();
+
+        // Gather hub nodes from all projects
+        std::vector<std::tuple<std::string, std::string, std::string, int>> all_hubs; // project_id, node_id, label, connections
+        int total_nodes = 0;
+        int total_edges = 0;
+
+        for (const auto& pid : project_ids) {
+            auto* project = zeta_research_project::get_research_project(pid);
+            if (!project || !project->graph) {
+                fprintf(stderr, "[INCEPTION] Warning: project %s not found\n", pid.c_str());
+                continue;
+            }
+
+            total_nodes += project->graph->num_nodes;
+            total_edges += project->graph->num_edges;
+
+            // Find hub nodes (5+ connections)
+            std::unordered_map<int, int> connection_counts;
+            for (int i = 0; i < project->graph->num_edges; i++) {
+                connection_counts[project->graph->edges[i].source_id]++;
+                connection_counts[project->graph->edges[i].target_id]++;
+            }
+
+            for (const auto& [node_id, count] : connection_counts) {
+                if (count >= 5 && node_id < project->graph->num_nodes) {
+                    all_hubs.push_back({
+                        pid,
+                        std::to_string(node_id),
+                        project->graph->nodes[node_id].label,
+                        count
+                    });
+                }
+            }
+        }
+
+        fprintf(stderr, "[INCEPTION] Found %zu hub nodes across %zu projects\n", all_hubs.size(), project_ids.size());
+
+        // Build cross-project context for hypothesis generation
+        std::string cross_context = "Cross-Domain Research Context:\n\n";
+        std::unordered_map<std::string, std::vector<std::string>> project_hubs;
+
+        for (const auto& [pid, nid, label, count] : all_hubs) {
+            project_hubs[pid].push_back(label + " (" + std::to_string(count) + " connections)");
+        }
+
+        for (const auto& pid : project_ids) {
+            auto* project = zeta_research_project::get_research_project(pid);
+            if (project) {
+                cross_context += "=== " + project->name + " (" + pid + ") ===\n";
+                cross_context += "Nodes: " + std::to_string(project->graph ? project->graph->num_nodes : 0) + "\n";
+                cross_context += "Hub concepts: ";
+                if (project_hubs.count(pid)) {
+                    for (size_t i = 0; i < std::min(project_hubs[pid].size(), (size_t)10); i++) {
+                        if (i > 0) cross_context += ", ";
+                        cross_context += project_hubs[pid][i];
+                    }
+                }
+                cross_context += "\n\n";
+            }
+        }
+
+        // Generate inception hypotheses using 14B (same pattern as dream endpoint)
+        std::string inception_dir = "/mnt/GitGraph/dreams/hypotheses/inception";
+        mkdir("/mnt/GitGraph/dreams", 0755);
+        mkdir("/mnt/GitGraph/dreams/hypotheses", 0755);
+        mkdir(inception_dir.c_str(), 0755);
+
+        int hypotheses_generated = 0;
+
+        for (int cycle = 0; cycle < cycles; cycle++) {
+            std::string prompt = "You are a research synthesizer finding unexpected connections between different scientific domains.\n\n";
+            prompt += cross_context;
+            prompt += "\nGenerate a novel research hypothesis that bridges concepts from MULTIPLE domains above. ";
+            prompt += "The hypothesis should:\n";
+            prompt += "1. Connect ideas from at least 2 different research areas\n";
+            prompt += "2. Propose a testable prediction or mechanism\n";
+            prompt += "3. Explain why this cross-domain connection is non-obvious but potentially valuable\n\n";
+            prompt += "Hypothesis:";
+
+            // Tokenize and generate using 14B (g_ctx_conscious)
+            std::vector<llama_token> tokens(4096);
+            int n_tokens = llama_tokenize(g_vocab, prompt.c_str(), prompt.length(),
+                                          tokens.data(), tokens.size(), true, true);
+            if (n_tokens <= 0) continue;
+            tokens.resize(n_tokens);
+
+            int ctx_size = llama_n_ctx(g_ctx_conscious);
+            if (n_tokens > ctx_size - 200) {
+                tokens.resize(ctx_size - 200);
+                n_tokens = tokens.size();
+            }
+
+            llama_memory_t mem = llama_get_memory(g_ctx_conscious);
+            llama_memory_clear(mem, true);
+
+            llama_batch batch = llama_batch_init(n_tokens + 500, 0, 1);  // Larger buffer for extended output
+            for (int i = 0; i < n_tokens; i++) {
+                common_batch_add(batch, tokens[i], i, {0}, i == n_tokens - 1);
+            }
+
+            if (llama_decode(g_ctx_conscious, batch) != 0) {
+                llama_batch_free(batch);
+                continue;
+            }
+
+            // Reseed every cycle for maximum variety
+            uint32_t seed = (uint32_t)(time(nullptr) ^ (cycle * 7919) ^ (rand() % 10000));
+
+            llama_sampler* smpl = llama_sampler_chain_init(llama_sampler_chain_default_params());
+            llama_sampler_chain_add(smpl, llama_sampler_init_temp(0.88f));
+            llama_sampler_chain_add(smpl, llama_sampler_init_top_p(0.92f, 1));
+            llama_sampler_chain_add(smpl, llama_sampler_init_dist(seed));
+
+            std::string hypothesis;
+            int n_cur = n_tokens;
+            for (int i = 0; i < 450; i++) {  // Increased output length
+                llama_token new_token = llama_sampler_sample(smpl, g_ctx_conscious, -1);
+                if (llama_vocab_is_eog(g_vocab, new_token)) break;
+
+                char piece[256];
+                int len = llama_token_to_piece(g_vocab, new_token, piece, sizeof(piece), 0, true);
+                if (len > 0) hypothesis.append(piece, len);
+
+                common_batch_clear(batch);
+                common_batch_add(batch, new_token, n_cur++, {0}, true);
+                if (llama_decode(g_ctx_conscious, batch) != 0) break;
+            }
+
+            llama_sampler_free(smpl);
+            llama_batch_free(batch);
+
+            if (!hypothesis.empty()) {
+                // Save to file
+                char timestamp[64];
+                time_t now = time(nullptr);
+                strftime(timestamp, sizeof(timestamp), "%Y%m%d_%H%M%S", localtime(&now));
+
+                std::string filename = inception_dir + "/inception_" + timestamp + "_" + std::to_string(cycle) + ".md";
+                FILE* f = fopen(filename.c_str(), "w");
+                if (f) {
+                    fprintf(f, "# Inception Hypothesis\n\n");
+                    fprintf(f, "**Type:** Cross-Domain Synthesis\n");
+                    fprintf(f, "**Generated:** %s\n", timestamp);
+                    fprintf(f, "**Projects:** ");
+                    for (size_t i = 0; i < project_ids.size(); i++) {
+                        if (i > 0) fprintf(f, ", ");
+                        auto* p = zeta_research_project::get_research_project(project_ids[i]);
+                        fprintf(f, "%s", p ? p->name.c_str() : project_ids[i].c_str());
+                    }
+                    fprintf(f, "\n\n## Hypothesis\n\n%s\n\n", hypothesis.c_str());
+                    fprintf(f, "## Source Domains\n\n");
+                    for (const auto& pid : project_ids) {
+                        auto* p = zeta_research_project::get_research_project(pid);
+                        fprintf(f, "- %s: %d nodes\n", p ? p->name.c_str() : pid.c_str(),
+                                p && p->graph ? p->graph->num_nodes : 0);
+                    }
+                    fprintf(f, "\n## Cross-Domain Hubs\n\n");
+                    fprintf(f, "Total hub nodes: %zu\n", all_hubs.size());
+                    fclose(f);
+                    hypotheses_generated++;
+                    fprintf(stderr, "[INCEPTION] Generated hypothesis %d: %s\n", hypotheses_generated, filename.c_str());
+                }
+            }
+        }
+
+        auto end_time = std::chrono::steady_clock::now();
+        auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(end_time - start_time).count();
+
+        char result[2048];
+        snprintf(result, sizeof(result),
+                "{\"type\": \"inception\", \"projects\": %zu, \"total_nodes\": %d, \"total_edges\": %d, "
+                "\"hub_nodes\": %zu, \"hypotheses_generated\": %d, \"output_dir\": \"%s\", \"elapsed_seconds\": %ld}",
+                project_ids.size(), total_nodes, total_edges, all_hubs.size(),
+                hypotheses_generated, inception_dir.c_str(), (long)elapsed);
+
+        res.set_content(result, "application/json");
+        fprintf(stderr, "[INCEPTION] Complete: %d cross-domain hypotheses in %lds\n", hypotheses_generated, (long)elapsed);
+    });
+
+    // Save project to disk
+    svr.Post(R"(/research/project/([^/]+)/save)", [](const httplib::Request& req, httplib::Response& res) {
+        std::string project_id = req.matches[1];
+        std::string filepath = zeta_mcp::extract_json_string(req.body, "filepath");
+
+        // Default filepath if not provided
+        if (filepath.empty()) {
+            filepath = "/tmp/zeta_research_" + project_id + ".json";
+        }
+
+        bool success = zeta_research_project::g_project_manager.save_project(project_id, filepath);
+
+        if (success) {
+            char result[512];
+            snprintf(result, sizeof(result),
+                    "{\"status\": \"saved\", \"project_id\": \"%s\", \"filepath\": \"%s\"}",
+                    project_id.c_str(), filepath.c_str());
+            res.set_content(result, "application/json");
+        } else {
+            res.status = 500;
+            res.set_content("{\"error\": \"Failed to save project\"}", "application/json");
+        }
+    });
+
+    // Load project from disk
+    svr.Post("/research/project/load", [](const httplib::Request& req, httplib::Response& res) {
+        std::string filepath = zeta_mcp::extract_json_string(req.body, "filepath");
+
+        if (filepath.empty()) {
+            res.status = 400;
+            res.set_content("{\"error\": \"filepath required\"}", "application/json");
+            return;
+        }
+
+        std::string project_id = zeta_research_project::g_project_manager.load_project(filepath);
+
+        if (!project_id.empty()) {
+            auto* project = zeta_research_project::g_project_manager.get_project(project_id);
+            char result[1024];
+            snprintf(result, sizeof(result),
+                    "{\"status\": \"loaded\", \"project_id\": \"%s\", \"name\": \"%s\", \"nodes\": %d, \"edges\": %d}",
+                    project_id.c_str(),
+                    project ? project->name.c_str() : "",
+                    project && project->graph ? project->graph->num_nodes : 0,
+                    project && project->graph ? project->graph->num_edges : 0);
+            res.set_content(result, "application/json");
+        } else {
+            res.status = 500;
+            res.set_content("{\"error\": \"Failed to load project\"}", "application/json");
+        }
+    });
+
+    // ============================================================================
+    // Research → Discovery Pipeline
+    // Runs research to find gaps, then elevates gaps to discovery for hypothesis
+    // ============================================================================
+    svr.Post("/research/discover", [](const httplib::Request& req, httplib::Response& res) {
+        std::string topic = zeta_mcp::extract_json_string(req.body, "topic");
+
+        if (topic.empty()) {
+            res.status = 400;
+            res.set_content("{\"error\": \"topic required\"}", "application/json");
+            return;
+        }
+
+        if (!g_model_conscious || !g_ctx_conscious) {
+            res.status = 503;
+            res.set_content("{\"error\": \"14B model not loaded\"}", "application/json");
+            return;
+        }
+
+        fprintf(stderr, "\n[RESEARCH→DISCOVERY] Starting pipeline for: %s\n", topic.c_str());
+
+        // Create generate callback for research
+        auto research_generate_fn = [](const std::string& gen_prompt, float temp, int gen_max_tokens) -> std::string {
+            std::string result;
+            std::lock_guard<std::mutex> lock(g_mutex);
+
+            // Tokenize
+            std::vector<llama_token> tokens(4096);
+            int n_tokens = llama_tokenize(g_vocab, gen_prompt.c_str(), gen_prompt.length(),
+                                          tokens.data(), tokens.size(), true, true);
+            if (n_tokens <= 0) return "";
+            tokens.resize(n_tokens);
+
+            int ctx_size = llama_n_ctx(g_ctx_conscious);
+            if (n_tokens > ctx_size - gen_max_tokens - 64) {
+                tokens.resize(ctx_size - gen_max_tokens - 64);
+                n_tokens = tokens.size();
+            }
+
+            llama_memory_t mem = llama_get_memory(g_ctx_conscious);
+            llama_memory_clear(mem, true);
+
+            llama_batch batch = llama_batch_init(n_tokens + gen_max_tokens, 0, 1);
+            for (int i = 0; i < n_tokens; i++) {
+                common_batch_add(batch, tokens[i], i, {0}, i == n_tokens - 1);
+            }
+
+            if (llama_decode(g_ctx_conscious, batch) != 0) {
+                llama_batch_free(batch);
+                return "";
+            }
+
+            llama_sampler* smpl = llama_sampler_chain_init(llama_sampler_chain_default_params());
+            llama_sampler_chain_add(smpl, llama_sampler_init_temp(temp));
+            llama_sampler_chain_add(smpl, llama_sampler_init_top_p(0.9f, 1));
+            llama_sampler_chain_add(smpl, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
+
+            int n_cur = n_tokens;
+            for (int i = 0; i < gen_max_tokens; i++) {
+                llama_token new_token = llama_sampler_sample(smpl, g_ctx_conscious, -1);
+                if (llama_vocab_is_eog(g_vocab, new_token)) break;
+
+                char piece[256];
+                int len = llama_token_to_piece(g_vocab, new_token, piece, sizeof(piece), 0, true);
+                if (len > 0) result.append(piece, len);
+
+                common_batch_clear(batch);
+                common_batch_add(batch, new_token, n_cur++, {0}, true);
+                if (llama_decode(g_ctx_conscious, batch) != 0) break;
+            }
+
+            llama_sampler_free(smpl);
+            llama_batch_free(batch);
+            return result;
+        };
+
+        // Phase 1: Run Research
+        fprintf(stderr, "[RESEARCH→DISCOVERY] Phase 1: Running research...\n");
+        zeta_research::ResearchConfig research_config;
+        research_config.max_iterations = 3;
+        research_config.max_branches = 4;
+        research_config.max_depth = 2;
+
+        zeta_research::ResearchResult research_result = zeta_research::run_research(
+            topic, research_generate_fn, research_config
+        );
+
+        fprintf(stderr, "[RESEARCH→DISCOVERY] Research complete. Gaps found: %zu\n",
+                research_result.gap_count());
+
+        // Build JSON response
+        std::string json = "{";
+        json += "\"topic\": \"" + topic + "\", ";
+        json += "\"research\": {";
+
+        // Escape conclusion for JSON
+        std::string escaped_conclusion;
+        for (char c : research_result.conclusion) {
+            if (c == '"') escaped_conclusion += "\\\"";
+            else if (c == '\n') escaped_conclusion += "\\n";
+            else if (c == '\r') continue;
+            else if (c == '\t') escaped_conclusion += "\\t";
+            else escaped_conclusion += c;
+        }
+        json += "\"conclusion\": \"" + escaped_conclusion + "\", ";
+        json += "\"entropy\": " + std::to_string(research_result.final_entropy) + ", ";
+        json += "\"gaps\": [";
+
+        for (size_t i = 0; i < research_result.unresolved_tensions.size(); i++) {
+            const auto& t = research_result.unresolved_tensions[i];
+            if (i > 0) json += ", ";
+
+            std::string escaped_desc;
+            for (char c : t.description) {
+                if (c == '"') escaped_desc += "\\\"";
+                else if (c == '\n') escaped_desc += "\\n";
+                else if (c == '\r') continue;
+                else escaped_desc += c;
+            }
+
+            // Infer type from severity: high = contradiction, medium = gap, low = uncertainty
+            std::string tension_type = t.severity > 0.7f ? "contradiction" :
+                                       t.severity > 0.4f ? "gap" : "uncertainty";
+            json += "{\"type\": \"" + tension_type + "\", ";
+            json += "\"description\": \"" + escaped_desc + "\", ";
+            json += "\"severity\": " + std::to_string(t.severity) + "}";
+        }
+        json += "]}, ";
+
+        // Phase 2: Run Discovery if there are gaps
+        json += "\"discovery\": {";
+        if (research_result.has_gaps()) {
+            fprintf(stderr, "[RESEARCH→DISCOVERY] Phase 2: Elevating %zu gaps to Discovery...\n",
+                    research_result.gap_count());
+
+            // Create discovery state and elevate gaps
+            zeta_discovery::DiscoveryState discovery;
+            zeta_discovery::elevate_research_gaps(discovery, research_result);
+            fprintf(stderr, "[RESEARCH→DISCOVERY] Elevated %zu gaps\n", discovery.elevated_gaps.size());
+
+            // Generate hypotheses for each gap (simplified - just record the gaps for now)
+            json += "\"elevated_gaps\": [";
+            for (size_t i = 0; i < discovery.elevated_gaps.size(); i++) {
+                const auto& gap = discovery.elevated_gaps[i];
+                if (i > 0) json += ", ";
+
+                std::string escaped_desc;
+                for (char c : gap.description) {
+                    if (c == '"') escaped_desc += "\\\"";
+                    else if (c == '\n') escaped_desc += "\\n";
+                    else if (c == '\r') continue;
+                    else escaped_desc += c;
+                }
+
+                json += "{\"type\": \"" + std::string(
+                    zeta_discovery::tension_type_str(gap.discovery_type)
+                ) + "\", ";
+                json += "\"severity\": " + std::to_string(gap.severity) + ", ";
+                json += "\"description\": \"" + escaped_desc + "\"}";
+            }
+            json += "], ";
+            json += "\"hypothesis_count\": " + std::to_string(discovery.hyp_graph.hypotheses.size());
+        } else {
+            json += "\"elevated_gaps\": [], \"hypothesis_count\": 0, \"note\": \"No gaps found - research was conclusive\"";
+        }
+        json += "}}";
+
+        fprintf(stderr, "[RESEARCH→DISCOVERY] Pipeline complete.\n\n");
+        res.set_content(json, "application/json");
+    });
+
+    // Debug endpoint: Test Discovery with synthetic gaps - runs FULL pipeline
+    svr.Post("/research/discover/test", [](const httplib::Request& req, httplib::Response& res) {
+        std::string topic = zeta_mcp::extract_json_string(req.body, "topic");
+        if (topic.empty()) topic = "synthetic gap test";
+
+        // Require model for full discovery (hypothesis generation)
+        if (!g_model_conscious || !g_ctx_conscious) {
+            res.status = 503;
+            res.set_content("{\"error\": \"14B model not loaded - required for hypothesis generation\"}", "application/json");
+            return;
+        }
+
+        fprintf(stderr, "\n[TEST-DISCOVERY] ═══════════════════════════════════════════════════════\n");
+        fprintf(stderr, "[TEST-DISCOVERY] FULL PIPELINE TEST: Creating synthetic gaps...\n");
+        fprintf(stderr, "[TEST-DISCOVERY] ═══════════════════════════════════════════════════════\n");
+
+        // Create a synthetic ResearchResult with deliberate gaps
+        zeta_research::ResearchResult research_result;
+        research_result.conclusion = "This is a test conclusion with unresolved tensions.";
+        research_result.final_entropy = 0.8f;
+        research_result.concepts_explored = 5;
+        research_result.branches_spawned = 3;
+
+        // Add synthetic tensions/gaps - diverse types to test classification
+        zeta_research::Tension t1;
+        t1.id = "synthetic_gap_1";
+        t1.description = "CONTRADICTION: Recent studies claim transformer attention is fundamentally different from biological attention mechanisms, while older foundational work assumed they were analogous. This creates conflicting guidance for neuro-inspired architecture design.";
+        t1.severity = 0.85f;
+        t1.resolved = false;
+        research_result.unresolved_tensions.push_back(t1);
+
+        zeta_research::Tension t2;
+        t2.id = "synthetic_gap_2";
+        t2.description = "GAP: The mechanism by which emergent capabilities arise in large language models at specific parameter thresholds is unexplored. No causal theory exists to predict when new capabilities will emerge.";
+        t2.severity = 0.7f;
+        t2.resolved = false;
+        research_result.unresolved_tensions.push_back(t2);
+
+        zeta_research::Tension t3;
+        t3.id = "synthetic_gap_3";
+        t3.description = "AMBIGUITY: The term 'reasoning' in LLM research is used inconsistently - sometimes meaning pattern completion, sometimes chain-of-thought decomposition, sometimes formal logical inference.";
+        t3.severity = 0.5f;
+        t3.resolved = false;
+        research_result.unresolved_tensions.push_back(t3);
+
+        research_result.tensions_found = 3;
+        research_result.tensions_resolved = 0;
+
+        fprintf(stderr, "[TEST-DISCOVERY] Created %zu synthetic gaps for Discovery elevation\n", research_result.gap_count());
+
+        // Run FULL Discovery pipeline with model
+        std::lock_guard<std::mutex> lock(g_mutex);
+
+        // Create generate callback for discovery (lock already held - do not re-acquire)
+        auto discovery_generate_fn = [](const std::string& gen_prompt, float temp, int gen_max_tokens) -> std::string {
+            std::string result;
+            // Note: Lock already held by caller - do NOT acquire here
+
+            // Tokenize
+            std::vector<llama_token> tokens(4096);
+            int n_tokens = llama_tokenize(g_vocab, gen_prompt.c_str(), gen_prompt.length(),
+                                          tokens.data(), tokens.size(), true, true);
+            if (n_tokens <= 0) return "";
+            tokens.resize(n_tokens);
+
+            int ctx_size = llama_n_ctx(g_ctx_conscious);
+            if (n_tokens > ctx_size - gen_max_tokens - 64) {
+                tokens.resize(ctx_size - gen_max_tokens - 64);
+                n_tokens = tokens.size();
+            }
+
+            llama_memory_t mem = llama_get_memory(g_ctx_conscious);
+            llama_memory_clear(mem, true);
+
+            llama_batch batch = llama_batch_init(n_tokens + gen_max_tokens, 0, 1);
+            for (int i = 0; i < n_tokens; i++) {
+                common_batch_add(batch, tokens[i], i, {0}, i == n_tokens - 1);
+            }
+
+            if (llama_decode(g_ctx_conscious, batch) != 0) {
+                llama_batch_free(batch);
+                return "";
+            }
+
+            llama_sampler* smpl = llama_sampler_chain_init(llama_sampler_chain_default_params());
+            llama_sampler_chain_add(smpl, llama_sampler_init_temp(temp));
+            llama_sampler_chain_add(smpl, llama_sampler_init_top_p(0.95f, 1));
+            llama_sampler_chain_add(smpl, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
+
+            int n_cur = n_tokens;
+            for (int i = 0; i < gen_max_tokens; i++) {
+                llama_token new_token = llama_sampler_sample(smpl, g_ctx_conscious, -1);
+                if (llama_vocab_is_eog(g_vocab, new_token)) break;
+
+                char piece[256];
+                int len = llama_token_to_piece(g_vocab, new_token, piece, sizeof(piece), 0, true);
+                if (len > 0) result.append(piece, len);
+
+                common_batch_clear(batch);
+                common_batch_add(batch, new_token, n_cur++, {0}, true);
+                if (llama_decode(g_ctx_conscious, batch) != 0) break;
+            }
+
+            llama_sampler_free(smpl);
+            llama_batch_free(batch);
+            return result;
+        };
+
+        // Configure for quick test (fewer cycles)
+        zeta_discovery::DiscoveryConfig config;
+        config.max_discovery_cycles = 2;  // Quick test
+        config.convergence_threshold = 0.3f;
+
+        // Create sampler for discovery (high temp for speculative generation)
+        llama_sampler* smpl = llama_sampler_chain_init(llama_sampler_chain_default_params());
+        llama_sampler_chain_add(smpl, llama_sampler_init_temp(0.9f));  // Higher temp for creative hypotheses
+        llama_sampler_chain_add(smpl, llama_sampler_init_top_p(0.95f, 1));
+        llama_sampler_chain_add(smpl, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
+
+        // Run the full discovery pipeline with generate callback
+        zeta_discovery::DiscoveryResult discovery_result = zeta_discovery::run_discovery(
+            research_result,
+            discovery_generate_fn,
+            g_ctx_conscious,
+            g_model_conscious,
+            smpl,
+            config
+        );
+
+        llama_sampler_free(smpl);
+
+        // Build comprehensive JSON response
+        std::string json = "{";
+        json += "\"test\": true, ";
+        json += "\"topic\": \"" + topic + "\", ";
+        json += "\"synthetic_gaps_created\": " + std::to_string(research_result.gap_count()) + ", ";
+
+        json += "\"research\": {";
+        json += "\"conclusion\": \"" + research_result.conclusion + "\", ";
+        json += "\"entropy\": " + std::to_string(research_result.final_entropy) + ", ";
+        json += "\"gaps\": [";
+
+        for (size_t i = 0; i < research_result.unresolved_tensions.size(); i++) {
+            const auto& t = research_result.unresolved_tensions[i];
+            if (i > 0) json += ", ";
+
+            std::string escaped_desc;
+            for (char c : t.description) {
+                if (c == '"') escaped_desc += "\\\"";
+                else if (c == '\n') escaped_desc += "\\n";
+                else if (c == '\r') continue;
+                else escaped_desc += c;
+            }
+
+            std::string tension_type = t.severity > 0.7f ? "contradiction" :
+                                       t.severity > 0.4f ? "gap" : "uncertainty";
+            json += "{\"id\": \"" + t.id + "\", ";
+            json += "\"type\": \"" + tension_type + "\", ";
+            json += "\"description\": \"" + escaped_desc + "\", ";
+            json += "\"severity\": " + std::to_string(t.severity) + "}";
+        }
+        json += "]}, ";
+
+        // Full Discovery results
+        json += "\"discovery\": {";
+
+        // Report
+        std::string escaped_report;
+        for (char c : discovery_result.report) {
+            if (c == '"') escaped_report += "\\\"";
+            else if (c == '\n') escaped_report += "\\n";
+            else if (c == '\r') continue;
+            else escaped_report += c;
+        }
+        json += "\"report\": \"" + escaped_report + "\", ";
+
+        // Predictions generated
+        json += "\"predictions\": [";
+        for (size_t i = 0; i < discovery_result.predictions.size(); i++) {
+            const auto& pred = discovery_result.predictions[i];
+            if (i > 0) json += ", ";
+
+            std::string escaped_pred;
+            for (char c : pred.statement) {
+                if (c == '"') escaped_pred += "\\\"";
+                else if (c == '\n') escaped_pred += "\\n";
+                else if (c == '\r') continue;
+                else escaped_pred += c;
+            }
+
+            json += "{\"statement\": \"" + escaped_pred + "\", ";
+            json += "\"confidence\": " + std::to_string(pred.confidence) + ", ";
+            json += "\"falsifiable\": " + std::string(pred.is_falsifiable() ? "true" : "false") + "}";
+        }
+        json += "], ";
+
+        // Discovery IDs
+        json += "\"discovery_ids\": [";
+        for (size_t i = 0; i < discovery_result.discovery_ids.size(); i++) {
+            if (i > 0) json += ", ";
+            json += "\"" + discovery_result.discovery_ids[i] + "\"";
+        }
+        json += "], ";
+
+        // Hypotheses generated
+        json += "\"hypotheses\": [";
+        for (size_t i = 0; i < discovery_result.hypotheses.size(); i++) {
+            const auto& hyp = discovery_result.hypotheses[i];
+            if (i > 0) json += ", ";
+
+            std::string escaped_content;
+            for (char c : hyp.content) {
+                if (c == '"') escaped_content += "\\\"";
+                else if (c == '\n') escaped_content += "\\n";
+                else if (c == '\r') continue;
+                else if (c == '\t') escaped_content += "\\t";
+                else escaped_content += c;
+            }
+
+            json += "{\"id\": \"" + hyp.id + "\", ";
+            json += "\"content\": \"" + escaped_content + "\", ";
+            json += "\"seed_gap_id\": \"" + hyp.seed_gap_id + "\", ";
+            json += "\"gap_type\": \"" + std::string(zeta_discovery::tension_type_str(hyp.gap_type)) + "\", ";
+            json += "\"stage\": \"" + std::string(zeta_discovery::stage_str(hyp.stage)) + "\", ";
+            json += "\"novelty\": " + std::to_string(hyp.novelty) + ", ";
+            json += "\"support_ratio\": " + std::to_string(hyp.support_ratio) + "}";
+        }
+        json += "], ";
+
+        json += "\"has_predictions\": " + std::string(discovery_result.has_predictions() ? "true" : "false");
+        json += "}}";
+
+        fprintf(stderr, "[TEST-DISCOVERY] ═══════════════════════════════════════════════════════\n");
+        fprintf(stderr, "[TEST-DISCOVERY] COMPLETE: Generated %zu predictions from %zu gaps\n",
+                discovery_result.predictions.size(), research_result.gap_count());
+        fprintf(stderr, "[TEST-DISCOVERY] ═══════════════════════════════════════════════════════\n\n");
+
+        res.set_content(json, "application/json");
     });
 
     // Register Scratch Buffer HTTP endpoints
