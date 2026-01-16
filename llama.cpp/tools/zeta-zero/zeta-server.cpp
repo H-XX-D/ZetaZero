@@ -230,6 +230,7 @@ static llama_context* g_ctx_conscious = nullptr;
 
 // GKV Capture context (separate from generation to avoid corruption)
 static llama_context* g_ctx_gkv_capture = nullptr;
+static bool g_subconscious_matches_conscious = false;
 static std::mutex g_gkv_capture_mutex;  // Serialize capture operations
 
 // Subconscious model (7B memory/extraction)
@@ -4813,6 +4814,7 @@ int main(int argc, char** argv) {
     // Load subconscious model: prefer 7B coder, fallback to 3B
     // The subconscious handles extraction, semantic analysis, and critique
     std::string subconscious_path = model_7b_coder_path.empty() ? model_subconscious_path : model_7b_coder_path;
+    g_subconscious_matches_conscious = (!subconscious_path.empty() && subconscious_path == model_conscious_path);
     if (!subconscious_path.empty()) {
         llama_model_params mparams_sub = llama_model_default_params();
         mparams_sub.n_gpu_layers = gpu_layers;
@@ -4820,6 +4822,23 @@ int main(int argc, char** argv) {
         if (g_model_subconscious) {
             fprintf(stderr, "Subconscious model loaded: %s\n", subconscious_path.c_str());
         }
+    }
+
+    // Init dedicated GKV capture context (separate from generation to avoid KV corruption)
+    // Prefer the subconscious model when it matches the conscious model path.
+    llama_context_params cap_cparams = llama_context_default_params();
+    cap_cparams.n_ctx = 512;  // Small context for capture only
+    cap_cparams.n_batch = 512;
+    cap_cparams.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_ENABLED;
+    llama_model* capture_model = (g_subconscious_matches_conscious && g_model_subconscious)
+        ? g_model_subconscious
+        : g_model_conscious;
+    g_ctx_gkv_capture = llama_init_from_model(capture_model, cap_cparams);
+    if (g_ctx_gkv_capture) {
+        fprintf(stderr, "[GKV-CAPTURE] Dedicated capture context initialized (512 tokens, model=%s)\n",
+                (capture_model == g_model_subconscious) ? "sub" : "main");
+    } else {
+        fprintf(stderr, "[GKV-CAPTURE] WARNING: Failed to create capture context, GKV disabled\n");
     }
 
     // Load specialist models (all on GPU for speed)
@@ -4906,18 +4925,6 @@ int main(int argc, char** argv) {
     cparams.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_ENABLED;  // Reduce KV cache memory
     g_ctx_conscious = llama_init_from_model(g_model_conscious, cparams);
     if (!g_ctx_conscious) { fprintf(stderr, "Failed to create 14B context\n"); return 1; }
-
-    // Init dedicated GKV capture context (separate from generation to avoid KV corruption)
-    llama_context_params cap_cparams = llama_context_default_params();
-    cap_cparams.n_ctx = 512;  // Small context for capture only
-    cap_cparams.n_batch = 512;
-    cap_cparams.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_ENABLED;
-    g_ctx_gkv_capture = llama_init_from_model(g_model_conscious, cap_cparams);
-    if (g_ctx_gkv_capture) {
-        fprintf(stderr, "[GKV-CAPTURE] Dedicated capture context initialized (512 tokens)\n");
-    } else {
-        fprintf(stderr, "[GKV-CAPTURE] WARNING: Failed to create capture context, GKV disabled\n");
-    }
 
     g_vocab = llama_model_get_vocab(g_model_conscious);
     zeta_set_vocab(g_vocab);  // Enable tokenization at storage
