@@ -1,5 +1,6 @@
 # Build Stage - CUDA enabled
-FROM nvidia/cuda:12.2.0-devel-ubuntu22.04 AS builder
+# CUDA 12.8+ required for Blackwell (sm_120, compute capability 12.0)
+FROM nvidia/cuda:12.8.0-devel-ubuntu22.04 AS builder
 
 # Avoid interactive prompts during package installation
 ENV DEBIAN_FRONTEND=noninteractive
@@ -19,16 +20,18 @@ COPY zeta-integration /app/zeta-integration
 COPY llama.cpp /app/llama.cpp
 
 # Build zeta-server with CUDA support
+# CMAKE_CUDA_ARCHITECTURES covers: Ampere (86), Ada Lovelace (89), Blackwell (120)
 WORKDIR /app/llama.cpp
 RUN cmake -B build \
     -DCMAKE_BUILD_TYPE=Release \
     -DGGML_CUDA=ON \
+    -DCMAKE_CUDA_ARCHITECTURES="86;89;120" \
     -DLLAMA_CURL=OFF \
     -DBUILD_SHARED_LIBS=OFF \
     && cmake --build build --config Release --target zeta-zero-server -j$(nproc)
 
 # Runtime Stage
-FROM nvidia/cuda:12.2.0-runtime-ubuntu22.04
+FROM nvidia/cuda:12.8.0-runtime-ubuntu22.04
 
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y \
