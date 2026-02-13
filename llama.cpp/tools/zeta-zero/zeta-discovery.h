@@ -39,6 +39,7 @@
 #include <numeric>
 #include <sstream>
 #include <map>
+#include <functional>
 
 namespace zeta_discovery {
 
@@ -494,12 +495,23 @@ struct DiscoveryState {
     struct TensionRecord {
         std::string id;
         TensionType type = TensionType::UNKNOWN;
+        TensionType discovery_type = TensionType::UNKNOWN;  // Classified type for discovery
         std::string description;
+        float severity = 0.0f;
         std::vector<SpanRef> evidence_refs;
         bool addressed = false;
         std::string addressing_hypothesis_id;
     };
     std::vector<TensionRecord> tensions;
+
+    // Elevated gaps from research (populated by elevate_research_gaps)
+    std::vector<TensionRecord> elevated_gaps;
+
+    // Hypothesis graph (tracks all generated hypotheses)
+    struct HypGraph {
+        std::vector<DreamHypothesis> hypotheses;
+    };
+    HypGraph hyp_graph;
     
     // Hypothesis tracking by stage
     std::map<HypothesisStage, std::vector<DreamHypothesis>> hypotheses_by_stage;
@@ -1407,6 +1419,123 @@ inline std::string discover(
     return produce_discovery_report(state);
 }
 
-}  // namespace zeta::discovery
+// ============================================================================
+// DISCOVERY RESULT - Structured output for the Discovery pipeline
+// ============================================================================
 
-#endif  // ZETA_DISCOVERY_H
+struct DiscoveryResult {
+    std::string report;
+    std::vector<TestablePrediction> predictions;
+    std::vector<std::string> discovery_ids;
+    std::vector<DreamHypothesis> hypotheses;
+
+    bool has_predictions() const { return !predictions.empty(); }
+};
+
+// ============================================================================
+// elevate_research_gaps() - Convert ResearchResult tensions into DiscoveryState gaps
+// ============================================================================
+
+inline void elevate_research_gaps(
+    DiscoveryState& state,
+    const zeta_research::ResearchResult& research_result
+) {
+    state.elevated_gaps.clear();
+
+    for (const auto& tension : research_result.unresolved_tensions) {
+        if (tension.resolved) continue;
+
+        DiscoveryState::TensionRecord gap;
+        gap.id = "gap_" + tension.id;
+        gap.description = tension.description;
+        gap.severity = tension.severity;
+        gap.addressed = false;
+
+        // Classify gap type from severity and description heuristics
+        if (tension.severity > 0.7f) {
+            gap.discovery_type = TensionType::CONTRADICTION;
+        } else if (tension.severity > 0.4f) {
+            gap.discovery_type = TensionType::GAP;
+        } else {
+            gap.discovery_type = TensionType::AMBIGUITY;
+        }
+        gap.type = gap.discovery_type;
+
+        state.elevated_gaps.push_back(gap);
+        state.tensions.push_back(gap);
+    }
+
+    fprintf(stderr, "[DISCOVERY] Elevated %zu research gaps to discovery tensions\n",
+            state.elevated_gaps.size());
+}
+
+// ============================================================================
+// run_discovery() - Full discovery pipeline from ResearchResult
+// Returns structured DiscoveryResult with predictions and hypotheses
+// ============================================================================
+
+inline DiscoveryResult run_discovery(
+    const zeta_research::ResearchResult& research_result,
+    const std::function<std::string(const std::string&, float, int)>& generate_fn,
+    llama_context* ctx,
+    llama_model* model,
+    const llama_sampler* sampler,
+    const DiscoveryConfig& config = DiscoveryConfig{}
+) {
+    fprintf(stderr, "\n[DISCOVERY] ════════════════════════════════════════\n");
+    fprintf(stderr, "[DISCOVERY] Starting Discovery Pipeline\n");
+    fprintf(stderr, "[DISCOVERY] Gaps from research: %zu\n", research_result.gap_count());
+    fprintf(stderr, "[DISCOVERY] ════════════════════════════════════════\n");
+
+    DiscoveryState state;
+    state.config = config;
+
+    // Initialize entropy coefficients
+    state.entropy.alpha = config.entropy_alpha;
+    state.entropy.beta = config.entropy_beta;
+    state.entropy.gamma = config.entropy_gamma;
+
+    // Elevate research gaps into discovery tensions
+    elevate_research_gaps(state, research_result);
+
+    // Run discovery cycles
+    while (state.cycle_count < config.max_discovery_cycles) {
+        fprintf(stderr, "\n[DISCOVERY] --- Cycle %d ---\n", state.cycle_count + 1);
+
+        run_discovery_cycle(state, ctx, model, sampler);
+
+        if (state.entropy.is_converged(config.convergence_threshold)) {
+            fprintf(stderr, "[DISCOVERY] Converged at cycle %d\n", state.cycle_count);
+            break;
+        }
+        if (state.entropy.is_stalled(config.stall_cycles, 0.05f)) {
+            fprintf(stderr, "[DISCOVERY] Stalled at cycle %d\n", state.cycle_count);
+            break;
+        }
+    }
+
+    // Build result
+    DiscoveryResult result;
+    result.report = produce_discovery_report(state);
+    result.predictions = state.predictions;
+    result.discovery_ids = state.discoveries;
+
+    // Collect all hypotheses across stages into hyp_graph and result
+    for (const auto& [stage, hyps] : state.hypotheses_by_stage) {
+        for (const auto& h : hyps) {
+            result.hypotheses.push_back(h);
+            state.hyp_graph.hypotheses.push_back(h);
+        }
+    }
+
+    fprintf(stderr, "\n[DISCOVERY] ════════════════════════════════════════\n");
+    fprintf(stderr, "[DISCOVERY] Pipeline complete\n");
+    fprintf(stderr, "[DISCOVERY]   Hypotheses: %zu\n", result.hypotheses.size());
+    fprintf(stderr, "[DISCOVERY]   Predictions: %zu\n", result.predictions.size());
+    fprintf(stderr, "[DISCOVERY]   Discoveries: %zu\n", result.discovery_ids.size());
+    fprintf(stderr, "[DISCOVERY] ════════════════════════════════════════\n\n");
+
+    return result;
+}
+
+}  // namespace zeta_discovery

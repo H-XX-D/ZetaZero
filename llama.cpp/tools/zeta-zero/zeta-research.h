@@ -1513,4 +1513,90 @@ inline std::string run_research_mode(const std::string& topic,
     return output;
 }
 
+// =============================================================================
+// RESEARCH RESULT - Structured output from run_research()
+// Used by Discovery mode to identify gaps for hypothesis generation
+// =============================================================================
+
+struct ResearchResult {
+    std::string conclusion;
+    float final_entropy = 1.0f;
+    int concepts_explored = 0;
+    int branches_spawned = 0;
+    int tensions_found = 0;
+    int tensions_resolved = 0;
+    std::vector<Tension> unresolved_tensions;
+
+    size_t gap_count() const {
+        size_t count = 0;
+        for (const auto& t : unresolved_tensions) {
+            if (!t.resolved) count++;
+        }
+        return count;
+    }
+
+    bool has_gaps() const { return gap_count() > 0; }
+};
+
+// =============================================================================
+// run_research() - Returns structured ResearchResult (used by Discovery pipeline)
+// =============================================================================
+
+inline ResearchResult run_research(
+    const std::string& topic,
+    const std::function<std::string(const std::string&, float, int)>& generate_fn,
+    const ResearchConfig& config = ResearchConfig()
+) {
+    ResearchState state;
+    state.config = config;
+    state.generate_fn = generate_fn;
+
+    fprintf(stderr, "\n[RESEARCH] ════════════════════════════════════════\n");
+    fprintf(stderr, "[RESEARCH] Starting Research (structured result)\n");
+    fprintf(stderr, "[RESEARCH] ════════════════════════════════════════\n");
+
+    initialize_state(state, topic);
+
+    for (int iter = 0; iter < config.max_iterations; iter++) {
+        fprintf(stderr, "\n[RESEARCH] --- Iteration %d ---\n", iter + 1);
+
+        explore(state);
+        adjust_temperature(state);
+        compress_branches(state);
+        state.graph.rebuild_semantic_links(state.active_branches, state.buffer, state.config);
+        detect_and_record_tensions(state);
+        merge_branches(state);
+
+        if (state.global_entropy < 0.2f || state.active_branches.size() <= 1) {
+            fprintf(stderr, "[RESEARCH] Converged at iteration %d\n", iter + 1);
+            break;
+        }
+    }
+
+    summarize_merges(state);
+
+    std::string conclusion_text;
+    produce_conclusion(state, conclusion_text);
+
+    // Build structured result
+    ResearchResult result;
+    result.conclusion = conclusion_text;
+    result.final_entropy = state.global_entropy;
+    result.concepts_explored = state.total_concepts_explored;
+    result.branches_spawned = state.branches_spawned;
+    result.tensions_found = (int)state.tensions.size();
+    result.tensions_resolved = 0;
+    for (const auto& t : state.tensions) {
+        if (t.resolved) result.tensions_resolved++;
+        if (!t.resolved) result.unresolved_tensions.push_back(t);
+    }
+
+    fprintf(stderr, "\n[RESEARCH] ════════════════════════════════════════\n");
+    fprintf(stderr, "[RESEARCH] Structured result: %zu unresolved tensions, entropy=%.2f\n",
+            result.unresolved_tensions.size(), result.final_entropy);
+    fprintf(stderr, "[RESEARCH] ════════════════════════════════════════\n\n");
+
+    return result;
+}
+
 } // namespace zeta_research
